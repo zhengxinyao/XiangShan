@@ -72,6 +72,8 @@ class BranchInfo extends XSBundle with HasBPUParameter {
   val debug_btb_cycle  = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
   val debug_tage_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
 
+  val brIdx = if (UseOracleBP) UInt(64.W) else UInt(0.W)
+
   def apply(histPtr: UInt, tageMeta: TageMeta, rasSp: UInt, rasTopCtr: UInt) = {
     this.histPtr := histPtr
     this.tageMeta := tageMeta

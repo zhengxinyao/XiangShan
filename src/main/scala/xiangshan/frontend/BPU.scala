@@ -8,10 +8,12 @@ import xiangshan.backend.ALUOpType
 import xiangshan.backend.JumpOpType
 
 trait HasBPUParameter extends HasXSParameter {
-  val BPUDebug = true
+  val BPUDebug = false
   val EnableCFICommitLog = true
   val EnbaleCFIPredLog = true
   val EnableBPUTimeRecord = true
+
+  val UseOracleBP = false
 }
 
 class TableAddr(val idxBits: Int, val banks: Int) extends XSBundle {
@@ -201,10 +203,10 @@ abstract class BPUStage extends XSModule with HasBPUParameter{
       inLatch.pc, inLatch.pc + (jmpIdx << 1.U))
     XSDebug(io.pred.fire() && p.redirect, "outPred: previous target:%x redirected to %x \n",
       inLatch.target, p.target)
-    XSDebug(io.pred.fire(), "outPred targetSrc: ")
-    for (i <- 0 until PredictWidth) {
-      XSDebug(false, io.pred.fire(), "(%d):%x ", i.U, targetSrc(i))
-    }
+    // XSDebug(io.pred.fire(), "outPred targetSrc: ")
+    // for (i <- 0 until PredictWidth) {
+    //   XSDebug(false, io.pred.fire(), "(%d):%x ", i.U, targetSrc(i))
+    // }
     XSDebug(false, io.pred.fire(), "\n")
   }
 }
@@ -296,11 +298,12 @@ class BPUStage3 extends BPUStage {
   val rets  = pdMask & Reverse(Cat(pds.map(_.isRet)))
   val RVCs = pdMask & Reverse(Cat(pds.map(_.isRVC)))
 
-   val callIdx = PriorityEncoder(calls)
-   val retIdx  = PriorityEncoder(rets)
+  val callIdx = PriorityEncoder(calls)
+  val retIdx  = PriorityEncoder(rets)
   
+  val brTakens = Wire(UInt(PredictWidth.W))
   // Use bim results for those who tage does not have an entry for
-  val brTakens = brs &
+  brTakens := brs &
     (if (EnableBPD) Reverse(Cat((0 until PredictWidth).map(i => tageValidTakens(i) || !tageHits(i) && bimTakens(i)))) else Reverse(Cat((0 until PredictWidth).map(i => bimTakens(i))))) &
     (if (EnableLoop) ~loopResp.asUInt else Fill(PredictWidth, 1.U(1.W)))
     // if (EnableBPD) {
@@ -390,11 +393,66 @@ class BPUStage3 extends BPUStage {
   }
 }
 
+class OracleBPUStage extends BPUStage3 {
+  // printf("Using oracle BP\n")
+
+  val bphelper = Module(new BranchPredictionHelper()).io
+  val brIdx = RegInit(0.U(64.W))
+  bphelper.rIdx := brIdx
+  // branches before jmpIdx
+  val validBrs = VecInit((0 until PredictWidth).map(i => brs(i) && i.U <= jmpIdx))
+  val brCount = PopCount(validBrs)
+  
+  val ts   = VecInit((0 until PredictWidth).map(i => bphelper.taken(i)))
+  val pcs  = VecInit((0 until PredictWidth).map(i => bphelper.pc((i+1)*64-1, i*64)))
+  val tgts = VecInit((0 until PredictWidth).map(i => bphelper.target((i+1)*64-1, i*64)))
+
+  val brTakensTemp  = VecInit((0 until PredictWidth).map(_ => false.B))
+  val branchRecordUsed = WireInit(false.B)
+  for (i <- 0 until PredictWidth) {
+    val brNumInPacket = if (i == 0) 0.U else { PopCount(brs(i-1,0)) }
+    io.out.bits.brInfo(i).brIdx := brIdx + brNumInPacket // save brInfo in each inst
+    when (brs(i)) {
+      val brPC = pcs(brNumInPacket)
+      val currentPC = inLatch.pc + (i.U << 1.U)
+      when (outFire) {
+        when (currentPC =/= brPC) {
+          // ensure we use the right record
+          XSDebug("branch record pc 0x%x does not correspond with current pc 0x%x\n", brPC, currentPC)
+        }.otherwise {
+          XSDebug("branch record pc 0x%x correspond with current pc\n", brPC)
+          brTakensTemp(i) := ts(brNumInPacket)
+          branchRecordUsed := true.B
+        }
+      }
+      XSDebug("pc: 0x%x is %dth inst, %dth br in packet\n", currentPC, i.U, brNumInPacket)
+    }
+  }
+
+  brTakens := brTakensTemp.asUInt
+
+  when (outFire && branchRecordUsed) { brIdx := brIdx + brCount }
+
+  val ui = io.recover.bits
+  when (io.recover.valid) {
+    when (ui.isMisPred) {
+      XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", ui.pc, ui.brInfo.brIdx)
+      brIdx := ui.brInfo.brIdx + Mux(ui.pd.isBr, 1.U, 0.U)
+    }
+  }
+
+  XSDebug("brIdx: %d\n", brIdx)
+  XSDebug("brs: %b, takens: %b\n", brs, brTakens)
+  for (i <- 0 until PredictWidth) {
+    XSDebug("brecord[%d]: pc 0x%x, taken %d\n", i.U, bphelper.pc((i+1)*64-1, i*64), bphelper.taken(i))
+  }
+}
+
 trait BranchPredictorComponents extends HasXSParameter {
   val ubtb = Module(new MicroBTB)
   val btb = Module(new BTB)
   val bim = Module(new BIM)
-  val tage = (if(EnableBPD) { Module(new Tage) } 
+  val tage = (if(EnableBPD) { Module(new Tage) }
               else          { Module(new FakeTage) })
   val loop = Module(new LoopPredictor)
   val preds = Seq(ubtb, btb, bim, tage, loop)
@@ -447,7 +505,7 @@ abstract class BaseBPU extends XSModule with BranchPredictorComponents with HasB
 
   val s1 = Module(new BPUStage1)
   val s2 = Module(new BPUStage2)
-  val s3 = Module(new BPUStage3)
+  val s3 = if (!UseOracleBP) {Module(new BPUStage3)} else {Module(new OracleBPUStage)}
 
   s1.io.flush := io.flush(0)
   s2.io.flush := io.flush(1)
@@ -624,7 +682,7 @@ class BPU extends BaseBPU {
     val buinfo  = io.inOrderBrInfo.bits.ui
     val pd = buinfo.pd
     val tage_cycle = buinfo.brInfo.debug_tage_cycle
-    XSDebug(buValid, p"cfi_update: isBr(${pd.isBr}) pc(${Hexadecimal(buinfo.pc)}) taken(${buinfo.taken}) mispred(${buinfo.isMisPred}) cycle($tage_cycle) hist(${Hexadecimal(io.inOrderBrInfo.bits.hist)})\n")
+    XSDebug(buValid, p"cfi_update: isBr(${pd.isBr}) pc(${Hexadecimal(buinfo.pc)}) taken(${buinfo.taken}) mispred(${buinfo.isMisPred}) cycle($tage_cycle) hist(${Hexadecimal(io.inOrderBrInfo.bits.hist)}) brIdx(${buinfo.brInfo.brIdx})\n")
   }
 
 }

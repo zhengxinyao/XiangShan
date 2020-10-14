@@ -93,7 +93,7 @@ class TageTable(val nRows: Int, val histLen: Int, val tagLen: Int, val uBitPerio
 
   def compute_tag_and_hash(unhashed_idx: UInt, hist: UInt) = {
     val idx_history = compute_folded_hist(hist, log2Ceil(nRows))
-    val idx = (unhashed_idx ^ idx_history)(log2Ceil(nRows)-1,0)
+    val idx = (unhashed_idx ^ idx_history)(log2Ceil(nRows)-1,0) ^ unhashed_idx(log2Ceil(nRows))
     val tag_history = compute_folded_hist(hist, tagLen)
     // Use another part of pc to make tags
     val tag = ((unhashed_idx >> log2Ceil(nRows)) ^ tag_history)(tagLen-1,0)

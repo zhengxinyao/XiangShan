@@ -34,12 +34,13 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
     { "log-begin",      1, NULL, 'b' },
     { "log-end",        1, NULL, 'e' },
     { "help",           0, NULL, 'h' },
+    { "branch_record",  1, NULL, 'r' },
     { 0,                0, NULL,  0  }
   };
 
   int o;
   while ( (o = getopt_long(argc, const_cast<char *const*>(argv),
-          "-s:C:hi:m:b:e:", long_options, &long_index)) != -1) {
+          "-s:C:hi:m:b:e:r:", long_options, &long_index)) != -1) {
     switch (o) {
       case 0:
         switch (long_index) {
@@ -60,6 +61,7 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
       case 'i': args.image = optarg; break;
       case 'b': args.log_begin = atoll(optarg);  break;
       case 'e': args.log_end = atoll(optarg); break;
+      case 'r': args.branch_record = optarg; break;
     }
   }
 
@@ -78,6 +80,10 @@ Emulator::Emulator(int argc, const char *argv[]):
   srand(args.seed);
   srand48(args.seed);
   Verilated::randReset(2);
+
+  // init branch record (for oracle bp)
+  extern void init_branch_record(const char *br);
+  init_branch_record(args.branch_record);
 
   // init ram
   extern void init_ram(const char *img);
