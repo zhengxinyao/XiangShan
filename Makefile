@@ -107,6 +107,8 @@ SEED ?= $(shell shuf -i 1-10000 -n 1)
 B ?= 0
 E ?= -1
 SNAPSHOT ?=
+R ?= coremark
+A ?= -1
 
 # enable this runtime option if you want to generate a vcd file
 # use 'emu -h' to see more details
@@ -118,7 +120,7 @@ else
 SNAPSHOT_OPTION = --load-snapshot=$(SNAPSHOT)
 endif
 
-EMU_FLAGS = -s $(SEED) -b $(B) -e $(E) $(SNAPSHOT_OPTION) $(WAVEFORM)
+EMU_FLAGS = -s $(SEED) -b $(B) -e $(E) -r /home/glr/scalaTage/branch_record/$(R).csv -a $(A) $(SNAPSHOT_OPTION) $(WAVEFORM)
 
 emu: $(EMU)
 	ls build

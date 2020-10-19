@@ -13,7 +13,7 @@ trait HasBPUParameter extends HasXSParameter {
   val EnbaleCFIPredLog = true
   val EnableBPUTimeRecord = true
 
-  val UseOracleBP = false
+  val UseOracleBP = true
 }
 
 class TableAddr(val idxBits: Int, val banks: Int) extends XSBundle {
@@ -394,8 +394,6 @@ class BPUStage3 extends BPUStage {
 }
 
 class OracleBPUStage extends BPUStage3 {
-  // printf("Using oracle BP\n")
-
   val bphelper = Module(new BranchPredictionHelper()).io
   val brIdx = RegInit(0.U(64.W))
   bphelper.rIdx := brIdx
@@ -416,16 +414,13 @@ class OracleBPUStage extends BPUStage3 {
       val brPC = pcs(brNumInPacket)
       val currentPC = inLatch.pc + (i.U << 1.U)
       when (outFire) {
-        when (currentPC =/= brPC) {
-          // ensure we use the right record
-          XSDebug("branch record pc 0x%x does not correspond with current pc 0x%x\n", brPC, currentPC)
-        }.otherwise {
-          XSDebug("branch record pc 0x%x correspond with current pc\n", brPC)
+        when (currentPC === brPC) {
+          // XSDebug("branch record pc 0x%x correspond with current pc\n", brPC)
           brTakensTemp(i) := ts(brNumInPacket)
           branchRecordUsed := true.B
         }
       }
-      XSDebug("pc: 0x%x is %dth inst, %dth br in packet\n", currentPC, i.U, brNumInPacket)
+      // XSDebug("pc: 0x%x is %dth inst, %dth br in packet\n", currentPC, i.U, brNumInPacket)
     }
   }
 
@@ -436,15 +431,17 @@ class OracleBPUStage extends BPUStage3 {
   val ui = io.recover.bits
   when (io.recover.valid) {
     when (ui.isMisPred) {
-      XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", ui.pc, ui.brInfo.brIdx)
+      // XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", ui.pc, ui.brInfo.brIdx)
       brIdx := ui.brInfo.brIdx + Mux(ui.pd.isBr, 1.U, 0.U)
     }
   }
 
-  XSDebug("brIdx: %d\n", brIdx)
-  XSDebug("brs: %b, takens: %b\n", brs, brTakens)
-  for (i <- 0 until PredictWidth) {
-    XSDebug("brecord[%d]: pc 0x%x, taken %d\n", i.U, bphelper.pc((i+1)*64-1, i*64), bphelper.taken(i))
+  if (BPUDebug) {
+    XSDebug("brIdx: %d\n", brIdx)
+    XSDebug("brs: %b, takens: %b\n", brs, brTakens)
+    for (i <- 0 until PredictWidth) {
+      XSDebug("brecord[%d]: pc 0x%x, taken %d\n", i.U, bphelper.pc((i+1)*64-1, i*64), bphelper.taken(i))
+    }
   }
 }
 

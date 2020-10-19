@@ -18,6 +18,8 @@ static inline void print_help(const char *file) {
   printf("  -e, --log-end=NUM     stop display log at NUM th cycle\n");
   printf("      --load-snapshot=PATH   load snapshot from PATH\n");
   printf("      --dump-wave       dump waveform when log is enabled\n");
+  printf("  -r, --branch-record=PATH   load branch record from PATH\n");
+  printf("  -a, --branch-miss-rate=NUM  set branch miss rate to NUM\n");
   printf("  -h, --help            print program help info\n");
   printf("\n");
 }
@@ -35,12 +37,13 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
     { "log-end",        1, NULL, 'e' },
     { "help",           0, NULL, 'h' },
     { "branch_record",  1, NULL, 'r' },
+    { "branch_miss_rate",  1, NULL, 'a' },
     { 0,                0, NULL,  0  }
   };
 
   int o;
   while ( (o = getopt_long(argc, const_cast<char *const*>(argv),
-          "-s:C:hi:m:b:e:r:", long_options, &long_index)) != -1) {
+          "-s:C:hi:m:b:e:r:a:", long_options, &long_index)) != -1) {
     switch (o) {
       case 0:
         switch (long_index) {
@@ -62,6 +65,7 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
       case 'b': args.log_begin = atoll(optarg);  break;
       case 'e': args.log_end = atoll(optarg); break;
       case 'r': args.branch_record = optarg; break;
+      case 'a': args.branch_miss_rate = atoll(optarg); break;
     }
   }
 
@@ -82,8 +86,8 @@ Emulator::Emulator(int argc, const char *argv[]):
   Verilated::randReset(2);
 
   // init branch record (for oracle bp)
-  extern void init_branch_record(const char *br);
-  init_branch_record(args.branch_record);
+  extern void init_branch_record(const char *br, const uint64_t rate);
+  init_branch_record(args.branch_record, args.branch_miss_rate);
 
   // init ram
   extern void init_ram(const char *img);

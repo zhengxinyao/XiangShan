@@ -7,7 +7,7 @@
 
 #define RAMSIZE (128 * 1024 * 1024)
 #define PRED_WIDTH 16
-#define MAX_BR_NUM 1000000
+#define MAX_BR_NUM 10000000
 
 using namespace std;
 
@@ -43,7 +43,7 @@ string Trim(string& str)
 
 
 // reads branch records into global arrays
-void init_branch_record(const char *branch) {
+void init_branch_record(const char *branch, const uint64_t rate) {
   assert(branch != NULL);
   // initiate the whole buffer to zero
   memset((void *) record, 0, MAX_BR_NUM * sizeof(BR));
@@ -70,6 +70,22 @@ void init_branch_record(const char *branch) {
     // output_branch_record(record[idx], idx);
     idx++;
 	}
+
+  int miss_rate = rate;
+  // default set to zero
+  if (miss_rate < 0) miss_rate = 0;
+  int num_reverted = 0;
+  if (miss_rate > 0) {
+    srand( (unsigned)time( NULL ) );
+    for (int i = 0; i < idx; i++) {
+      // revert as a rate of miss_rate
+      if (rand() % 100 < miss_rate) {
+        record[i].taken = ~record[i].taken;
+        num_reverted++;
+      }
+    }
+  }
+  printf("Branch miss rate is set to %d%%, totally %d predictions are reverted\n", miss_rate, num_reverted);
 }
 
 // int main() {

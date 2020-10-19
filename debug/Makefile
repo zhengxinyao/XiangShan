@@ -5,8 +5,10 @@ SINGLETEST = ALL=min3
 B ?= 0
 E ?= 0
 V ?= ALL
+R ?= coremark
+A ?= -1
 #V ?= OFF
-EMU_ARGS = B=$(B) E=$(E) V=$(V)
+EMU_ARGS = B=$(B) E=$(E) V=$(V) R=$(R) A=$(A)
 
 # ------------------------------------------------------------------
 # bulid CPU and run dummy test
@@ -42,21 +44,15 @@ amtest:
 
 microbench:
 	$(MAKE) -C $(AM_HOME)/apps/microbench $(ARCH) $(EMU_ARGS) mainargs=test run 
-	#2 > microbench.log
-	cat microbench.log | grep IPC
 
 microbench_train:
-	$(MAKE) -C $(AM_HOME)/apps/microbench $(ARCH) $(EMU_ARGS) mainargs=train run 2 > microbench.log
-	cat microbench.log | grep IPC
+	$(MAKE) -C $(AM_HOME)/apps/microbench $(ARCH) $(EMU_ARGS) mainargs=train run
 
 coremark:
 	$(MAKE) -C $(AM_HOME)/apps/coremark $(ARCH) $(EMU_ARGS) mainargs=test run 
-	#2 > coremark.log
-	cat coremark.log | grep IPC
 
 dhrystone:
-	$(MAKE) -C $(AM_HOME)/apps/dhrystone $(ARCH) $(EMU_ARGS) mainargs=test run 2 > dhrystone.log
-	cat dhrystone.log | grep IPC
+	$(MAKE) -C $(AM_HOME)/apps/dhrystone $(ARCH) $(EMU_ARGS) mainargs=test run
 
 xj:
 	$(MAKE) -C $(NANOS_HOME) $(ARCH) $(EMU_ARGS) run
