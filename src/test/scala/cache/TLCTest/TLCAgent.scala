@@ -464,6 +464,9 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         //when releaseAck is issued, the meta & data will be changed
         val addr = r.c.get.address
         val state = getState(addr)
+        val c = r.c.get
+        assert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0,
+          f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
         state.masterPerm = shrinkTarget(r.c.get.param)
         state.myPerm = permAgainstMaster(state.masterPerm)
         if (r.c.get.opcode == ReleaseData) {
@@ -502,7 +505,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
               dQueue.enqMessage(acq.issueGrant(allocId))
             }
             else { //is AcquireBlock
-              if (state.masterPerm == branch) { //grow from branch
+              if (growFrom(a_acq.param) == branch) { //grow from branch
                 dQueue.enqMessage(acq.issueGrant(allocId))
               }
               else {
@@ -569,7 +572,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         //pair ProbeAck
         probeT.pairProbeAck(c)
         //update state
-        assert(state.masterPerm == shrinkFrom(c.param), f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
+        assert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0, f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
         state.masterPerm = shrinkTarget(c.param)
         state.myPerm = permAgainstMaster(state.masterPerm)
         state.slaveUpdatePendingProbeAck()
@@ -593,7 +596,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         //pair ProbeAck
         probeT.pairProbeAck(c)
         //update state
-        assert(state.masterPerm == shrinkFrom(c.param), f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
+        assert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0, f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
         state.masterPerm = shrinkTarget(c.param)
         state.myPerm = permAgainstMaster(state.masterPerm)
         state.data = c.data
