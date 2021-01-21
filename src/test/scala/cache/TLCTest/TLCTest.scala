@@ -47,7 +47,7 @@ class TLCCacheTestTopIO extends Bundle {
 class TLCCacheTestTop()(implicit p: Parameters) extends LazyModule {
 
   val masters = Array.fill(2)(LazyModule(new TLCMasterMMIO()))
-  val ULmaster = LazyModule(new TLCSnoopMMIONode())
+//  val ULmaster = LazyModule(new TLCSnoopMMIONode())
 
   val l2params = p(TLCCacheTestKey)
 
@@ -65,10 +65,10 @@ class TLCCacheTestTop()(implicit p: Parameters) extends LazyModule {
       writeBytes = l2params.beatBytes
     )
   ))
-  val fuzz = LazyModule(new FixedBlockFuzzer(0))
+//  val fuzz = LazyModule(new FixedBlockFuzzer(0))
 
   val l1_idents = Array.fill(2)(LazyModule(new DebugIdentityNode()))
-  val l1_ul_ident = LazyModule(new DebugIdentityNode())
+//  val l1_ul_ident = LazyModule(new DebugIdentityNode())
   val l1_xbar_ident = LazyModule(new DebugIdentityNode())
   val l2_inner_ident = LazyModule(new DebugIdentityNode())
   val l2_outer_ident = LazyModule(new DebugIdentityNode())
@@ -76,7 +76,7 @@ class TLCCacheTestTop()(implicit p: Parameters) extends LazyModule {
 
   val xbar = TLXbar()
 
-  xbar := l1_ul_ident.node := ULmaster.node := fuzz.node
+//  xbar := l1_ul_ident.node := ULmaster.node := fuzz.node
 
   for ((master, ident) <- (masters zip l1_idents)) {
     xbar := ident.node := master.node
@@ -90,9 +90,9 @@ class TLCCacheTestTop()(implicit p: Parameters) extends LazyModule {
 
     val io = IO(new TLCCacheTestTopIO)
 
-    fuzz.module.io.blockAddr := io.fuzzerBlockAddr
+//    fuzz.module.io.blockAddr := io.fuzzerBlockAddr
     slave.module.io <> io.slaveIO
-    io.ulIO <> ULmaster.module.io
+//    io.ulIO <> ULmaster.module.io
     masters zip io.mastersIO map { case (m, i) =>
       m.module.io <> i
     }
@@ -146,11 +146,11 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
     val rand = new Random(0xbeef)
 
     val addr_pool = {
-      for (_ <- 0 to 128) yield BigInt(rand.nextInt(0xffff) << 6)
+      for (_ <- 0 to 128) yield BigInt(rand.nextInt(0xfffff) << 6)
     }.distinct.toList // align to block size
     val ul_addr_pool = {
       {
-        for (_ <- 0 to 64) yield BigInt(rand.nextInt(0xffff) << 6)
+        for (_ <- 0 to 64) yield BigInt(rand.nextInt(0xfffff) << 6)
       }.toList ++ addr_pool
     }.distinct
     val addr_list_len = addr_pool.length
@@ -207,7 +207,7 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
           , serialList, scoreboard))
 
         val tlState = mutable.Map[BigInt, AddrState]()
-        val ulAgent = new TLULMasterAgent(3, "l1_UL", tlState, serialList, scoreboard)
+//        val ulAgent = new TLULMasterAgent(3, "l1_UL", tlState, serialList, scoreboard)
 
         val slaveState = mutable.Map() ++ {
           addr_pool zip List.fill(addr_list_len)(new AddrState())
@@ -347,7 +347,7 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
               dCh.sink = peekBigInt(ulio.DChannel.sink)
               dCh.denied = peekBoolean(ulio.DChannel.denied)
               dCh.data = peekBigInt(ulio.DChannel.data)
-              ulAgent.fireD(dCh)
+//              ulAgent.fireD(dCh)
             }
             if (peekBoolean(ulio.AFire)) {
               val aCh = new TLCScalaA()
@@ -358,9 +358,9 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
               aCh.address = peekBigInt(ulio.AChannel.address)
               aCh.mask = peekBigInt(ulio.AChannel.mask)
               aCh.data = peekBigInt(ulio.AChannel.data)
-              ulAgent.fireA(aCh)
+//              ulAgent.fireA(aCh)
             }
-            ulAgent.step()
+//            ulAgent.step()
 
             c.clock.step()
           }
