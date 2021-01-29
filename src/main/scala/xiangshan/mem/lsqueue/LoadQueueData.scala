@@ -15,7 +15,6 @@ class LQDataEntry extends XSBundle {
   val paddr = UInt(PAddrBits.W)
   val mask = UInt(8.W)
   val data = UInt(XLEN.W)
-  val exception = UInt(16.W) // TODO: opt size
   val fwdMask = Vec(8, Bool())
 }
 
@@ -38,7 +37,7 @@ class PaddrModule(numEntries: Int, numRead: Int, numWrite: Int) extends XSModule
 
   // read ports
   for (i <- 0 until numRead) {
-    io.rdata(i) := data(io.raddr(i))
+    io.rdata(i) := data(RegNext(io.raddr(i)))
   }
 
   // below is the write ports (with priorities)
@@ -82,7 +81,7 @@ class MaskModule(numEntries: Int, numRead: Int, numWrite: Int) extends XSModule 
 
   // read ports
   for (i <- 0 until numRead) {
-    io.rdata(i) := data(io.raddr(i))
+    io.rdata(i) := data(RegNext(io.raddr(i)))
   }
 
   // below is the write ports (with priorities)
@@ -96,6 +95,51 @@ class MaskModule(numEntries: Int, numRead: Int, numWrite: Int) extends XSModule 
   for (i <- 0 until 2) {
     for (j <- 0 until numEntries) {
       io.violationMmask(i)(j) := (io.violationMdata(i) & data(j)).orR
+    }
+  }
+
+  // DataModuleTemplate should not be used when there're any write conflicts
+  for (i <- 0 until numWrite) {
+    for (j <- i+1 until numWrite) {
+      assert(!(io.wen(i) && io.wen(j) && io.waddr(i) === io.waddr(j)))
+    }
+  }
+}
+
+class Data8Module(numEntries: Int, numRead: Int, numWrite: Int) extends XSModule with HasDCacheParameters {
+  val io = IO(new Bundle {
+    // read
+    val raddr = Input(Vec(numRead, UInt(log2Up(numEntries).W)))
+    val rdata = Output(Vec(numRead, UInt(8.W)))
+    // address indexed write
+    val wen   = Input(Vec(numWrite, Bool()))
+    val waddr = Input(Vec(numWrite, UInt(log2Up(numEntries).W)))
+    val wdata = Input(Vec(numWrite, UInt(8.W)))
+    // masked write
+    val mwmask = Input(Vec(blockWords, Vec(numEntries, Bool())))
+    val mwdata = Input(Vec(blockWords, UInt(8.W)))
+  })
+
+  val data = Reg(Vec(numEntries, UInt(8.W)))
+
+  // read ports
+  for (i <- 0 until numRead) {
+    io.rdata(i) := data(RegNext(io.raddr(i)))
+  }
+
+  // below is the write ports (with priorities)
+  for (i <- 0 until numWrite) {
+    when (io.wen(i)) {
+      data(io.waddr(i)) := io.wdata(i)
+    }
+  }
+
+  // masked write
+  for (i <- 0 until blockWords) {
+    for (j <- 0 until numEntries) {
+      when (io.mwmask(i)(j)) {
+        data(j) := io.mwdata(i)
+      }
     }
   }
 
@@ -132,20 +176,28 @@ class CoredataModule(numEntries: Int, numRead: Int, numWrite: Int) extends XSMod
     val paddrWen = Input(Vec(numWrite, Bool()))
   })
 
-  val data = Reg(Vec(numEntries, UInt(XLEN.W)))
+  val data8 = Seq.fill(8)(Module(new Data8Module(numEntries, numRead, numWrite)))
   val fwdMask = Reg(Vec(numEntries, UInt(8.W)))
   val wordIndex = Reg(Vec(numEntries, UInt((blockOffBits - wordOffBits).W)))
 
   // read ports
   for (i <- 0 until numRead) {
-    io.rdata(i) := data(io.raddr(i))
+    for (j <- 0 until 8) {
+      data8(j).io.raddr(i) := io.raddr(i)
+    }
+    io.rdata(i) := VecInit((0 until 8).map(j => data8(j).io.rdata(i))).asUInt
   }
 
   // below is the write ports (with priorities)
   for (i <- 0 until numWrite) {
-    when (io.wen(i)) {
-      data(io.waddr(i)) := io.wdata(i)
+    // write to data8
+    for (j <- 0 until 8) {
+      data8(j).io.waddr(i) := io.waddr(i)
+      data8(j).io.wdata(i) := io.wdata(i)(8*(j+1)-1, 8*j)
+      data8(j).io.wen(i) := io.wen(i)
     }
+
+    // write ctrl info
     when (io.fwdMaskWen(i)) {
       fwdMask(io.waddr(i)) := io.fwdMaskWdata(i)
     }
@@ -154,25 +206,25 @@ class CoredataModule(numEntries: Int, numRead: Int, numWrite: Int) extends XSMod
     }
   }
 
+  // write refilled data to data8
 
-  // masked write
-  // refill missed load
-  def mergeRefillData(refill: UInt, fwd: UInt, fwdMask: UInt): UInt = {
-    val res = Wire(Vec(8, UInt(8.W)))
-    (0 until 8).foreach(i => {
-      res(i) := Mux(fwdMask(i), fwd(8 * (i + 1) - 1, 8 * i), refill(8 * (i + 1) - 1, 8 * i))
-    })
-    res.asUInt
-  }
-
+  // select refill data
   // split dcache result into words
   val words = VecInit((0 until blockWords) map { i => io.refillData(DataBits * (i + 1) - 1, DataBits * i)})
+  // select refill data according to wordIndex (paddr)
+  for (i <- 0 until 8) {
+    for (j <- 0 until blockWords) {
+      data8(i).io.mwdata(j) := words(j)(8*(i+1)-1, 8*i)
+    }
+  }
 
-  // refill data according to matchMask, refillMask and refill.vald
-  for (j <- 0 until numEntries) {
-    when (io.mwmask(j)) {
-      val refillData = words(wordIndex(j)) // TODO
-      data(j) := mergeRefillData(refillData, data(j), fwdMask(j))
+  // gen refill wmask
+  for (j <- 0 until blockWords) {
+    for (k <- 0 until numEntries) {
+      val wordMatch = wordIndex(k) === j.U
+      for (i <- 0 until 8) {
+        data8(i).io.mwmask(j)(k) := wordMatch && io.mwmask(k) && !fwdMask(k)(i)
+      }
     }
   }
 
@@ -236,7 +288,6 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int) extends XSModule
   // data module
   val paddrModule = Module(new PaddrModule(size, numRead = 3, numWrite = 2))
   val maskModule = Module(new MaskModule(size, numRead = 3, numWrite = 2))
-  val exceptionModule = Module(new AsyncDataModuleTemplate(UInt(16.W), size, numRead = 3, numWrite = 2))
   val coredataModule = Module(new CoredataModule(size, numRead = 3, numWrite = 3))
 
   // read data
@@ -244,26 +295,22 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int) extends XSModule
   (0 until wbNumRead).map(i => {
     paddrModule.io.raddr(i) := io.wb.raddr(i)
     maskModule.io.raddr(i) := io.wb.raddr(i)
-    exceptionModule.io.raddr(i) := io.wb.raddr(i)
     coredataModule.io.raddr(i) := io.wb.raddr(i)
 
     io.wb.rdata(i).paddr := paddrModule.io.rdata(i)
     io.wb.rdata(i).mask := maskModule.io.rdata(i)
     io.wb.rdata(i).data := coredataModule.io.rdata(i)
-    io.wb.rdata(i).exception := exceptionModule.io.rdata(i)
     io.wb.rdata(i).fwdMask := DontCare
   })
   
   // read port wbNumRead
   paddrModule.io.raddr(wbNumRead) := io.uncache.raddr
   maskModule.io.raddr(wbNumRead) := io.uncache.raddr
-  exceptionModule.io.raddr(wbNumRead) := io.uncache.raddr
   coredataModule.io.raddr(wbNumRead) := io.uncache.raddr
 
   io.uncache.rdata.paddr := paddrModule.io.rdata(wbNumRead)
   io.uncache.rdata.mask := maskModule.io.rdata(wbNumRead)
-  io.uncache.rdata.data := exceptionModule.io.rdata(wbNumRead)
-  io.uncache.rdata.exception := coredataModule.io.rdata(wbNumRead)
+  io.uncache.rdata.data := coredataModule.io.rdata(wbNumRead)
   io.uncache.rdata.fwdMask := DontCare
   
   // write data
@@ -271,19 +318,16 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int) extends XSModule
   (0 until wbNumWrite).map(i => {
     paddrModule.io.wen(i) := false.B
     maskModule.io.wen(i) := false.B
-    exceptionModule.io.wen(i) := false.B
     coredataModule.io.wen(i) := false.B
     coredataModule.io.fwdMaskWen(i) := false.B
     coredataModule.io.paddrWen(i) := false.B
 
     paddrModule.io.waddr(i) := io.wb.waddr(i)
     maskModule.io.waddr(i) := io.wb.waddr(i)
-    exceptionModule.io.waddr(i) := io.wb.waddr(i)
     coredataModule.io.waddr(i) := io.wb.waddr(i)
 
     paddrModule.io.wdata(i) := io.wb.wdata(i).paddr
     maskModule.io.wdata(i) := io.wb.wdata(i).mask
-    exceptionModule.io.wdata(i) := io.wb.wdata(i).exception
     coredataModule.io.wdata(i) := io.wb.wdata(i).data
     coredataModule.io.fwdMaskWdata(i) := io.wb.wdata(i).fwdMask.asUInt
     coredataModule.io.paddrWdata(i) := io.wb.wdata(i).paddr
@@ -291,7 +335,6 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int) extends XSModule
     when(io.wb.wen(i)){
       paddrModule.io.wen(i) := true.B
       maskModule.io.wen(i) := true.B
-      exceptionModule.io.wen(i) := true.B
       coredataModule.io.wen(i) := true.B
       coredataModule.io.fwdMaskWen(i) := true.B
       coredataModule.io.paddrWen(i) := true.B

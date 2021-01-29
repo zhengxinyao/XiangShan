@@ -10,7 +10,7 @@ import xiangshan.backend.exu.Exu._
 import xiangshan.frontend._
 import xiangshan.mem._
 import xiangshan.backend.fu.HasExceptionNO
-import xiangshan.cache.{DCache, DCacheParameters, ICache, ICacheParameters, L1plusCache, L1plusCacheParameters, PTW, Uncache}
+import xiangshan.cache.{DCache,InstrUncache, DCacheParameters, ICache, ICacheParameters, L1plusCache, L1plusCacheParameters, PTW, Uncache, MemoryOpConstants, MissReq}
 import xiangshan.cache.prefetch._
 import chipsalliance.rocketchip.config
 import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp}
@@ -19,7 +19,16 @@ import freechips.rocketchip.devices.tilelink.{DevNullParams, TLError}
 import sifive.blocks.inclusivecache.{CacheParameters, InclusiveCache, InclusiveCacheMicroParameters}
 import freechips.rocketchip.amba.axi4.{AXI4Deinterleaver, AXI4Fragmenter, AXI4IdIndexer, AXI4IdentityNode, AXI4ToTL, AXI4UserYanker}
 import freechips.rocketchip.tile.HasFPUParameters
+import sifive.blocks.inclusivecache.PrefetcherIO
 import utils._
+
+object hartIdCore extends (() => Int) {
+  var x = 0
+  def apply(): Int = {
+    x = x + 1
+    x-1
+  }
+}
 
 case class XSCoreParameters
 (
@@ -89,7 +98,9 @@ case class XSCoreParameters
   StoreBufferSize: Int = 16,
   RefillSize: Int = 512,
   TlbEntrySize: Int = 32,
+  TlbSPEntrySize: Int = 4,
   TlbL2EntrySize: Int = 256, // or 512
+  TlbL2SPEntrySize: Int = 16,
   PtwL1EntrySize: Int = 16,
   PtwL2EntrySize: Int = 256,
   NumPerfCounters: Int = 16,
@@ -165,7 +176,9 @@ trait HasXSParameter {
   val RefillSize = core.RefillSize
   val DTLBWidth = core.LoadPipelineWidth + core.StorePipelineWidth
   val TlbEntrySize = core.TlbEntrySize
+  val TlbSPEntrySize = core.TlbSPEntrySize
   val TlbL2EntrySize = core.TlbL2EntrySize
+  val TlbL2SPEntrySize = core.TlbL2SPEntrySize
   val PtwL1EntrySize = core.PtwL1EntrySize
   val PtwL2EntrySize = core.PtwL2EntrySize
   val NumPerfCounters = core.NumPerfCounters
@@ -174,6 +187,7 @@ trait HasXSParameter {
   val icacheParameters = ICacheParameters(
     tagECC = Some("parity"),
     dataECC = Some("parity"),
+    replacer = Some("setlru"),
     nMissEntries = 2
   )
 
@@ -183,38 +197,13 @@ trait HasXSParameter {
     nMissEntries = 8
   )
 
-  // icache prefetcher
-  val l1plusPrefetcherParameters = L1plusPrefetcherParameters(
-    enable = false,
-    _type = "stream",
-    streamParams = StreamPrefetchParameters(
-      streamCnt = 4,
-      streamSize = 4,
-      ageWidth = 4,
-      blockBytes = l1plusCacheParameters.blockBytes,
-      reallocStreamOnMissInstantly = true
-    )
-  )
-
-  // dcache prefetcher
-  val l2PrefetcherParameters = L2PrefetcherParameters(
-    enable = true,
-    _type = "stream",
-    streamParams = StreamPrefetchParameters(
-      streamCnt = 4,
-      streamSize = 4,
-      ageWidth = 4,
-      blockBytes = L2BlockSize,
-      reallocStreamOnMissInstantly = true
-    )
-  )
-
   val dcacheParameters = DCacheParameters(
     tagECC = Some("secded"),
     dataECC = Some("secded"),
     nMissEntries = 16,
-    nLoadMissEntries = 8,
-    nStoreMissEntries = 8
+    nProbeEntries = 16,
+    nReleaseEntries = 16,
+    nStoreReplayEntries = 16
   )
 
   val LRSCCycles = 100
@@ -240,6 +229,43 @@ trait HasXSParameter {
 
   // on chip network configurations
   val L3BusWidth = 256
+
+  // icache prefetcher
+  val l1plusPrefetcherParameters = L1plusPrefetcherParameters(
+    enable = true,
+    _type = "stream",
+    streamParams = StreamPrefetchParameters(
+      streamCnt = 2,
+      streamSize = 4,
+      ageWidth = 4,
+      blockBytes = l1plusCacheParameters.blockBytes,
+      reallocStreamOnMissInstantly = true,
+      cacheName = "icache"
+    )
+  )
+
+  // dcache prefetcher
+  val l2PrefetcherParameters = L2PrefetcherParameters(
+    enable = true,
+    _type = "bop",// "stream" or "bop"
+    streamParams = StreamPrefetchParameters(
+      streamCnt = 4,
+      streamSize = 4,
+      ageWidth = 4,
+      blockBytes = L2BlockSize,
+      reallocStreamOnMissInstantly = true,
+      cacheName = "dcache"
+    ),
+    bopParams = BOPParameters(
+      rrTableEntries = 256,
+      rrTagBits = 12,
+      scoreBits = 5,
+      roundMax = 50,
+      badScore = 1,
+      blockBytes = L2BlockSize,
+      nEntries = dcacheParameters.nMissEntries * 2 // TODO: this is too large
+    ),
+  )
 }
 
 trait HasXSLog { this: RawModule =>
@@ -271,23 +297,25 @@ abstract class XSBundle extends Bundle
 case class EnviromentParameters
 (
   FPGAPlatform: Boolean = true,
-  EnableDebug: Boolean = false
+  EnableDebug: Boolean = false,
+  EnablePerfDebug: Boolean = false,
+  DualCoreDifftest: Boolean = false
 )
 
-object AddressSpace extends HasXSParameter {
-  // (start, size)
-  // address out of MMIO will be considered as DRAM
-  def mmio = List(
-    (0x00000000L, 0x40000000L),  // internal devices, such as CLINT and PLIC
-    (0x40000000L, 0x40000000L)   // external devices
-  )
+// object AddressSpace extends HasXSParameter {
+//   // (start, size)
+//   // address out of MMIO will be considered as DRAM
+//   def mmio = List(
+//     (0x00000000L, 0x40000000L),  // internal devices, such as CLINT and PLIC
+//     (0x40000000L, 0x40000000L)   // external devices
+//   )
 
-  def isMMIO(addr: UInt): Bool = mmio.map(range => {
-    require(isPow2(range._2))
-    val bits = log2Up(range._2)
-    (addr ^ range._1.U)(PAddrBits-1, bits) === 0.U
-  }).reduce(_ || _)
-}
+//   def isMMIO(addr: UInt): Bool = mmio.map(range => {
+//     require(isPow2(range._2))
+//     val bits = log2Up(range._2)
+//     (addr ^ range._1.U)(PAddrBits-1, bits) === 0.U
+//   }).reduce(_ || _)
+// }
 
 
 
@@ -308,6 +336,7 @@ class XSCore()(implicit p: config.Parameters) extends LazyModule
   val fpBlockSlowWakeUpInt = fpExuConfigs.filter(intSlowFilter)
 
   // outer facing nodes
+  val frontend = LazyModule(new Frontend())
   val l1pluscache = LazyModule(new L1plusCache())
   val ptw = LazyModule(new PTW())
   val l2Prefetcher = LazyModule(new L2Prefetcher())
@@ -329,9 +358,17 @@ class XSCoreImp(outer: XSCore) extends LazyModuleImp(outer)
 {
   val io = IO(new Bundle {
     val externalInterrupt = new ExternalInterruptIO
+    val l2ToPrefetcher = Flipped(new PrefetcherIO(PAddrBits))
   })
+  
+  val difftestIO = IO(new DifftestBundle())
+  difftestIO <> DontCare
+  
+  val trapIO = IO(new TrapIO())
+  trapIO <> DontCare
 
   println(s"FPGAPlatform:${env.FPGAPlatform} EnableDebug:${env.EnableDebug}")
+  AddressSpace.printMemmap()
 
   // to fast wake up fp, mem rs
   val intBlockFastWakeUpFp = intExuConfigs.filter(fpFastFilter)
@@ -344,7 +381,6 @@ class XSCoreImp(outer: XSCore) extends LazyModuleImp(outer)
   val fpBlockFastWakeUpInt = fpExuConfigs.filter(intFastFilter)
   val fpBlockSlowWakeUpInt = fpExuConfigs.filter(intSlowFilter)
 
-  val frontend = Module(new Frontend)
   val ctrlBlock = Module(new CtrlBlock)
   val integerBlock = Module(new IntegerBlock(
     fastWakeUpIn = fpBlockFastWakeUpInt,
@@ -363,6 +399,7 @@ class XSCoreImp(outer: XSCore) extends LazyModuleImp(outer)
     slowIntOut = fpBlockSlowWakeUpInt
   ))
 
+  val frontend = outer.frontend.module
   val memBlock = outer.memBlock.module
   val l1pluscache = outer.l1pluscache.module
   val ptw = outer.ptw.module
@@ -431,8 +468,7 @@ class XSCoreImp(outer: XSCore) extends LazyModuleImp(outer)
 
   floatBlock.io.frm <> integerBlock.io.csrio.frm
 
-  memBlock.io.lsqio.commits <> ctrlBlock.io.roqio.commits
-  memBlock.io.lsqio.roqDeqPtr <> ctrlBlock.io.roqio.roqDeqPtr
+  memBlock.io.lsqio.roq <> ctrlBlock.io.roqio.lsq
   memBlock.io.lsqio.exceptionAddr.lsIdx.lqIdx := ctrlBlock.io.roqio.exception.bits.lqIdx
   memBlock.io.lsqio.exceptionAddr.lsIdx.sqIdx := ctrlBlock.io.roqio.exception.bits.sqIdx
   memBlock.io.lsqio.exceptionAddr.isStore := CommitType.lsInstIsStore(ctrlBlock.io.roqio.exception.bits.ctrl.commitType)
@@ -442,7 +478,16 @@ class XSCoreImp(outer: XSCore) extends LazyModuleImp(outer)
   ptw.io.sfence <> integerBlock.io.fenceio.sfence
   ptw.io.csr    <> integerBlock.io.csrio.tlb
 
-  l2Prefetcher.io.in <> memBlock.io.toDCachePrefetch
+  val l2PrefetcherIn = Wire(Decoupled(new MissReq))
+  if (l2PrefetcherParameters.enable && l2PrefetcherParameters._type == "bop") {
+    l2PrefetcherIn.valid := io.l2ToPrefetcher.acquire.valid
+    l2PrefetcherIn.bits := DontCare
+    l2PrefetcherIn.bits.addr := io.l2ToPrefetcher.acquire.bits.address
+    l2PrefetcherIn.bits.cmd := Mux(io.l2ToPrefetcher.acquire.bits.write, MemoryOpConstants.M_XWR, MemoryOpConstants.M_XRD)
+  } else {
+    l2PrefetcherIn <> memBlock.io.toDCachePrefetch
+  }
+  l2Prefetcher.io.in <> l2PrefetcherIn
 
   if (!env.FPGAPlatform) {
     val debugIntReg, debugFpReg = WireInit(VecInit(Seq.fill(32)(0.U(XLEN.W))))
@@ -450,6 +495,21 @@ class XSCoreImp(outer: XSCore) extends LazyModuleImp(outer)
     ExcitingUtils.addSink(debugFpReg, "DEBUG_FP_ARCH_REG", ExcitingUtils.Debug)
     val debugArchReg = WireInit(VecInit(debugIntReg ++ debugFpReg))
     ExcitingUtils.addSource(debugArchReg, "difftestRegs", ExcitingUtils.Debug)
+  }
+
+  if (env.DualCoreDifftest) {
+    val id = hartIdCore()
+    difftestIO.fromSbuffer <> memBlock.difftestIO.fromSbuffer
+    difftestIO.fromSQ <> memBlock.difftestIO.fromSQ
+    difftestIO.fromCSR <> integerBlock.difftestIO.fromCSR
+    difftestIO.fromRoq <> ctrlBlock.difftestIO.fromRoq
+    trapIO <> ctrlBlock.trapIO
+
+    val debugIntReg, debugFpReg = WireInit(VecInit(Seq.fill(32)(0.U(XLEN.W))))
+    ExcitingUtils.addSink(debugIntReg, s"DEBUG_INT_ARCH_REG$id", ExcitingUtils.Debug)
+    ExcitingUtils.addSink(debugFpReg, s"DEBUG_FP_ARCH_REG$id", ExcitingUtils.Debug)
+    val debugArchReg = WireInit(VecInit(debugIntReg ++ debugFpReg))
+    difftestIO.fromXSCore.r := debugArchReg
   }
 
 }

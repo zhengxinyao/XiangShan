@@ -8,16 +8,12 @@ package xiangshan.backend.decode
 import chisel3._
 import chisel3.util._
 
-import freechips.rocketchip.config.Parameters
-import freechips.rocketchip.rocket.{RVCDecoder, ExpandedInstruction}
-import freechips.rocketchip.rocket.{CSR,Causes}
 import freechips.rocketchip.util.{uintToBitPat,UIntIsOneOf}
 
 import xiangshan._
 import utils._
 import xiangshan.backend._
 import xiangshan.backend.decode.Instructions._
-import freechips.rocketchip.tile.RocketTile
 
 /**
  * Abstract trait giving defaults and other relevant values to different Decode constants/
@@ -135,7 +131,7 @@ object XDecode extends DecodeConstants {
     REMW    -> List(SrcType.reg, SrcType.reg, SrcType.DC, FuType.div, MDUOpType.remw, Y, N, N, N, N, N, N, SelImm.IMM_X),
     REMUW   -> List(SrcType.reg, SrcType.reg, SrcType.DC, FuType.div, MDUOpType.remuw, Y, N, N, N, N, N, N, SelImm.IMM_X),
 
-    AUIPC   -> List(SrcType.pc, SrcType.imm, SrcType.DC, FuType.alu, ALUOpType.add, Y, N, N, N, N, N, N, SelImm.IMM_U),
+    AUIPC   -> List(SrcType.pc , SrcType.imm, SrcType.DC, FuType.jmp, JumpOpType.auipc, Y, N, N, N, N, N, N, SelImm.IMM_U),
     JAL     -> List(SrcType.pc , SrcType.imm, SrcType.DC, FuType.jmp, JumpOpType.jal, Y, N, N, N, N, N, N, SelImm.IMM_UJ),
     JALR    -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.jmp, JumpOpType.jalr, Y, N, N, N, N, N, N, SelImm.IMM_I),
     BEQ     -> List(SrcType.reg, SrcType.reg, SrcType.DC, FuType.alu, ALUOpType.beq, N, N, N, N, N, N, N, SelImm.IMM_SB),
@@ -155,9 +151,9 @@ object XDecode extends DecodeConstants {
     CSRRCI  -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.csr, CSROpType.clri, Y, N, N, Y, Y, N, N, SelImm.IMM_Z),
 
     SFENCE_VMA->List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.fence, FenceOpType.sfence, N, N, N, Y, Y, Y, N, SelImm.IMM_X),
-    ECALL   -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.csr, CSROpType.jmp, Y, N, N, Y, Y, N, N, SelImm.IMM_X),
-    SRET    -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.csr, CSROpType.jmp, Y, N, N, Y, Y, N, N, SelImm.IMM_X),
-    MRET    -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.csr, CSROpType.jmp, Y, N, N, Y, Y, N, N, SelImm.IMM_X),
+    ECALL   -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.csr, CSROpType.jmp, Y, N, N, Y, Y, N, N, SelImm.IMM_I),
+    SRET    -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.csr, CSROpType.jmp, Y, N, N, Y, Y, N, N, SelImm.IMM_I),
+    MRET    -> List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.csr, CSROpType.jmp, Y, N, N, Y, Y, N, N, SelImm.IMM_I),
 
     WFI     -> List(SrcType.pc, SrcType.imm, SrcType.DC, FuType.alu, ALUOpType.sll, Y, N, N, N, N, N, N, SelImm.IMM_X),
 
@@ -300,22 +296,6 @@ object XSTrapDecode extends DecodeConstants {
   )
 }
 
-class RVCExpander extends XSModule {
-  val io = IO(new Bundle {
-    val in = Input(UInt(32.W))
-    val out = Output(new ExpandedInstruction)
-    val rvc = Output(Bool())
-  })
-
-  if (HasCExtension) {
-    io.rvc := io.in(1,0) =/= 3.U
-    io.out := new RVCDecoder(io.in, XLEN).decode
-  } else {
-    io.rvc := false.B
-    io.out := new RVCDecoder(io.in, XLEN).passthrough
-  }
-}
-
 //object Imm32Gen {
 //  def apply(sel: UInt, inst: UInt) = {
 //    val sign = Mux(sel === SelImm.IMM_Z, 0.S, inst(31).asSInt)
@@ -425,19 +405,7 @@ class DecodeUnit extends XSModule with DecodeUnitConstants {
   val ctrl_flow = Wire(new CtrlFlow) // input with RVC Expanded
   val cf_ctrl = Wire(new CfCtrl)
 
-  val exp = Module(new RVCExpander())
-  exp.io.in := io.enq.ctrl_flow.instr
   ctrl_flow := io.enq.ctrl_flow
-  when (exp.io.rvc) {
-    ctrl_flow.instr := exp.io.out.bits
-  }
-
-  // save rvc decode info
-  // TODO maybe rvc_info are useless?
-  val rvc_info = Wire(new ExpandedInstruction())
-  val is_rvc = Wire(Bool())
-  rvc_info := exp.io.out
-  is_rvc := exp.io.rvc
 
   var decode_table = XDecode.table ++ FDecode.table ++ FDivSqrtDecode.table ++ X64Decode.table ++ XSTrapDecode.table
 
@@ -447,21 +415,19 @@ class DecodeUnit extends XSModule with DecodeUnitConstants {
   val cs = Wire(new CtrlSignals()).decode(ctrl_flow.instr, decode_table)
 
   val fpDecoder = Module(new FPDecoder)
-  fpDecoder.io.instr := io.enq.ctrl_flow.instr
+  fpDecoder.io.instr := ctrl_flow.instr
   cs.fpu := fpDecoder.io.fpCtrl
 
   // read src1~3 location
-  cs.lsrc1 := Mux(ctrl_flow.instr === LUI || cs.src1Type === SrcType.pc, 0.U, ctrl_flow.instr(RS1_MSB,RS1_LSB))
+  cs.lsrc1 := Mux(ctrl_flow.instr === LUI, 0.U,ctrl_flow.instr(RS1_MSB,RS1_LSB))
   cs.lsrc2 := ctrl_flow.instr(RS2_MSB,RS2_LSB)
   cs.lsrc3 := ctrl_flow.instr(RS3_MSB,RS3_LSB)
   // read dest location
   cs.ldest := Mux(cs.fpWen || cs.rfWen, ctrl_flow.instr(RD_MSB,RD_LSB), 0.U)
 
   // fill in exception vector
-  cf_ctrl.cf.exceptionVec.map(_ := false.B)
+  cf_ctrl.cf.exceptionVec := io.enq.ctrl_flow.exceptionVec
   cf_ctrl.cf.exceptionVec(illegalInstr) := cs.selImm === SelImm.INVALID_INSTR
-  cf_ctrl.cf.exceptionVec(instrPageFault) := io.enq.ctrl_flow.exceptionVec(instrPageFault)
-  cf_ctrl.cf.exceptionVec(instrAccessFault) := io.enq.ctrl_flow.exceptionVec(instrAccessFault)
   
   // fix frflags
   //                           fflags    zero csrrs rd    csr
@@ -475,10 +441,9 @@ class DecodeUnit extends XSModule with DecodeUnitConstants {
     cs.lsrc1 := XSTrapDecode.lsrc1
   }
 
-  val instr = io.enq.ctrl_flow.instr
   cs.imm := LookupTree(cs.selImm, ImmUnion.immSelMap.map(
     x => {
-      val minBits = x._2.minBitsFromInstr(instr)
+      val minBits = x._2.minBitsFromInstr(ctrl_flow.instr)
       require(minBits.getWidth == x._2.len)
       x._1 -> minBits
     }

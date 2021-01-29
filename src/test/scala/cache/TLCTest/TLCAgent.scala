@@ -132,7 +132,9 @@ class FireQueue[T <: TLCScalaMessage]() {
   def fireHead(): Unit = {
     beatCnt += 1
     if (beatCnt == headCnt) {
-      q.dequeue()
+      val m = q.dequeue()
+      if (m._1.trans.isDefined)
+        m._1.trans.get.startTimer()
       beatCnt = 0
       if (q.nonEmpty) {
         headCnt = q.head._2
@@ -224,6 +226,10 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
 
   def maskConcatWord(oldMask: BigInt, inMask: BigInt, cnt: Int): BigInt = {
     oldMask | (inMask << (cnt * wordBytes))
+  }
+
+  def maskOutOfWord(mask: BigInt, cnt: Int): BigInt = {
+    mask >> (cnt * wordBytes)
   }
 
   def beatInBlock(addr: BigInt): Int = {
@@ -573,7 +579,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
               dQueue.enqMessage(acq.issueGrant(allocId))
             }
             else { //is AcquireBlock
-              if (growFrom(a_acq.param) == branch) { //grow from branch
+              if (state.masterPerm == branch && growFrom(a_acq.param) == branch) { //grow from branch
                 dQueue.enqMessage(acq.issueGrant(allocId))
               }
               else {
@@ -636,7 +642,8 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
       case ProbeAck => {
         val addr = c.address
         val state = getState(addr)
-        val probeT = innerProbe.filter(p => p.probeAckPending.getOrElse(false)).filter(p => p.b.get.address == addr && p.b.get.source == c.source).head
+        //TODO: only one master for now, so no need to check source
+        val probeT = innerProbe.filter(p => p.probeAckPending.getOrElse(false)).filter(p => p.b.get.address == addr).head
         //pair ProbeAck
         probeT.pairProbeAck(c)
         //update state
@@ -660,7 +667,8 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
       case ProbeAckData => {
         val addr = c.address
         val state = getState(addr)
-        val probeT = innerProbe.filter(p => p.probeAckPending.getOrElse(false)).filter(p => p.b.get.address == addr && p.b.get.source == c.source).head
+        //TODO: only one master for now, so no need to check source
+        val probeT = innerProbe.filter(p => p.probeAckPending.getOrElse(false)).filter(p => p.b.get.address == addr).head//pair ProbeAck
         //pair ProbeAck
         probeT.pairProbeAck(c)
         //update state

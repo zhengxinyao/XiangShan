@@ -8,9 +8,18 @@ import utils._
 import xiangshan.cache._
 import chisel3.experimental.chiselName
 import freechips.rocketchip.tile.HasLazyRoCC
+import chisel3.ExcitingUtils._
+
+trait HasInstrMMIOConst extends HasXSParameter with HasIFUConst{
+  def mmioBusWidth = 64
+  def mmioBusBytes = mmioBusWidth /8
+  def mmioBeats = FetchWidth * 4 * 8 / mmioBusWidth
+  def mmioMask  = VecInit(List.fill(PredictWidth)(true.B)).asUInt
+  def mmioBusAligned(pc :UInt): UInt = align(pc, mmioBusBytes)
+}
 
 trait HasIFUConst extends HasXSParameter {
-  val resetVector = 0x80000000L//TODO: set reset vec
+  val resetVector = 0x10000000L//TODO: set reset vec
   def align(pc: UInt, bytes: Int): UInt = Cat(pc(VAddrBits-1, log2Ceil(bytes)), 0.U(log2Ceil(bytes).W))
   val instBytes = if (HasCExtension) 2 else 4
   val instOffsetBits = log2Ceil(instBytes)
@@ -70,6 +79,10 @@ class IFUIO extends XSBundle
   val tlbCsr = Input(new TlbCsrBundle)
   // from tlb
   val ptw = new TlbPtwIO
+  // icache uncache
+  val mmio_acquire = DecoupledIO(new InsUncacheReq)
+  val mmio_grant  = Flipped(DecoupledIO(new InsUncacheResp))
+  val mmio_flush = Output(Bool())
 }
 
 class PrevHalfInstr extends XSBundle {
@@ -118,7 +131,7 @@ class IFU extends XSModule with HasIFUConst
   val if2_valid = RegInit(init = false.B)
   val if2_allReady = WireInit(if2_ready && icache.io.req.ready)
   val if1_fire = (if1_valid &&  if2_allReady) && (icache.io.tlb.resp.valid || !if2_valid)
-  val if1_can_go = if1_fire || if2_flush
+  val if1_can_go = if1_fire || if3_flush
 
   val if1_gh, if2_gh, if3_gh, if4_gh = Wire(new GlobalHistory)
   val if2_predicted_gh, if3_predicted_gh, if4_predicted_gh = Wire(new GlobalHistory)
@@ -417,6 +430,9 @@ class IFU extends XSModule with HasIFUConst
   icache.io.prev.bits := if3_prevHalfInstr.bits.instr
   icache.io.prev_ipf := if3_prevHalfInstr.bits.ipf
   icache.io.prev_pc := if3_prevHalfInstr.bits.pc
+  icache.io.mmio_acquire <> io.mmio_acquire
+  icache.io.mmio_grant <> io.mmio_grant
+  icache.io.mmio_flush <> io.mmio_flush
   io.icacheMemAcq <> icache.io.mem_acquire
   io.l1plusFlush := icache.io.l1plusflush
   io.prefetchTrainReq := icache.io.prefetchTrainReq
@@ -442,10 +458,18 @@ class IFU extends XSModule with HasIFUConst
     crossPageIPF := true.B // higher 16 bits page fault
   }
 
+  //RVC expand
+  val expandedInstrs = Wire(Vec(PredictWidth, UInt(32.W)))
+  for(i <- 0 until PredictWidth){
+      val expander = Module(new RVCExpander)
+      expander.io.in := if4_pd.instrs(i)
+      expandedInstrs(i) := expander.io.out.bits
+  }
+
   val fetchPacketValid = if4_valid && !io.redirect.valid
   val fetchPacketWire = Wire(new FetchPacket)
 
-  fetchPacketWire.instrs := if4_pd.instrs
+  fetchPacketWire.instrs := expandedInstrs
   fetchPacketWire.mask := if4_pd.mask & (Fill(PredictWidth, !if4_bp.taken) | (Fill(PredictWidth, 1.U(1.W)) >> (~if4_bp.jmpIdx)))
   fetchPacketWire.pdmask := if4_pd.mask
 
@@ -475,6 +499,46 @@ class IFU extends XSModule with HasIFUConst
 
   io.fetchPacket.bits := fetchPacketWire
   io.fetchPacket.valid := fetchPacketValid
+
+  if(!env.FPGAPlatform && env.EnablePerfDebug) {
+    val predictor_s3 = RegEnable(Mux(if3_redirect, 1.U(log2Up(4).W), 0.U(log2Up(4).W)), if3_fire)
+    val predictor_s4 = Mux(if4_redirect, 2.U(log2Up(4).W), predictor_s3)
+    val predictor = predictor_s4
+
+    // io.pc.valid && read_hit_vec.asUInt ubtb hit
+    val ubtbAns = WireInit(VecInit(Seq.fill(PredictWidth) {0.U.asTypeOf(new PredictorAnswer)} ))
+    val btbAns = WireInit(VecInit(Seq.fill(PredictWidth) {0.U.asTypeOf(new PredictorAnswer)} ))
+    val bimResp = WireInit(VecInit(Seq.fill(PredictWidth) {false.B} ))
+    val tageAns = WireInit(VecInit(Seq.fill(PredictWidth) {0.U.asTypeOf(new PredictorAnswer)} ))
+    val rasAns = WireInit(0.U.asTypeOf(new PredictorAnswer))
+    val loopAns = WireInit(VecInit(Seq.fill(PredictWidth) {0.U.asTypeOf(new PredictorAnswer)} ))
+
+    ExcitingUtils.addSink(ubtbAns, "ubtbAns")
+    ExcitingUtils.addSink(btbAns, "btbAns")
+    ExcitingUtils.addSink(bimResp, "bimResp")
+    ExcitingUtils.addSink(tageAns, "tageAns")
+    ExcitingUtils.addSink(rasAns, "rasAns")
+    ExcitingUtils.addSink(loopAns, "loopAns")
+
+    val ubtbAns_s3 = RegEnable(ubtbAns, if2_fire)
+    val ubtbAns_s4 = RegEnable(ubtbAns_s3, if3_fire)
+
+    val btbAns_s3 = RegEnable(btbAns, if2_fire)
+    val btbAns_s4 = RegEnable(btbAns_s3, if3_fire)
+    val bimResp_s3 = RegEnable(bimResp, if2_fire)
+    val bimResp_s4 = RegEnable(bimResp_s3, if3_fire)
+
+    fetchPacketWire.bpuMeta.zipWithIndex.foreach{ case(x,i) =>
+      x.predictor := predictor
+
+      x.ubtbAns := ubtbAns_s4(i)
+      x.btbAns := btbAns_s4(i)
+      x.btbAns.taken := bimResp_s4(i)
+      x.tageAns := tageAns(i)
+      x.rasAns := rasAns // Is this right?
+      x.loopAns := loopAns(i)
+    }
+  }
 
   // debug info
   if (IFUDebug) {

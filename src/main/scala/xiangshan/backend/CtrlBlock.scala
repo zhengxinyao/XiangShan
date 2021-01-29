@@ -11,12 +11,12 @@ import xiangshan.backend.dispatch.Dispatch
 import xiangshan.backend.exu._
 import xiangshan.backend.exu.Exu.exuConfigs
 import xiangshan.backend.regfile.RfReadPort
-import xiangshan.backend.roq.{Roq, RoqCSRIO, RoqPtr}
+import xiangshan.backend.roq.{Roq, RoqCSRIO, RoqLsqIO, RoqPtr}
 import xiangshan.mem.LsqEnqIO
 
 class CtrlToIntBlockIO extends XSBundle {
   val enqIqCtrl = Vec(exuParameters.IntExuCnt, DecoupledIO(new MicroOp))
-  val readRf = Vec(NRIntReadPorts, Flipped(new RfReadPort(XLEN)))
+  val readRf = Vec(NRIntReadPorts, Output(UInt(PhyRegIdxWidth.W)))
   val jumpPc = Output(UInt(VAddrBits.W))
   // int block only uses port 0~7
   val readPortIndex = Vec(exuParameters.IntExuCnt, Output(UInt(log2Ceil(8 / 2).W))) // TODO parameterize 8 here
@@ -25,7 +25,7 @@ class CtrlToIntBlockIO extends XSBundle {
 
 class CtrlToFpBlockIO extends XSBundle {
   val enqIqCtrl = Vec(exuParameters.FpExuCnt, DecoupledIO(new MicroOp))
-  val readRf = Vec(NRFpReadPorts, Flipped(new RfReadPort(XLEN + 1)))
+  val readRf = Vec(NRFpReadPorts, Output(UInt(PhyRegIdxWidth.W)))
   // fp block uses port 0~11
   val readPortIndex = Vec(exuParameters.FpExuCnt, Output(UInt(log2Ceil((NRFpReadPorts - exuParameters.StuCnt) / 3).W)))
   val redirect = ValidIO(new Redirect)
@@ -52,10 +52,28 @@ class CtrlBlock extends XSModule with HasCircularQueuePtrHelper {
       val exception = ValidIO(new MicroOp)
       val isInterrupt = Output(Bool())
       // to mem block
-      val commits = new RoqCommitIO
-      val roqDeqPtr = Output(new RoqPtr)
+      val lsq = new RoqLsqIO
     }
   })
+
+  val difftestIO = IO(new Bundle() {
+    val fromRoq = new Bundle() {
+      val commit = Output(UInt(32.W))
+      val thisPC = Output(UInt(XLEN.W))
+      val thisINST = Output(UInt(32.W))
+      val skip = Output(UInt(32.W))
+      val wen = Output(UInt(32.W))
+      val wdata = Output(Vec(CommitWidth, UInt(XLEN.W))) // set difftest width to 6
+      val wdst = Output(Vec(CommitWidth, UInt(32.W))) // set difftest width to 6
+      val wpc = Output(Vec(CommitWidth, UInt(XLEN.W))) // set difftest width to 6
+      val isRVC = Output(UInt(32.W))
+      val scFailed = Output(Bool())
+    }
+  })
+  difftestIO <> DontCare
+
+  val trapIO = IO(new TrapIO())
+  trapIO <> DontCare
 
   val decode = Module(new DecodeStage)
   val brq = Module(new Brq)
@@ -131,10 +149,8 @@ class CtrlBlock extends XSModule with HasCircularQueuePtrHelper {
     setPhyRegRdy.valid := wb.valid && wb.bits.uop.ctrl.fpWen
     setPhyRegRdy.bits := wb.bits.uop.pdest
   }
-  intBusyTable.io.rfReadAddr <> dispatch.io.readIntRf.map(_.addr)
-  intBusyTable.io.pregRdy <> dispatch.io.intPregRdy
-  fpBusyTable.io.rfReadAddr <> dispatch.io.readFpRf.map(_.addr)
-  fpBusyTable.io.pregRdy <> dispatch.io.fpPregRdy
+  intBusyTable.io.read <> dispatch.io.readIntState
+  fpBusyTable.io.read <> dispatch.io.readFpState
 
   roq.io.redirect.valid := brq.io.redirectOut.valid || io.fromLsBlock.replay.valid
   roq.io.redirect.bits <> redirectArb
@@ -146,6 +162,11 @@ class CtrlBlock extends XSModule with HasCircularQueuePtrHelper {
       x.valid := y.valid && !y.bits.redirectValid
   }
   roq.io.exeWbResults.last := brq.io.out
+
+  if (env.DualCoreDifftest) {
+    difftestIO.fromRoq <> roq.difftestIO
+    trapIO <> roq.trapIO
+  }
 
   io.toIntBlock.redirect.valid := redirectValid
   io.toIntBlock.redirect.bits := redirect
@@ -163,6 +184,5 @@ class CtrlBlock extends XSModule with HasCircularQueuePtrHelper {
   io.roqio.exception.bits := roq.io.exception
   io.roqio.isInterrupt := roq.io.redirectOut.bits.interrupt
   // roq to mem block
-  io.roqio.roqDeqPtr := roq.io.roqDeqPtr
-  io.roqio.commits := roq.io.commits
+  io.roqio.lsq <> roq.io.lsq
 }

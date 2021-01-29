@@ -368,7 +368,7 @@ class Sbuffer extends XSModule with HasSBufferConst {
   io.dcache.req.bits.data := dcacheData
   io.dcache.req.bits.mask := dcacheMask
   io.dcache.req.bits.cmd  := MemoryOpConstants.M_XWR
-  io.dcache.req.bits.meta := DontCare // NOT USED
+  io.dcache.req.bits.id   := DontCare // NOT USED
   io.dcache.resp.ready := false.B
 
   wb_arb.io.out.ready := false.B
@@ -483,4 +483,6 @@ class Sbuffer extends XSModule with HasSBufferConst {
   cache.zipWithIndex.foreach { case (line, i) => {
     XSDebug(line.valid, "[#%d line] Tag: %x, data: %x, mask: %x\n", i.U, line.tag, line.data.asUInt(), line.mask.asUInt())
   }}
+
+  XSPerf("waitResp", waitingCacheLine.valid)
 }

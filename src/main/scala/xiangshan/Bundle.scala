@@ -120,6 +120,12 @@ class BranchPrediction extends XSBundle with HasIFUConst {
   def hasNotTakenBrs = Mux(taken, ParallelPriorityMux(realTakens, sawNotTakenBr), ParallelORR(brNotTakens))
 }
 
+class PredictorAnswer extends XSBundle {
+  val hit = Bool()
+  val taken = Bool()
+  val target = UInt(VAddrBits.W)
+}
+
 class BpuMeta extends XSBundle with HasBPUParameter {
   val ubtbWriteWay = UInt(log2Up(UBtbWays).W)
   val ubtbHits = Bool()
@@ -142,6 +148,14 @@ class BpuMeta extends XSBundle with HasBPUParameter {
   val debug_btb_cycle  = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
   val debug_tage_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
 
+  val predictor = if (BPUDebug) UInt(log2Up(4).W) else UInt(0.W) // Mark which component this prediction comes from {ubtb, btb, tage, loopPredictor}
+
+  val ubtbAns = new PredictorAnswer
+  val btbAns = new PredictorAnswer
+  val tageAns = new PredictorAnswer
+  val rasAns = new PredictorAnswer
+  val loopAns = new PredictorAnswer
+
   // def apply(histPtr: UInt, tageMeta: TageMeta, rasSp: UInt, rasTopCtr: UInt) = {
   //   this.histPtr := histPtr
   //   this.tageMeta := tageMeta
@@ -160,7 +174,7 @@ class Predecode extends XSBundle with HasIFUConst {
   val pd = Vec(PredictWidth, (new PreDecodeInfo))
 }
 
-class CfiUpdateInfo extends XSBundle {
+class CfiUpdateInfo extends XSBundle with HasBPUParameter {
   // from backend
   val pc = UInt(VAddrBits.W)
   val pnpc = UInt(VAddrBits.W)
@@ -182,7 +196,7 @@ class CfiUpdateInfo extends XSBundle {
 class CtrlFlow extends XSBundle {
   val instr = UInt(32.W)
   val pc = UInt(VAddrBits.W)
-  val exceptionVec = Vec(16, Bool())
+  val exceptionVec = ExceptionVec()
   val intrVec = Vec(12, Bool())
   val brUpdate = new CfiUpdateInfo
   val crossPageIPFFix = Bool()
@@ -241,6 +255,16 @@ class CfCtrl extends XSBundle {
   val brTag = new BrqPtr
 }
 
+class PerfDebugInfo extends XSBundle {
+  // val fetchTime = UInt(64.W)
+  val renameTime = UInt(64.W)
+  val dispatchTime = UInt(64.W)
+  val issueTime = UInt(64.W)
+  val writebackTime = UInt(64.W)
+  // val commitTime = UInt(64.W)
+}
+
+// Separate LSQ
 class LSIdx extends XSBundle {
   val lqIdx = new LqPtr
   val sqIdx = new SqPtr
@@ -254,6 +278,7 @@ class MicroOp extends CfCtrl {
   val lqIdx = new LqPtr
   val sqIdx = new SqPtr
   val diffTestDebugLrScValid = Bool()
+  val debugInfo = new PerfDebugInfo
 }
 
 class Redirect extends XSBundle {
@@ -325,8 +350,6 @@ class RoqCommitInfo extends XSBundle {
   val commitType = CommitType()
   val pdest = UInt(PhyRegIdxWidth.W)
   val old_pdest = UInt(PhyRegIdxWidth.W)
-  val lqIdx = new LqPtr
-  val sqIdx = new SqPtr
 
   // these should be optimized for synthesis verilog
   val pc = UInt(VAddrBits.W)
@@ -385,4 +408,64 @@ class SfenceBundle extends XSBundle {
   override def toPrintable: Printable = {
     p"valid:0x${Hexadecimal(valid)} rs1:${bits.rs1} rs2:${bits.rs2} addr:${Hexadecimal(bits.addr)}"
   }
+}
+
+class DifftestBundle extends XSBundle {
+  val fromSbuffer = new Bundle() {
+    val sbufferResp = Output(Bool())
+    val sbufferAddr = Output(UInt(64.W))
+    val sbufferData = Output(Vec(64, UInt(8.W)))
+    val sbufferMask = Output(UInt(64.W))
+  }
+  val fromSQ = new Bundle() {
+    val storeCommit = Output(UInt(2.W))
+    val storeAddr   = Output(Vec(2, UInt(64.W)))
+    val storeData   = Output(Vec(2, UInt(64.W)))
+    val storeMask   = Output(Vec(2, UInt(8.W)))
+  }
+  val fromXSCore = new Bundle() {
+    val r = Output(Vec(64, UInt(XLEN.W)))
+  }
+  val fromCSR = new Bundle() {
+    val intrNO = Output(UInt(64.W))
+    val cause = Output(UInt(64.W))
+    val priviledgeMode = Output(UInt(2.W))
+    val mstatus = Output(UInt(64.W))
+    val sstatus = Output(UInt(64.W))
+    val mepc = Output(UInt(64.W))
+    val sepc = Output(UInt(64.W))
+    val mtval = Output(UInt(64.W))
+    val stval = Output(UInt(64.W))
+    val mtvec = Output(UInt(64.W))
+    val stvec = Output(UInt(64.W))
+    val mcause = Output(UInt(64.W))
+    val scause = Output(UInt(64.W))
+    val satp = Output(UInt(64.W))
+    val mip = Output(UInt(64.W))
+    val mie = Output(UInt(64.W))
+    val mscratch = Output(UInt(64.W))
+    val sscratch = Output(UInt(64.W))
+    val mideleg = Output(UInt(64.W))
+    val medeleg = Output(UInt(64.W))
+  }
+  val fromRoq = new Bundle() {
+    val commit = Output(UInt(32.W))
+    val thisPC = Output(UInt(XLEN.W))
+    val thisINST = Output(UInt(32.W))
+    val skip = Output(UInt(32.W))
+    val wen = Output(UInt(32.W))
+    val wdata = Output(Vec(CommitWidth, UInt(XLEN.W))) // set difftest width to 6
+    val wdst = Output(Vec(CommitWidth, UInt(32.W))) // set difftest width to 6
+    val wpc = Output(Vec(CommitWidth, UInt(XLEN.W))) // set difftest width to 6
+    val isRVC = Output(UInt(32.W))
+    val scFailed = Output(Bool())
+  }
+}
+
+class TrapIO extends XSBundle {
+  val valid = Output(Bool())
+  val code = Output(UInt(3.W))
+  val pc = Output(UInt(VAddrBits.W))
+  val cycleCnt = Output(UInt(XLEN.W))
+  val instrCnt = Output(UInt(XLEN.W))
 }

@@ -6,6 +6,7 @@ import chipsalliance.rocketchip.config.Parameters
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
+//!!! for coreAgent, load resp must be fired before store resp
 class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrState], serialList: ArrayBuffer[(Int, TLCTrans)]
                 , scoreboard: mutable.Map[BigInt, ScoreboardData], portNum: Int = 2)
                (implicit p: Parameters) extends TLCAgent(ID, name, addrStateMap, serialList, scoreboard) with LitMemOp {
@@ -68,7 +69,17 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
     val loadAddr = loadT.req.get.addr
     loadT.pairLoadResp(resp)
     if (!resp.miss) {
-      insertMaskedWordRead(loadAddr, resp.data, loadT.req.get.mask)
+      //search store list for addr conflict
+      val alignLoadAddr = addrAlignBlock(loadAddr)
+      val conflictMask = storeIdMap.foldLeft(BigInt(0))((b, kv) =>
+        if (kv._2.req.get.addr == alignLoadAddr) {
+          b | kv._2.req.get.mask
+        }
+        else
+          b
+      )
+      val conflictWordMask = maskOutOfWord(conflictMask, wordInBlock(loadAddr))
+      insertMaskedWordRead(loadAddr, resp.data, cleanMask(loadT.req.get.mask, conflictWordMask))
       outerLoad -= loadT
     }
     else if (resp.replay) {
@@ -105,8 +116,16 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
       val alignAddr = addrAlignBlock(loadAddr)
       if (alignAddr == respAddr) {
         q.pairLsqResp(resp)
+        val conflictMask = storeIdMap.foldLeft(BigInt(0))((b, kv) =>
+          if (kv._2.req.get.addr == alignAddr) {
+            b | kv._2.req.get.mask
+          }
+          else
+            b
+        )
+        val loadBlockMask = genWordMaskInBlock(loadAddr, q.req.get.mask)
         insertMaskedReadSnap(alignAddr, resp.data, insertVersionRead(loadAddr, 0),
-          genWordMaskInBlock(loadAddr, q.req.get.mask))
+          cleanMask(loadBlockMask, conflictMask))
         outerLoad -= q
         true
       }

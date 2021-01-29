@@ -9,7 +9,7 @@ import chiseltest.legacy.backends.verilator.VerilatorFlags
 import chiseltest._
 import firrtl.stage.RunFirrtlTransformAnnotation
 import chiseltest.ChiselScalatestTester
-import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp}
+import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp, BufferParams}
 import freechips.rocketchip.tilelink.{TLBuffer, TLCacheCork, TLToAXI4, TLXbar}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.must.Matchers
@@ -35,7 +35,8 @@ class L1DTestTop()(implicit p: Parameters) extends LazyModule {
   val dcache_outer = LazyModule(new DebugIdentityNode())
   val slave = LazyModule(new TLCSlaveMMIO())
 
-  slave.node := dcache_outer.node := dcache.clientNode
+  val c_buffer = TLBuffer(a = BufferParams.none, b = BufferParams.none, c = BufferParams.pipe, d = BufferParams.none, e = BufferParams.none)
+  slave.node := dcache_outer.node := c_buffer := dcache.clientNode
 
   lazy val module = new LazyModuleImp(this) with HasXSLog {
     val io = IO(new L1DTestTopIO())
@@ -82,7 +83,8 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
       .withAnnotations(Seq(VerilatorBackendAnnotation,
         LineCoverageAnnotation,
         ToggleCoverageAnnotation,
-        VerilatorFlags(Seq("--output-split 5000", "--output-split-cfuncs 5000")),
+        VerilatorFlags(Seq("--output-split 5000", "--output-split-cfuncs 5000",
+          "+define+RANDOMIZE_REG_INIT", "+define+RANDOMIZE_MEM_INIT")),
         RunFirrtlTransformAnnotation(new PrintModuleName))) { c =>
         c.io.dcacheIO.load.foreach { l =>
           l.req.initSource().setSourceClock(c.clock)
@@ -189,7 +191,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
             coreIO.store.req.bits.addr.poke(storeReq.get.addr.U)
             coreIO.store.req.bits.data.poke(storeReq.get.data.U)
             coreIO.store.req.bits.mask.poke(storeReq.get.mask.U)
-            coreIO.store.req.bits.meta.id.poke(storeReq.get.id.U)
+            coreIO.store.req.bits.id.poke(storeReq.get.id.U)
           }
           coreIO.store.req.valid.poke(storePortReqValid.B)
           coreIO.store.resp.ready.poke(storePortRespReady.B)
@@ -204,7 +206,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
             coreIO.atomics.req.bits.addr.poke(amoReq.get.addr.U)
             coreIO.atomics.req.bits.data.poke(amoReq.get.data.U)
             coreIO.atomics.req.bits.mask.poke(amoReq.get.mask.U)
-            coreIO.atomics.req.bits.meta.id.poke(amoReq.get.id.U)
+            coreIO.atomics.req.bits.id.poke(amoReq.get.id.U)
           }
           coreIO.atomics.req.valid.poke(amoPortReqValid.B)
           coreIO.atomics.resp.ready.poke(amoPortRespReady.B)
@@ -337,8 +339,8 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
           if (storePortRespValid && storePortRespReady) {
             val storeM = new LitDCacheLineResp(
               data = peekBigInt(coreIO.store.resp.bits.data),
-              paddr = peekBigInt(coreIO.store.resp.bits.meta.paddr),
-              id = peekBigInt(coreIO.store.resp.bits.meta.id)
+              paddr = BigInt(0),
+              id = peekBigInt(coreIO.store.resp.bits.id)
             )
             coreAgent.fireStoreResp(storeM)
           }
@@ -353,7 +355,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
               data = peekBigInt(coreIO.atomics.resp.bits.data),
               miss = false,
               replay = false,
-              id = peekBigInt(coreIO.atomics.resp.bits.meta.id)
+              id = peekBigInt(coreIO.atomics.resp.bits.id)
             )
             coreAgent.fireAMOResp(amoM)
           }

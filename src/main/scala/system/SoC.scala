@@ -5,15 +5,14 @@ import device.{AXI4Timer, TLTimer, AXI4Plic}
 import chisel3._
 import chisel3.util._
 import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp}
-import freechips.rocketchip.tilelink.{TLBuffer, TLFuzzer, TLIdentityNode, TLXbar}
-import utils.DebugIdentityNode
+import freechips.rocketchip.tilelink.{BankBinder, TLBuffer, TLBundleParameters, TLCacheCork, TLClientNode, TLFilter, TLFuzzer, TLIdentityNode, TLToAXI4, TLWidthWidget, TLXbar}
+import utils.{DebugIdentityNode, DataDontCareNode}
 import utils.XSInfo
-import xiangshan.{HasXSParameter, XSCore, HasXSLog}
+import xiangshan.{HasXSParameter, XSCore, HasXSLog, DifftestBundle}
 import sifive.blocks.inclusivecache.{CacheParameters, InclusiveCache, InclusiveCacheMicroParameters}
-import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, AddressSet}
-import freechips.rocketchip.tilelink.{TLBundleParameters, TLCacheCork, TLBuffer, TLClientNode, TLIdentityNode, TLXbar, TLWidthWidget, TLFilter, TLToAXI4}
-import freechips.rocketchip.devices.tilelink.{TLError, DevNullParams}
-import freechips.rocketchip.amba.axi4.{AXI4ToTL, AXI4IdentityNode, AXI4UserYanker, AXI4Fragmenter, AXI4IdIndexer, AXI4Deinterleaver}
+import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp}
+import freechips.rocketchip.devices.tilelink.{DevNullParams, TLError}
+import freechips.rocketchip.amba.axi4.{AXI4Deinterleaver, AXI4Fragmenter, AXI4IdIndexer, AXI4IdentityNode, AXI4ToTL, AXI4UserYanker}
 
 case class SoCParameters
 (
@@ -44,51 +43,6 @@ class DummyCore()(implicit p: Parameters) extends LazyModule {
 }
 
 
-class BankAddressConvertor(index: Int, bankBits: Int, blockBits: Int, recover: Boolean = false)(implicit p: Parameters) extends LazyModule {
-  val node = TLIdentityNode()
-
-  def shrink(addr: UInt): UInt = {
-    val msb = addr.getWidth - 1
-    Cat(0.U(bankBits.W), addr(msb, bankBits + blockBits), addr(blockBits - 1, 0))
-  }
-
-  def extend(addr: UInt): UInt = {
-    val msb = addr.getWidth - 1
-    Cat(addr(msb - bankBits, blockBits), index.U(bankBits.W), addr(blockBits - 1, 0))
-  }
-
-  lazy val module = new LazyModuleImp(this) with HasXSLog {
-    (node.in zip node.out) foreach { case ((in, _), (out, _)) =>
-      out <> in
-      if (!recover) {
-        out.a.bits.address := shrink(in.a.bits.address)
-        out.c.bits.address := shrink(in.c.bits.address)
-        in.b.bits.address := shrink(out.b.bits.address)
-
-        XSInfo(out.a.fire(), s"before bank $index A in addr %x -> out addr %x\n", in.a.bits.address, out.a.bits.address)
-        XSInfo(out.b.fire(), s"before bank $index B out addr %x -> in addr %x\n", out.b.bits.address, in.b.bits.address)
-        XSInfo(out.c.fire(), s"before bank $index C in addr %x -> out addr %x\n", in.c.bits.address, out.c.bits.address)
-      }
-      else {
-        out.a.bits.address := extend(in.a.bits.address)
-        out.c.bits.address := extend(in.c.bits.address)
-        in.b.bits.address := extend(out.b.bits.address)
-
-        XSInfo(out.a.fire(), s"after bank $index A in addr %x -> out addr %x\n", in.a.bits.address, out.a.bits.address)
-        XSInfo(out.b.fire(), s"after bank $index B out addr %x -> out addr %x\n", out.b.bits.address, in.b.bits.address)
-        XSInfo(out.c.fire(), s"after bank $index C in addr %x -> out addr %x\n", in.c.bits.address, out.c.bits.address)
-      }
-    }
-  }
-}
-
-object BankAddressConvertor {
-  def apply(index: Int, bankBits: Int, blockBits: Int, recover: Boolean)(implicit p: Parameters) = {
-    val bankAddressConvertor = LazyModule(new BankAddressConvertor(index, bankBits, blockBits, recover))
-    bankAddressConvertor.node
-  }
-}
-
 class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
   // CPU Cores
   private val xs_core = Seq.fill(NumCores)(LazyModule(new XSCore()))
@@ -107,7 +61,7 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
       cacheName = s"L2"
     ),
     InclusiveCacheMicroParameters(
-      writeBytes = 8
+      writeBytes = 32
     )
   )))
 
@@ -115,20 +69,19 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
   // -------------------------------------------------
   private val l3_xbar = TLXbar()
 
-  private val l3_banks = (0 until L3NBanks) map (i =>
-      LazyModule(new InclusiveCache(
-        CacheParameters(
-          level = 3,
-          ways = L3NWays,
-          sets = L3NSets,
-          blockBytes = L3BlockSize,
-          beatBytes = L2BusWidth / 8,
-          cacheName = s"L3_$i"
-        ),
-      InclusiveCacheMicroParameters(
-        writeBytes = 8
-      )
-    )))
+  private val l3_node = LazyModule(new InclusiveCache(
+    CacheParameters(
+      level = 3,
+      ways = L3NWays,
+      sets = L3NSets,
+      blockBytes = L3BlockSize,
+      beatBytes = L2BusWidth / 8,
+      cacheName = "L3"
+    ),
+    InclusiveCacheMicroParameters(
+      writeBytes = 32
+    )
+  )).node
 
   // L3 to memory network
   // -------------------------------------------------
@@ -148,7 +101,8 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
     l2_xbar(i) := TLBuffer() := DebugIdentityNode() := xs_core(i).ptw.node
     l2_xbar(i) := TLBuffer() := DebugIdentityNode() := xs_core(i).l2Prefetcher.clientNode
     mmioXbar   := TLBuffer() := DebugIdentityNode() := xs_core(i).memBlock.uncache.clientNode
-    l2cache(i).node := TLBuffer() := DebugIdentityNode() := l2_xbar(i)
+    mmioXbar   := TLBuffer() := DebugIdentityNode() := xs_core(i).frontend.instrUncache.clientNode
+    l2cache(i).node := DataDontCareNode(a = true, b = true) := TLBuffer() := DebugIdentityNode() := l2_xbar(i)
     l3_xbar := TLBuffer() := DebugIdentityNode() := l2cache(i).node
   }
 
@@ -175,14 +129,8 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
     DebugIdentityNode() :=
     tlError_xbar
 
-  def bankFilter(bank: Int) = AddressSet(
-    base = bank * L3BlockSize,
-    mask = ~BigInt((L3NBanks - 1) * L3BlockSize))
-
-  for(i <- 0 until L3NBanks) {
-    val filter = TLFilter(TLFilter.mSelectIntersect(bankFilter(i)))
-    l3_banks(i).node := BankAddressConvertor(i, log2Ceil(L3NBanks), log2Ceil(L3BlockSize), recover = false) := TLBuffer() := DebugIdentityNode() := filter := l3_xbar
-  }
+  val bankedNode =
+    BankBinder(L3NBanks, L3BlockSize) :*= l3_node :*= TLBuffer() :*= DebugIdentityNode() :*= l3_xbar
 
   for(i <- 0 until L3NBanks) {
     mem(i) :=
@@ -190,8 +138,7 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
       TLToAXI4() :=
       TLWidthWidget(L3BusWidth / 8) :=
       TLCacheCork() :=
-      BankAddressConvertor(i, log2Ceil(L3NBanks), log2Ceil(L3BlockSize), recover = true) :=
-      l3_banks(i).node
+      bankedNode
   }
 
   private val clint = LazyModule(new TLTimer(
@@ -215,6 +162,13 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
       // val meip = Input(Vec(NumCores, Bool()))
       val ila = if(env.FPGAPlatform && EnableILA) Some(Output(new ILABundle)) else None
     })
+    val difftestIO0 = IO(new DifftestBundle())
+    val difftestIO1 = IO(new DifftestBundle())
+    val difftestIO = Seq(difftestIO0, difftestIO1)
+
+    val trapIO0 = IO(new xiangshan.TrapIO())
+    val trapIO1 = IO(new xiangshan.TrapIO())
+    val trapIO = Seq(trapIO0, trapIO1)
 
     plic.module.io.extra.get.intrVec <> RegNext(RegNext(Cat(io.extIntrs)))
 
@@ -223,6 +177,15 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
       xs_core(i).module.io.externalInterrupt.msip := clint.module.io.msip(i)
       // xs_core(i).module.io.externalInterrupt.meip := RegNext(RegNext(io.meip(i)))
       xs_core(i).module.io.externalInterrupt.meip := plic.module.io.extra.get.meip(i)
+      xs_core(i).module.io.l2ToPrefetcher <> l2cache(i).module.io
+    }
+    difftestIO0 <> DontCare
+    difftestIO1 <> DontCare
+    if (env.DualCoreDifftest) {
+      difftestIO0 <> xs_core(0).module.difftestIO
+      difftestIO1 <> xs_core(1).module.difftestIO
+      trapIO0 <> xs_core(0).module.trapIO
+      trapIO1 <> xs_core(1).module.trapIO
     }
     // do not let dma AXI signals optimized out
     chisel3.dontTouch(dma.out.head._1)
