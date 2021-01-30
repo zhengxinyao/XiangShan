@@ -168,8 +168,8 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
     test(LazyModule(new TLCCacheTestTopWrapper()).module)
       .withAnnotations(Seq(VerilatorBackendAnnotation,
-        LineCoverageAnnotation,
-        ToggleCoverageAnnotation,
+        // LineCoverageAnnotation,
+        // ToggleCoverageAnnotation,
         VerilatorFlags(Seq("--output-split 5000", "--output-split-cfuncs 5000")),
         RunFirrtlTransformAnnotation(new PrintModuleName))) { c =>
         c.io.mastersIO.foreach { mio =>
@@ -191,7 +191,6 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
         c.reset.poke(true.B)
         c.clock.step(1000)
         c.reset.poke(false.B)
-        c.clock.step(100)
         c.io.ulIO.isOn.poke(true.B)
 
         c.clock.setTimeout(200)
