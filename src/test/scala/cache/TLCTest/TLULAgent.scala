@@ -57,7 +57,7 @@ class TLULMasterAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, A
       outerPut.remove(inD.source)
     }
     else {
-      assert(false, f"UL unhandled opcode: ${inD.opcode}")
+      addAssert(false, f"UL unhandled opcode: ${inD.opcode}")
     }
   }
 
@@ -82,7 +82,7 @@ class TLULMasterAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, A
       }
     }
     else {
-      assert(false, f"UL unhandled opcode: ${inA.opcode}")
+      addAssert(false, f"UL unhandled opcode: ${inA.opcode}")
     }
   }
 

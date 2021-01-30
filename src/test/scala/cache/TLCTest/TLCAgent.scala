@@ -144,7 +144,7 @@ class FireQueue[T <: TLCScalaMessage]() {
 }
 
 class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, AddrState], serialList: ArrayBuffer[(Int, TLCTrans)],
-               scoreboard: mutable.Map[BigInt, ScoreboardData])
+               scoreboard: mutable.Map[BigInt, ScoreboardData], start_clock: Int = 0)
               (implicit p: Parameters)
   extends TLCOp with BigIntExtract with PermissionTransition {
   val l2params = p(TLCCacheTestKey)
@@ -163,7 +163,9 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
 
   val rand = new Random(0xdad)
 
-  var clock = 0
+  var clock = start_clock
+
+  val error_list: ListBuffer[String] = ListBuffer[String]()
 
   def transStep(): Unit = {
     Unit
@@ -180,6 +182,19 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
 
   def debugPrintln(ins: String): Unit = {
     println(debugPrefix() ++ ins)
+  }
+
+  def addAssert(cond: Boolean, message: String): Unit = {
+    if (!cond) {
+      error_list.append(message)
+    }
+  }
+
+  def checkAssert(): Unit = {
+    if (!error_list.isEmpty) {
+      error_list.foreach(debugPrintln(_))
+      assert(false, "agent assert!\n")
+    }
   }
 
   def getState(addr: BigInt): AddrState = {
@@ -202,6 +217,10 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
 
   def addrAlignBlock(addr: BigInt): BigInt = {
     (addr >> blockAddrBits) << blockAddrBits
+  }
+
+  def addrAlignWord(addr: BigInt): BigInt = {
+    (addr >> wordAddrBits) << wordAddrBits
   }
 
   def dataConcatBeat(oldData: BigInt, inData: BigInt, cnt: Int): BigInt = {
@@ -276,7 +295,7 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
     val sbData = snapData
     val checkWriteData = writeMaskedData(sbData, alignData, alignMask)
     debugPrintln(f"MaskedRead, Addr: $alignAddr%x , own data: $alignData%x , sbData:$sbData%x , mask:$alignMask%x")
-    assert(sbData == checkWriteData, f"agent $ID data has been changed, Addr: $alignAddr%x, " +
+    addAssert(sbData == checkWriteData, f"agent $ID data has been changed, Addr: $alignAddr%x, " +
       f"own data: $alignData%x , scoreboard data: $sbData%x , mask:$alignMask%x")
   }
 
@@ -291,8 +310,8 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
     addrState.data = writeMaskedData(addrState.data, alignData, alignMask)
     val sbData = insertVersionRead(addr, 0)
     val checkWriteData = writeMaskedData(sbData, alignData, alignMask)
-    debugPrintln(f"MaskedRead, Addr: $alignAddr%x , own data: $alignData%x , sbData:$sbData%x , mask:$alignMask%x")
-    assert(sbData == checkWriteData, f"agent $ID data has been changed, Addr: $alignAddr%x, " +
+    debugPrintln(f"MaskedWordRead, Addr: $alignAddr%x , own data: $alignData%x , sbData:$sbData%x , mask:$alignMask%x")
+    addAssert(sbData == checkWriteData, f"agent $ID data has been changed, Addr: $alignAddr%x, " +
       f"own data: $alignData%x , scoreboard data: $sbData%x , mask:$alignMask%x")
   }
 
@@ -326,7 +345,7 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
     addrState.dirty = true
     addrState.data = res
     scoreboardWrite(alignAddr, res)
-    debugPrintln(f"MaskedWrite, Addr: $alignAddr%x ,old sbData:$oldData%x , new sbData: $res%x , mask:$alignMask%x")
+    debugPrintln(f"MaskedWordWrite, Addr: $alignAddr%x ,old sbData:$oldData%x , new sbData: $res%x , mask:$alignMask%x")
   }
 
   //full block read
@@ -336,7 +355,7 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
     addrState.data = readData
     val sbData = scoreboardRead(addr)
     debugPrintln(f"insertFullBlockRead, Addr: $addr%x ,own data: $readData%x")
-    assert(readData == sbData, f"agent $ID data has been changed, Addr: $addr%x, " +
+    addAssert(readData == sbData, f"agent $ID data has been changed, Addr: $addr%x, " +
       f"own data: $readData%x , scoreboard data: $sbData%x , with full mask")
   }
 
@@ -346,7 +365,7 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
     addrState.data = readData
     val sbData = snapData
     debugPrintln(f"insertFullBlockRead, Addr: $addr%x ,own data: $readData%x")
-    assert(readData == sbData, f"agent $ID data has been changed, Addr: $addr%x, " +
+    addAssert(readData == sbData, f"agent $ID data has been changed, Addr: $addr%x, " +
       f"own data: $readData%x , scoreboard data: $sbData%x , with full mask")
   }
 
@@ -539,7 +558,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         val addr = r.c.get.address
         val state = getState(addr)
         val c = r.c.get
-        assert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0,
+        addAssert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0,
           f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
         state.masterPerm = shrinkTarget(r.c.get.param)
         state.myPerm = permAgainstMaster(state.masterPerm)
@@ -647,7 +666,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         //pair ProbeAck
         probeT.pairProbeAck(c)
         //update state
-        assert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0, f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
+        addAssert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0, f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
         state.masterPerm = shrinkTarget(c.param)
         state.myPerm = permAgainstMaster(state.masterPerm)
         state.slaveUpdatePendingProbeAck()
@@ -668,11 +687,11 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         val addr = c.address
         val state = getState(addr)
         //TODO: only one master for now, so no need to check source
-        val probeT = innerProbe.filter(p => p.probeAckPending.getOrElse(false)).filter(p => p.b.get.address == addr).head//pair ProbeAck
+        val probeT = innerProbe.filter(p => p.probeAckPending.getOrElse(false)).filter(p => p.b.get.address == addr).head //pair ProbeAck
         //pair ProbeAck
         probeT.pairProbeAck(c)
         //update state
-        assert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0, f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
+        addAssert(permCmp(shrinkFrom(c.param), state.masterPerm) <= 0, f"addr: $addr%x, recorded master perm: ${state.masterPerm}, param:${c.param} , shrink from ${shrinkFrom(c.param)}")
         state.masterPerm = shrinkTarget(c.param)
         state.myPerm = permAgainstMaster(state.masterPerm)
         state.data = c.data
@@ -694,7 +713,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         val addr = c.address
         val state = getState(addr)
         val acq_list = state.calleeTrans.filter(_.isInstanceOf[AcquireCalleeTrans])
-        assert(acq_list.forall(a => a.asInstanceOf[AcquireCalleeTrans].grantIssued.getOrElse(true)), "Detect master issue Release when pending Grant")
+        addAssert(acq_list.forall(a => a.asInstanceOf[AcquireCalleeTrans].grantIssued.getOrElse(true)), "Detect master issue Release when pending Grant")
         //TODO:only support one master for now
         cList.append(c)
       }
@@ -702,7 +721,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
         val addr = c.address
         val state = getState(addr)
         val acq_list = state.calleeTrans.filter(_.isInstanceOf[AcquireCalleeTrans])
-        assert(acq_list.forall(a => a.asInstanceOf[AcquireCalleeTrans].grantIssued.getOrElse(true)), "Detect master issue Release when pending Grant")
+        addAssert(acq_list.forall(a => a.asInstanceOf[AcquireCalleeTrans].grantIssued.getOrElse(true)), "Detect master issue Release when pending Grant")
         //TODO:only support one master for now
         cList.append(c)
       }

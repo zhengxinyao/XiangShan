@@ -363,6 +363,8 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
             ulAgent.step()
 
             c.clock.step()
+            masterAgentList.foreach(_.checkAssert())
+            ulAgent.checkAssert()
           }
         }
 
@@ -470,6 +472,7 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
             slaveAgent.step()
             c.clock.step()
+            slaveAgent.checkAssert()
           }
         }.join()
       }
