@@ -71,14 +71,22 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
     if (!resp.miss) {
       //search store list for addr conflict
       val alignLoadAddr = addrAlignBlock(loadAddr)
-      val conflictMask = storeIdMap.foldLeft(BigInt(0))((b, kv) =>
+      val conflictStoreMask = storeIdMap.foldLeft(BigInt(0))((b, kv) =>
         if (kv._2.req.get.addr == alignLoadAddr) {
           b | kv._2.req.get.mask
         }
         else
           b
       )
-      val conflictWordMask = maskOutOfWord(conflictMask, wordInBlock(loadAddr))
+      val alignWordLoadAddr = addrAlignWord(loadAddr)
+      val conflictAMOMask = amoIdMap.foldLeft(BigInt(0))((b, kv) =>
+        if (addrAlignWord(kv._2.req.get.addr) == alignWordLoadAddr) {
+          b | kv._2.req.get.mask
+        }
+        else
+          b
+      )
+      val conflictWordMask = maskOutOfWord(conflictStoreMask, wordInBlock(loadAddr)) | conflictAMOMask
       insertMaskedWordRead(loadAddr, resp.data, cleanMask(loadT.req.get.mask, conflictWordMask))
       outerLoad -= loadT
     }
@@ -123,7 +131,15 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
           else
             b
         )
-        val loadBlockMask = genWordMaskInBlock(loadAddr, q.req.get.mask)
+        val alignWordLoadAddr = addrAlignWord(loadAddr)
+        val conflictAMOMask = amoIdMap.foldLeft(BigInt(0))((b, kv) =>
+          if (addrAlignWord(kv._2.req.get.addr) == alignWordLoadAddr) {
+            b | kv._2.req.get.mask
+          }
+          else
+            b
+        )
+        val loadBlockMask = genWordMaskInBlock(loadAddr, cleanMask(q.req.get.mask, conflictAMOMask))
         insertMaskedReadSnap(alignAddr, resp.data, insertVersionRead(loadAddr, 0),
           cleanMask(loadBlockMask, conflictMask))
         outerLoad -= q
@@ -202,6 +218,7 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
     amoIdMap.remove(aid)
     outerAMO -= amoT
     if (amoReq.cmd == M_XA_SWAP) {
+      debugPrintln("handle amoResp")
       insertMaskedWordRead(amoReq.addr, resp.data, amoReq.mask)
       insertMaskedWordWrite(amoReq.addr, amoReq.data, amoReq.mask)
     }

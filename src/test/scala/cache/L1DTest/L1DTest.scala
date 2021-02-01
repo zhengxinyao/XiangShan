@@ -140,8 +140,8 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
           //========= core trans ===========
           //randomly add when low size
           if (true) {
-            if (coreAgent.outerLoad.size <= 4) {
-              for (i <- 0 until 8) {
+            if (coreAgent.outerLoad.size <= 6) {
+              for (i <- 0 until 16) {
                 val addr = getRandomElement(addr_pool, rand)
                 coreAgent.addLoad(addr)
               }
@@ -155,7 +155,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
               }
             }
           }
-          if (false) {
+          if (true) {
             if (coreAgent.outerAMO.size <= 0) {
               for (i <- 0 until 4) {
                 val addr = getRandomElement(addr_pool, rand)

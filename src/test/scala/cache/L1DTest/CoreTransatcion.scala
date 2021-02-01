@@ -143,7 +143,7 @@ class DCacheAMOCallerTrans extends DCacheAMOTrans with TLCCallerTrans {
     reqIssued = Some(false)
   }
 
-  def issueReq(allodId: BigInt = 0): LitDCacheWordReq = {
+  def issueReq(allodId: BigInt): LitDCacheWordReq = {
     req.get.id = allodId
     reqIssued = Some(true)
     startTimer()
