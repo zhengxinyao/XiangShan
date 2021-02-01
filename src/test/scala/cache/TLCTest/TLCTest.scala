@@ -191,7 +191,6 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
         c.reset.poke(true.B)
         c.clock.step(1000)
         c.reset.poke(false.B)
-        c.clock.step(100)
         c.io.ulIO.isOn.poke(true.B)
 
         c.clock.setTimeout(200)
