@@ -277,8 +277,8 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
   uint32_t lasttime_poll = 0;
   uint32_t lasttime_snapshot = 0;
   uint64_t lastcommit[NumCore];
-  uint64_t instr_left_last_cycle[NumCore];
   const int stuck_limit = 2000;
+  const int firstCommit_limit = 10000;
   uint64_t core_max_instr[NumCore];
 
   uint32_t wdst[NumCore][DIFFTEST_WIDTH];
@@ -292,10 +292,8 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
     diff[i].wdata = wdata[i];
     diff[i].wdst = wdst[i];
     lastcommit[i] = max_cycle;
-    instr_left_last_cycle[i] = max_cycle;
     core_max_instr[i] = max_instr;
   }
-
 
 #if VM_COVERAGE == 1
   // we dump coverage into files at the end
@@ -305,9 +303,7 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
 #endif
 
   while (!Verilated::gotFinish() && trapCode == STATE_RUNNING) {
-    if (!(max_cycle > 0 && 
-          core_max_instr[0] > 0 && 
-          instr_left_last_cycle[0] >= core_max_instr[0])) {
+    if (!(max_cycle > 0 && core_max_instr[0] > 0)) {
       trapCode = STATE_LIMIT_EXCEEDED;  /* handle overflow */
       break;
     }
@@ -336,6 +332,14 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
       trapCode = STATE_ABORT;
     }
 
+    if (lastcommit[0] - max_cycle > firstCommit_limit && !hascommit) {
+      eprintf("No instruction commits for %d cycles. Please check the first instruction.\n", firstCommit_limit);
+      eprintf("Note: The first instruction may lies in 0x10000000 which may executes and commits after 500 cycles.\n");
+      eprintf("      Or the first instruction may lies in 0x80000000 which may exeutes and commits after 2000 cycles.\n");
+      difftest_display(dut_ptr->io_difftest_priviledgeMode);
+      trapCode = STATE_ABORT;
+    }
+
     if (!hascommit && dut_ptr->io_difftest_commit && dut_ptr->io_difftest_thisPC == 0x80000000u) {
       hascommit = 1;
       read_emu_regs(reg[0]);
@@ -345,6 +349,7 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
       ref_difftest_setregs(reg[0], 0);
       printf("The first instruction has commited. Difftest enabled. \n");
     }
+
 
     // difftest
 
@@ -372,8 +377,8 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
         lastcommit[i] = max_cycle;
 
         // update instr_cnt
-        instr_left_last_cycle[i] = core_max_instr[i];
-        core_max_instr[i] -= diff[i].commit;
+        uint64_t commit_count = (core_max_instr[i] >= diff[i].commit) ? diff[i].commit : core_max_instr[i];
+        core_max_instr[i] -= commit_count;
       }
 
 #ifdef DIFFTEST_STORE_COMMIT
@@ -563,7 +568,7 @@ void Emulator::snapshot_load(const char *filename) {
 
   uint64_t ref_r[DIFFTEST_NR_REG];
   stream.read(ref_r, sizeof(ref_r));
-  ref_difftest_setregs(&ref_r);
+  ref_difftest_setregs(&ref_r, 0);
 
   uint64_t nemu_this_pc;
   stream.read(&nemu_this_pc, sizeof(nemu_this_pc));
@@ -576,11 +581,11 @@ void Emulator::snapshot_load(const char *filename) {
 
   struct SyncState sync_mastate;
   stream.read(&sync_mastate, sizeof(struct SyncState));
-  ref_difftest_set_mastatus(&sync_mastate);
+  ref_difftest_set_mastatus(&sync_mastate, 0);
 
   uint64_t csr_buf[4096];
   stream.read(&csr_buf, sizeof(csr_buf));
-  ref_difftest_set_csr(csr_buf);
+  ref_difftest_set_csr(csr_buf, 0);
 
   long sdcard_offset = 0;
   stream.read(&sdcard_offset, sizeof(sdcard_offset));
