@@ -211,7 +211,9 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
   }
 
   def fireAMOResp(resp: LitDCacheWordResp): Unit = {
-    val aid = resp.id
+    //TODO: !!! now the id is used for other opreation !!!
+    //val aid = resp.id
+    val aid = 0
     val amoT = amoIdMap(aid)
     val amoReq = amoT.req.get
     amoT.pairResp(resp)
