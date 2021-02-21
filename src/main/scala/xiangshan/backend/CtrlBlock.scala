@@ -158,7 +158,7 @@ class RedirectGenerator extends XSModule with HasCircularQueuePtrHelper {
   stage3CfiUpdate.rasEntry := ftqRead.rasTop
   stage3CfiUpdate.hist := ftqRead.hist
   stage3CfiUpdate.predHist := ftqRead.predHist
-  stage3CfiUpdate.specCnt := ftqRead.specCnt(s2_redirect_bits_reg.ftqOffset)
+  stage3CfiUpdate.specCnt := ftqRead.specCnt
   stage3CfiUpdate.predTaken := s2_redirect_bits_reg.cfiUpdate.predTaken
   stage3CfiUpdate.sawNotTakenBranch := VecInit((0 until PredictWidth).map{ i =>
     if(i == 0) false.B else Cat(ftqRead.br_mask.take(i)).orR()
@@ -198,6 +198,9 @@ class CtrlBlock extends XSModule with HasCircularQueuePtrHelper {
       val wpc = Output(Vec(CommitWidth, UInt(XLEN.W))) // set difftest width to 6
       val isRVC = Output(UInt(32.W))
       val scFailed = Output(Bool())
+      val lpaddr = Output(Vec(CommitWidth, UInt(64.W)))
+      val ltype = Output(Vec(CommitWidth, UInt(32.W)))
+      val lfu = Output(Vec(CommitWidth, UInt(4.W)))
     }
   })
   difftestIO <> DontCare
@@ -337,7 +340,7 @@ class CtrlBlock extends XSModule with HasCircularQueuePtrHelper {
   io.toLsBlock.redirect <> backendRedirect
   io.toLsBlock.flush <> flushReg
 
-  if (env.DualCoreDifftest) {
+  if (!env.FPGAPlatform) {
     difftestIO.fromRoq <> roq.difftestIO
     trapIO <> roq.trapIO
   }

@@ -195,7 +195,7 @@ class MissEntry(edge: TLEdgeOut) extends DCacheModule
       req := io.req
     }
 
-    should_refill_data := io.req.source === LOAD_SOURCE.U
+    should_refill_data := should_refill_data || io.req.source === LOAD_SOURCE.U
   }
 
 
@@ -413,7 +413,7 @@ class MissQueue(edge: TLEdgeOut) extends DCacheModule with HasTLDump
     }
 
     /*
-    if (!env.FPGAPlatform) {
+    if (!env.FPGAPlatform && !env.DualCore) {
       ExcitingUtils.addSource(
         BoolStopWatch(
           start = entry.io.req.fire(), 
@@ -492,7 +492,7 @@ class MissQueue(edge: TLEdgeOut) extends DCacheModule with HasTLDump
     io.mem_finish.bits.dump
   }
 
-  if (!env.FPGAPlatform) {
+  if (!env.FPGAPlatform && !env.DualCore) {
     ExcitingUtils.addSource(io.req.fire(), "perfCntDCacheMiss", Perf)
   }
 }

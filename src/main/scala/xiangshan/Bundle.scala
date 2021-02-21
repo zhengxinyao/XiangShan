@@ -9,6 +9,7 @@ import xiangshan.mem.{LqPtr, SqPtr}
 import xiangshan.frontend.PreDecodeInfo
 import xiangshan.frontend.HasBPUParameter
 import xiangshan.frontend.HasTageParameter
+import xiangshan.frontend.HasSCParameter
 import xiangshan.frontend.HasIFUConst
 import xiangshan.frontend.GlobalHistory
 import xiangshan.frontend.RASEntry
@@ -46,7 +47,7 @@ object ValidUndirectioned {
   }
 }
 
-class SCMeta(val useSC: Boolean) extends XSBundle with HasTageParameter {
+class SCMeta(val useSC: Boolean) extends XSBundle with HasSCParameter {
   def maxVal = 8 * ((1 << TageCtrBits) - 1) + SCTableInfo.map { case (_, cb, _) => (1 << cb) - 1 }.reduce(_ + _)
 
   def minVal = -(8 * (1 << TageCtrBits) + SCTableInfo.map { case (_, cb, _) => 1 << cb }.reduce(_ + _))
@@ -162,7 +163,7 @@ class CfiUpdateInfo extends XSBundle with HasBPUParameter {
   val rasEntry = new RASEntry
   val hist = new GlobalHistory
   val predHist = new GlobalHistory
-  val specCnt = UInt(10.W)
+  val specCnt = Vec(PredictWidth, UInt(10.W))
   // need pipeline update
   val sawNotTakenBranch = Bool()
   val predTaken = Bool()
@@ -328,6 +329,7 @@ class ReplayPregReq extends XSBundle {
 class DebugBundle extends XSBundle {
   val isMMIO = Bool()
   val isPerfCnt = Bool()
+  val paddr = UInt(PAddrBits.W)
 }
 
 class ExuInput extends XSBundle {
@@ -486,8 +488,24 @@ class DifftestBundle extends XSBundle {
     val wdata = Output(Vec(CommitWidth, UInt(XLEN.W))) // set difftest width to 6
     val wdst = Output(Vec(CommitWidth, UInt(32.W))) // set difftest width to 6
     val wpc = Output(Vec(CommitWidth, UInt(XLEN.W))) // set difftest width to 6
+    val lpaddr = Output(Vec(CommitWidth, UInt(64.W)))
+    val ltype = Output(Vec(CommitWidth, UInt(32.W)))
+    val lfu = Output(Vec(CommitWidth, UInt(4.W)))
     val isRVC = Output(UInt(32.W))
     val scFailed = Output(Bool())
+  }
+  val fromAtomic = new Bundle() {
+    val atomicResp = Output(Bool())
+    val atomicAddr = Output(UInt(64.W))
+    val atomicData = Output(UInt(64.W))
+    val atomicMask = Output(UInt(8.W))
+    val atomicFuop = Output(UInt(8.W))
+    val atomicOut  = Output(UInt(64.W))
+  }
+  val fromPtw = new Bundle() {
+    val ptwResp = Output(Bool())
+    val ptwAddr = Output(UInt(64.W))
+    val ptwData = Output(Vec(4, UInt(64.W)))
   }
 }
 
