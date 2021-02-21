@@ -111,8 +111,8 @@ class TLCCacheTestTopWrapper()(implicit p: Parameters) extends LazyModule {
 }
 
 trait RandomSampleUtil {
-  def getRandomElement[A](l: List[A], r: scala.util.Random): A = {
-    l(r.nextInt(l.length))
+  def getRandomElement[A](l: Seq[A], r: scala.util.Random): A = {
+    l(r.nextInt(l.size))
   }
 
   final def sample[A](dist: Map[A, Double], r: scala.util.Random): A = {
@@ -147,12 +147,12 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
     val addr_pool = {
       for (_ <- 0 to 128) yield BigInt(rand.nextInt(0xffff) << 6)
-    }.distinct.toList // align to block size
+    }.distinct.to[ArrayBuffer] // align to block size
     val ul_addr_pool = {
       {
         for (_ <- 0 to 64) yield BigInt(rand.nextInt(0xffff) << 6)
       }.toList ++ addr_pool
-    }.distinct
+    }.distinct.to[ArrayBuffer]
     val addr_list_len = addr_pool.length
     val acquireProbMap = Map(branch -> 0.3, trunk -> 0.7)
     val releaseProbMap = Map(nothing -> 0.6, branch -> 0.3, trunk -> 0.1)

@@ -56,6 +56,9 @@ class L1DTestTopWrapper()(implicit p: Parameters) extends LazyModule {
 
 class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers with TLCOp with RandomSampleUtil {
   top.Parameters.set(top.Parameters.debugParameters)
+  val dutSet = 64
+  val dutWay = 8
+  val setAddrBits = log2Up(dutSet)
 
   it should "run" in {
     implicit val p = Parameters((site, up, here) => {
@@ -64,9 +67,18 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
     })
 
     val rand = new Random(0xbeef)
-    val addr_pool = {
-      for (_ <- 0 until 256) yield BigInt(rand.nextInt(0xfffff) << 6) | 0x80000000L.U.litValue()
-    }.distinct.toList // align to block size
+
+    var addr_pool: ArrayBuffer[BigInt] = (List(BigInt(rand.nextInt(0x1ffffff) << 6) | 0x80000000L.U.litValue)).to[ArrayBuffer]
+    var set_1 = rand.nextInt(dutSet)
+    val addr_pool_1 = {
+      for (_ <- 0 until dutWay * 2) yield BigInt(rand.nextInt(0x7ffff) << 12) | BigInt(set_1 << setAddrBits) | 0x80000000L.U.litValue()
+    }.distinct.toList
+    val addr_pool_2 = {
+      for (i <- 0 until dutSet) yield {
+        for (_ <- 0 until dutWay * 2) yield BigInt(rand.nextInt(0x7ffff) << 12) | BigInt(i << setAddrBits) | 0x80000000L.U.litValue()
+      }
+    }.flatten.distinct.toList
+
     val addr_list_len = addr_pool.length
     println(f"addr pool length: $addr_list_len")
     val probeProbMap = Map(nothing -> 0.4, branch -> 0.5, trunk -> 0.1)
@@ -137,6 +149,17 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
         val sio = slaveIO
         for (cl <- 0 until total_clock) {
+          //change pool
+          if (cl == 10000) {
+            addr_pool ++= addr_pool_1
+          }
+          else if (cl == 20000) {
+            addr_pool ++= addr_pool_2
+          }
+          else if (cl > 20000) {
+            if (cl % 500 == 0)
+              addr_pool.append(BigInt(rand.nextInt(0x1ffffff) << 6) | 0x80000000L.U.litValue)
+          }
           //========= core trans ===========
           //randomly add when low size
           if (true) {
