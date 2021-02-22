@@ -51,13 +51,13 @@ class DCacheLoadTrans extends TLCTrans with LitMemOp {
 
   def dumpReq(): Unit = {
     if (req.isDefined) {
-      println(f"Req addr: ${req.get.addr} cmd: ${req.get.cmd} id: ${req.get.id} mask: ${req.get.mask}")
+      println(f"Req addr: ${req.get.addr}%x cmd: ${req.get.cmd} id: ${req.get.id} mask: ${req.get.mask}%x")
     }
   }
 
   def dumpResp(): Unit = {
     if (resp.isDefined) {
-      println(f"Resp data: ${resp.get.data} miss: ${resp.get.miss} replay: ${resp.get.replay}")
+      println(f"Resp data: ${resp.get.data}%x miss: ${resp.get.miss} replay: ${resp.get.replay}")
     }
   }
 }
@@ -119,14 +119,14 @@ class DCacheStoreTrans extends TLCTrans with LitMemOp {
 
   def dumpReq(): Unit = {
     if (req.isDefined) {
-      println(f"Req addr: ${req.get.addr} cmd: ${req.get.cmd} id: ${req.get.id} " +
-        f"data: ${req.get.data} mask: ${req.get.mask}")
+      println(f"Req addr: ${req.get.addr}%x cmd: ${req.get.cmd} id: ${req.get.id} " +
+        f"data: ${req.get.data}%x mask: ${req.get.mask}%x")
     }
   }
 
   def dumpResp(): Unit = {
     if (resp.isDefined) {
-      println(f"Resp data: ${resp.get.data} id: ${resp.get.id} paddr: ${resp.get.paddr}")
+      println(f"Resp data: ${resp.get.data}%x id: ${resp.get.id} paddr: ${resp.get.paddr}%x")
     }
   }
 }
@@ -174,14 +174,14 @@ class DCacheAMOTrans extends TLCTrans with LitMemOp {
 
   def dumpReq(): Unit = {
     if (req.isDefined) {
-      println(f"Req addr: ${req.get.addr} cmd: ${req.get.cmd} id: ${req.get.id} " +
-        f"data: ${req.get.data} mask: ${req.get.mask}")
+      println(f"Req addr: ${req.get.addr}%x cmd: ${req.get.cmd} id: ${req.get.id} " +
+        f"data: ${req.get.data}%x mask: ${req.get.mask}%x")
     }
   }
 
   def dumpResp(): Unit = {
     if (resp.isDefined) {
-      println(f"Resp data: ${resp.get.data} id: ${resp.get.id}")
+      println(f"Resp data: ${resp.get.data}%x id: ${resp.get.id}")
     }
   }
 }
