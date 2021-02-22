@@ -82,6 +82,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
     val addr_list_len = addr_pool.length
     println(f"addr pool length: $addr_list_len")
     val probeProbMap = Map(nothing -> 0.4, branch -> 0.5, trunk -> 0.1)
+    val slaveStallMap = Map(true -> 0.3, false -> 0.7)
 
     def peekBigInt(source: Data): BigInt = {
       source.peek().litValue()
@@ -246,7 +247,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
             }
           }
 
-          val AChannel_ready = true
+          val AChannel_ready = sample(slaveStallMap, rand)
           val CChannel_ready = true
           val EChannel_ready = true
           var BChannel_valid = false
