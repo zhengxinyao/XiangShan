@@ -270,10 +270,16 @@ abstract class TLCTrans extends TLCOp with PermissionTransition with BigIntExtra
   private var timer = 0
   private var timerRunning = false
 
+  def dumpInfo(): Unit = {
+  }
+
   def step(): Unit = {
     if (timerRunning) {
       timer += 1
-      assert(timer <= 1000, "transaction time out!")
+      if (timer > 1000) {
+        dumpInfo()
+        assert(false, "transaction time out!")
+      }
     }
   }
 
@@ -302,6 +308,23 @@ class AcquireTrans extends TLCTrans {
   var d: Option[TLCScalaD] = None
   var e: Option[TLCScalaE] = None
 
+  def dumpA(): Unit = {
+    if (a.isDefined) {
+      println(f"A opcode: ${a.get.opcode} param: ${a.get.param} address: ${a.get.address}%x source:${a.get.source}")
+    }
+  }
+
+  def dumpD(): Unit = {
+    if (d.isDefined) {
+      println(f"D opcode: ${d.get.opcode} param: ${d.get.param} source:${d.get.source} sink:${d.get.sink}")
+    }
+  }
+
+  def dumpE(): Unit = {
+    if (e.isDefined) {
+      println(f"E sink:${e.get.sink}")
+    }
+  }
 }
 
 class AcquireCallerTrans() extends AcquireTrans with TLCCallerTrans {
@@ -310,6 +333,15 @@ class AcquireCallerTrans() extends AcquireTrans with TLCCallerTrans {
   var grantAckIssued: Option[Boolean] = None
 
   var targetPerm: BigInt = nothing
+
+  override def dumpInfo(): Unit = {
+    println("===AcquireCallerTrans begin===")
+    println("acquireIssued:" + acquireIssued + "grantPending:" + grantPending + "grantAckIssued:" + grantAckIssued)
+    dumpA()
+    dumpD()
+    dumpE()
+    println("===AcquireCallerTrans end===")
+  }
 
   //record metaData in Acquire Message
   def prepareAcquire(reqAddr: BigInt, reqTargetPerm: BigInt): Unit = {
@@ -368,6 +400,15 @@ class AcquireCalleeTrans() extends AcquireTrans with TLCCalleeTrans {
   var grantIssued: Option[Boolean] = None
   var grantAckPending: Option[Boolean] = None
 
+  override def dumpInfo(): Unit = {
+    println("===AcquireCalleeTrans begin===")
+    println("grantIssued:" + grantIssued + "grantAckPending:" + grantAckPending)
+    dumpA()
+    dumpD()
+    dumpE()
+    println("===AcquireCalleeTrans end===")
+  }
+
   def pairAcquire(aIn: TLCScalaA): Unit = {
     a = Some(aIn)
     grantIssued = Some(false)
@@ -420,11 +461,31 @@ class AcquireCalleeTrans() extends AcquireTrans with TLCCalleeTrans {
 class ProbeTrans extends TLCTrans with PermissionTransition {
   var b: Option[TLCScalaB] = None
   var c: Option[TLCScalaC] = None
+
+  def dumpB(): Unit = {
+    if (b.isDefined) {
+      println(f"B opcode: ${b.get.opcode} param: ${b.get.param} address: ${b.get.address}%x")
+    }
+  }
+
+  def dumpC(): Unit = {
+    if (c.isDefined) {
+      println(f"C opcode: ${c.get.opcode} param: ${c.get.param} source: ${c.get.source} address: ${c.get.address}%x")
+    }
+  }
 }
 
 class ProbeCallerTrans() extends ProbeTrans with TLCCallerTrans {
   var probeIssued: Option[Boolean] = None
   var probeAckPending: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===ProbeCallerTrans begin===")
+    println("probeIssued:" + probeIssued + "probeAckPending:" + probeAckPending)
+    dumpB()
+    dumpC()
+    println("===ProbeCallerTrans end===")
+  }
 
   //record metaData in Probe Message
   def prepareProbe(reqAddr: BigInt, reqTargetPerm: BigInt, targetSource: BigInt = 0): Unit = {
@@ -457,6 +518,14 @@ class ProbeCallerTrans() extends ProbeTrans with TLCCallerTrans {
 
 case class ProbeCalleeTrans() extends ProbeTrans with TLCCalleeTrans {
   var probeAckIssued: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===ProbeCalleeTrans begin===")
+    println("probeAckIssued:" + probeAckIssued)
+    dumpB()
+    dumpC()
+    println("===ProbeCalleeTrans end===")
+  }
 
   def pairProbe(bIn: TLCScalaB): Unit = {
     b = Some(bIn)
@@ -497,11 +566,31 @@ case class ProbeCalleeTrans() extends ProbeTrans with TLCCalleeTrans {
 class ReleaseTrans extends TLCTrans with PermissionTransition {
   var c: Option[TLCScalaC] = None
   var d: Option[TLCScalaD] = None
+
+  def dumpC(): Unit = {
+    if (c.isDefined) {
+      println(f"C opcode: ${c.get.opcode} param: ${c.get.param} source: ${c.get.source} address: ${c.get.address}%x")
+    }
+  }
+
+  def dumpD(): Unit = {
+    if (d.isDefined) {
+      println(f"D opcode: ${d.get.opcode} param: ${d.get.param} source:${d.get.source} sink:${d.get.sink}")
+    }
+  }
 }
 
 class ReleaseCallerTrans() extends ReleaseTrans with TLCCallerTrans {
   var releaseIssued: Option[Boolean] = None
   var releaseAckPending: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===ReleaseCallerTrans begin===")
+    println("releaseIssued:" + releaseIssued + "releaseAckPending:" + releaseAckPending)
+    dumpC()
+    dumpD()
+    println("===ReleaseCallerTrans end===")
+  }
 
   var targetPerm: BigInt = nothing
 
@@ -548,6 +637,14 @@ class ReleaseCallerTrans() extends ReleaseTrans with TLCCallerTrans {
 class ReleaseCalleeTrans() extends ReleaseTrans with TLCCalleeTrans {
   var releaseAckIssued: Option[Boolean] = None
 
+  override def dumpInfo(): Unit = {
+    println("===ReleaseCalleeTrans begin===")
+    println("releaseAckIssued:" + releaseAckIssued)
+    dumpC()
+    dumpD()
+    println("===ReleaseCalleeTrans end===")
+  }
+
   def pairRelease(inC: TLCScalaC): Unit = {
     c = Some(inC)
     releaseAckIssued = Some(false)
@@ -570,10 +667,30 @@ class ReleaseCalleeTrans() extends ReleaseTrans with TLCCalleeTrans {
 class GetTrans() extends TLCTrans {
   var a: Option[TLCScalaA] = None
   var d: Option[TLCScalaD] = None
+
+  def dumpA(): Unit = {
+    if (a.isDefined) {
+      println(f"A opcode: ${a.get.opcode} param: ${a.get.param} address: ${a.get.address}%x source:${a.get.source}")
+    }
+  }
+
+  def dumpD(): Unit = {
+    if (d.isDefined) {
+      println(f"D opcode: ${d.get.opcode} param: ${d.get.param} source:${d.get.source} sink:${d.get.sink}")
+    }
+  }
 }
 
 class GetCallerTrans() extends GetTrans with TLCCallerTrans {
   var accessAckDataPending: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===GetCallerTrans begin===")
+    println("accessAckDataPending:" + accessAckDataPending)
+    dumpA()
+    dumpD()
+    println("===GetCallerTrans end===")
+  }
 
   def pairGet(inA: TLCScalaA): Unit = {
     a = Some(inA)
@@ -590,6 +707,14 @@ class GetCallerTrans() extends GetTrans with TLCCallerTrans {
 
 class GetCalleeTrans() extends GetTrans with TLCCalleeTrans {
   var accessAckDataIssued: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===GetCalleeTrans begin===")
+    println("accessAckDataIssued:" + accessAckDataIssued)
+    dumpA()
+    dumpD()
+    println("===GetCalleeTrans end===")
+  }
 
   def pairGet(inA: TLCScalaA): Unit = {
     a = Some(inA)
@@ -614,10 +739,30 @@ class GetCalleeTrans() extends GetTrans with TLCCalleeTrans {
 class PutTrans() extends TLCTrans {
   var a: Option[TLCScalaA] = None
   var d: Option[TLCScalaD] = None
+
+  def dumpA(): Unit = {
+    if (a.isDefined) {
+      println(f"A opcode: ${a.get.opcode} param: ${a.get.param} address: ${a.get.address}%x source:${a.get.source}")
+    }
+  }
+
+  def dumpD(): Unit = {
+    if (d.isDefined) {
+      println(f"D opcode: ${d.get.opcode} param: ${d.get.param} source:${d.get.source} sink:${d.get.sink}")
+    }
+  }
 }
 
 class PutCallerTrans() extends GetTrans with TLCCallerTrans {
   var accessAckPending: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===PutCallerTrans begin===")
+    println("accessAckPending:" + accessAckPending)
+    dumpA()
+    dumpD()
+    println("===PutCallerTrans end===")
+  }
 
   //inA will be concat in fireQueue
   def pairPut(inA: TLCScalaA): Unit = {
@@ -635,6 +780,14 @@ class PutCallerTrans() extends GetTrans with TLCCallerTrans {
 
 class PutCalleeTrans() extends GetTrans with TLCCalleeTrans {
   var accessAckIssued: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===PutCalleeTrans begin===")
+    println("accessAckIssued:" + accessAckIssued)
+    dumpA()
+    dumpD()
+    println("===PutCalleeTrans end===")
+  }
 
   //inA will be concat in fireQueue
   def pairPut(inA: TLCScalaA): Unit = {

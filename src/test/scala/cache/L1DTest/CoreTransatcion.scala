@@ -48,11 +48,32 @@ class DCacheLoadTrans extends TLCTrans with LitMemOp {
   var req: Option[LitDCacheWordReq] = None
   var resp: Option[LitDCacheWordResp] = None
   var lsqResp: Option[LitDCacheLineResp] = None
+
+  def dumpReq(): Unit = {
+    if (req.isDefined) {
+      println(f"Req addr: ${req.get.addr} cmd: ${req.get.cmd} id: ${req.get.id} mask: ${req.get.mask}")
+    }
+  }
+
+  def dumpResp(): Unit = {
+    if (resp.isDefined) {
+      println(f"Resp data: ${resp.get.data} miss: ${resp.get.miss} replay: ${resp.get.replay}")
+    }
+  }
 }
 
 class DCacheLoadCallerTrans extends DCacheLoadTrans with TLCCallerTrans {
   var reqIssued: Option[Boolean] = None
   var replayCnt = 0
+
+  override def dumpInfo(): Unit = {
+    println("===DCacheLoadCallerTrans begin===")
+    println("reqIssued:" + reqIssued)
+    dumpReq()
+    dumpResp()
+    println("replayCnt:" + replayCnt)
+    println("===DCacheLoadCallerTrans end===")
+  }
 
   def prepareLoad(addr: BigInt, mask: BigInt): Unit = {
     req = Some(
@@ -75,7 +96,7 @@ class DCacheLoadCallerTrans extends DCacheLoadTrans with TLCCallerTrans {
     reqIssued = Some(false)
     resetTimer()
     replayCnt += 1
-    assert(replayCnt <= 50,"replay more than 50 times!\n")
+    assert(replayCnt <= 50, f"load at ${req.get.addr}%x replay more than 50 times!\n")
   }
 
   def pairLoadResp(inResp: LitDCacheWordResp): Unit = {
@@ -95,10 +116,31 @@ class DCacheLoadCallerTrans extends DCacheLoadTrans with TLCCallerTrans {
 class DCacheStoreTrans extends TLCTrans with LitMemOp {
   var req: Option[LitDCacheLineReq] = None
   var resp: Option[LitDCacheLineResp] = None
+
+  def dumpReq(): Unit = {
+    if (req.isDefined) {
+      println(f"Req addr: ${req.get.addr} cmd: ${req.get.cmd} id: ${req.get.id} " +
+        f"data: ${req.get.data} mask: ${req.get.mask}")
+    }
+  }
+
+  def dumpResp(): Unit = {
+    if (resp.isDefined) {
+      println(f"Resp data: ${resp.get.data} id: ${resp.get.id} paddr: ${resp.get.paddr}")
+    }
+  }
 }
 
 class DCacheStoreCallerTrans extends DCacheStoreTrans with TLCCallerTrans {
   var reqIssued: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===DCacheStoreCallerTrans begin===")
+    println("reqIssued:" + reqIssued)
+    dumpReq()
+    dumpResp()
+    println("===DCacheStoreCallerTrans end===")
+  }
 
   def prepareStore(addr: BigInt, data: BigInt, mask: BigInt): Unit = {
     req = Some(
@@ -129,10 +171,31 @@ class DCacheStoreCallerTrans extends DCacheStoreTrans with TLCCallerTrans {
 class DCacheAMOTrans extends TLCTrans with LitMemOp {
   var req: Option[LitDCacheWordReq] = None
   var resp: Option[LitDCacheWordResp] = None
+
+  def dumpReq(): Unit = {
+    if (req.isDefined) {
+      println(f"Req addr: ${req.get.addr} cmd: ${req.get.cmd} id: ${req.get.id} " +
+        f"data: ${req.get.data} mask: ${req.get.mask}")
+    }
+  }
+
+  def dumpResp(): Unit = {
+    if (resp.isDefined) {
+      println(f"Resp data: ${resp.get.data} id: ${resp.get.id}")
+    }
+  }
 }
 
 class DCacheAMOCallerTrans extends DCacheAMOTrans with TLCCallerTrans {
   var reqIssued: Option[Boolean] = None
+
+  override def dumpInfo(): Unit = {
+    println("===DCacheAMOCallerTrans begin===")
+    println("reqIssued:" + reqIssued)
+    dumpReq()
+    dumpResp()
+    println("===DCacheAMOCallerTrans end===")
+  }
 
   def prepareAMOSwap(addr: BigInt, data: BigInt, mask: BigInt): Unit = {
     req = Some(
