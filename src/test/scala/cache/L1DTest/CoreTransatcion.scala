@@ -52,6 +52,7 @@ class DCacheLoadTrans extends TLCTrans with LitMemOp {
 
 class DCacheLoadCallerTrans extends DCacheLoadTrans with TLCCallerTrans {
   var reqIssued: Option[Boolean] = None
+  var replayCnt = 0
 
   def prepareLoad(addr: BigInt, mask: BigInt): Unit = {
     req = Some(
@@ -73,6 +74,8 @@ class DCacheLoadCallerTrans extends DCacheLoadTrans with TLCCallerTrans {
   def replayLoad(): Unit = {
     reqIssued = Some(false)
     resetTimer()
+    replayCnt += 1
+    assert(replayCnt <= 50,"replay more than 50 times!\n")
   }
 
   def pairLoadResp(inResp: LitDCacheWordResp): Unit = {
