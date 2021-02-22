@@ -129,7 +129,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
         c.io.slaveIO.DChannel.valid.poke(false.B)
 
 
-        val total_clock = 50000
+        val total_clock = 150000
 
         c.reset.poke(true.B)
         c.clock.step(100)
@@ -157,7 +157,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
           else if (cl == 20000) {
             addr_pool ++= addr_pool_2
           }
-          else if (cl > 20000) {
+          else if (cl > 30000) {
             if (cl % 500 == 0)
               addr_pool.append(BigInt(rand.nextInt(0x1ffffff) << 6) | 0x80000000L.U.litValue)
           }
