@@ -54,6 +54,35 @@ class L1DTestTopWrapper()(implicit p: Parameters) extends LazyModule {
   }
 }
 
+class StallTimer(maxStall: Int = 20) {
+  var stall = false
+  private var clk = 0
+  private var fired = false
+
+  def startTimer(s: Int = maxStall): Unit = {
+    if (fired) {
+      stall = true
+      fired = false
+      clk = if (s > maxStall) maxStall else s
+    }
+  }
+
+  def fire(): Unit = {
+    fired = true
+  }
+
+  def peekTimer(): Boolean = {
+    if (stall) {
+      if (clk <= 0)
+        stall = false
+      else
+        clk -= 1
+    }
+    stall
+  }
+
+}
+
 class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers with TLCOp with RandomSampleUtil {
   top.Parameters.set(top.Parameters.debugParameters)
   val dutSet = 64
@@ -82,7 +111,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
     val addr_list_len = addr_pool.length
     println(f"addr pool length: $addr_list_len")
     val probeProbMap = Map(nothing -> 0.4, branch -> 0.5, trunk -> 0.1)
-    val slaveStallMap = Map(true -> 0.3, false -> 0.7)
+    val slaveStallMap = Map(true -> 0.7, false -> 0.3)
 
     def peekBigInt(source: Data): BigInt = {
       source.peek().litValue()
@@ -143,6 +172,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
         val slaveState = mutable.Map[BigInt, AddrState]()
         val slaveAgent = new TLCSlaveAgent(2, name = "l3", 8, slaveState, serialList, scoreboard)
+        val slaveAStall = new StallTimer()
 
         val coreIO = c.io.dcacheIO
         val coreStateList = mutable.Map[BigInt, AddrState]()
@@ -238,7 +268,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
           //========= slave ============
           //randomly add when empty
           if (slaveAgent.innerProbe.size <= 2) {
-            if (true) {
+            if (cl % 1000 == 0) {
               for (i <- 0 until 8) {
                 val addr = getRandomElement(addr_pool, rand)
                 val targetPerm = sample(probeProbMap, rand)
@@ -247,7 +277,15 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
             }
           }
 
-          val AChannel_ready = sample(slaveStallMap, rand)
+          val AChannel_ready = {
+            if (slaveAStall.stall) {
+              slaveAStall.peekTimer()
+            }
+            else if (sample(slaveStallMap, rand)) {
+              slaveAStall.startTimer()
+            }
+            !slaveAStall.stall
+          }
           val CChannel_ready = true
           val EChannel_ready = true
           var BChannel_valid = false
