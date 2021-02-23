@@ -152,7 +152,10 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
 
   def issueStoreReq(): Unit = {
     if (storePortReqMessage.isEmpty) {
-      val nextStore = outerStore.find(s => !s.reqIssued.getOrElse(true))
+      // val nextStore = outerStore.find(s => !s.reqIssued.getOrElse(true))
+      val nextStore = outerStore.find(s => {
+        !(s.reqIssued.getOrElse(true) || storeIdMap.exists(p => s.req.get.addr == p._2.req.get.addr))
+      })
       if (nextStore.isDefined) {
         val allocId = (0 to maxStoreId).find(i => !storeIdMap.contains(BigInt(i)))
         if (allocId.isDefined) {
