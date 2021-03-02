@@ -416,6 +416,8 @@ class DecodeUnit extends XSModule with DecodeUnitConstants {
   cf_ctrl.cf := ctrl_flow
   val cs = Wire(new CtrlSignals()).decode(ctrl_flow.instr, decode_table)
 
+  cs.singleStep := false.B
+
   val fpDecoder = Module(new FPDecoder)
   fpDecoder.io.instr := ctrl_flow.instr
   cs.fpu := fpDecoder.io.fpCtrl
