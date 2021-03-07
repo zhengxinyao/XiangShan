@@ -2,6 +2,7 @@ package cache.TLCTest
 
 import chipsalliance.rocketchip.config.{Field, Parameters}
 import chisel3._
+import chisel3.util._
 import chiseltest.experimental.TestOptionBuilder._
 import chiseltest.internal.{LineCoverageAnnotation, ToggleCoverageAnnotation, VerilatorBackendAnnotation}
 import chiseltest.legacy.backends.verilator.VerilatorFlags
@@ -26,9 +27,9 @@ import scala.collection.mutable.ListBuffer
 
 case class TLCCacheTestParams
 (
-  ways: Int = 4,
+  ways: Int = 8,
   banks: Int = 1,
-  capacityKB: Int = 4,
+  capacityKB: Int = 32,
   blockBytes: Int = 64,
   beatBytes: Int = 32
 ) {
@@ -130,9 +131,9 @@ trait RandomSampleUtil {
 }
 
 class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers with TLCOp with RandomSampleUtil {
-  val slave_safe = 0
-  val slave_granting = 1
-  val slave_probing = 2
+  val dutSet = 64
+  val dutWay = 8
+  val setAddrBits = log2Up(dutSet)
 
   top.Parameters.set(top.Parameters.debugParameters)
 
@@ -145,9 +146,17 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
     val rand = new Random(0xbeef)
 
-    val addr_pool = {
-      for (_ <- 0 to 128) yield BigInt(rand.nextInt(0xffff) << 6)
-    }.distinct.to[ArrayBuffer] // align to block size
+    var addr_pool: ArrayBuffer[BigInt] = (List(BigInt(rand.nextInt(0x1ffffff) << 6) | 0x80000000L.U.litValue)).to[ArrayBuffer]
+    var set_1 = rand.nextInt(dutSet)
+    val addr_pool_1 = {
+      for (_ <- 0 until dutWay * 2) yield BigInt(rand.nextInt(0x7ffff) << 12) | BigInt(set_1 << setAddrBits) | 0x80000000L.U.litValue()
+    }.distinct.toList
+    val addr_pool_2 = {
+      for (i <- 0 until dutSet) yield {
+        for (_ <- 0 until dutWay * 2) yield BigInt(rand.nextInt(0x7ffff) << 12) | BigInt(i << setAddrBits) | 0x80000000L.U.litValue()
+      }
+    }.flatten.distinct.toList
+
     val ul_addr_pool = {
       {
         for (_ <- 0 to 64) yield BigInt(rand.nextInt(0xffff) << 6)
@@ -168,8 +177,8 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
     test(LazyModule(new TLCCacheTestTopWrapper()).module)
       .withAnnotations(Seq(VerilatorBackendAnnotation,
-        LineCoverageAnnotation,
-        ToggleCoverageAnnotation,
+        // LineCoverageAnnotation,
+        // ToggleCoverageAnnotation,
         VerilatorFlags(Seq("--output-split 5000", "--output-split-cfuncs 5000")),
         RunFirrtlTransformAnnotation(new PrintModuleName))) { c =>
         c.io.mastersIO.foreach { mio =>
@@ -214,7 +223,19 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
         val slaveAgent = new TLCSlaveAgent(2, name = "l3", 16, slaveState, serialList, scoreboard)
         //must set order here
         fork {
-          for (_ <- 0 to total_clock) {
+          for (cl <- 0 to total_clock) {
+            //change pool
+            if (cl == 10000) {
+              addr_pool ++= addr_pool_1
+            }
+            else if (cl == 20000) {
+              addr_pool ++= addr_pool_2
+            }
+            else if (cl > 30000) {
+              if (cl % 500 == 0)
+                addr_pool.append(BigInt(rand.nextInt(0x1ffffff) << 6) | 0x80000000L.U.litValue)
+            }
+
             val ulio = ulIO
             val ulBlockAddr = getRandomElement(ul_addr_pool, rand)
             c.io.fuzzerBlockAddr.poke(ulBlockAddr.U)
