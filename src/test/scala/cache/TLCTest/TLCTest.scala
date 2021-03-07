@@ -227,13 +227,17 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
             //change pool
             if (cl == 10000) {
               addr_pool ++= addr_pool_1
+              ul_addr_pool ++= addr_pool_1
             }
             else if (cl == 20000) {
               addr_pool ++= addr_pool_2
+              ul_addr_pool ++= addr_pool_2
             }
             else if (cl > 30000) {
-              if (cl % 500 == 0)
+              if (cl % 500 == 0){
                 addr_pool.append(BigInt(rand.nextInt(0x1ffffff) << 6) | 0x80000000L.U.litValue)
+                ul_addr_pool.append(addr_pool.last)
+              }
             }
 
             val ulio = ulIO
