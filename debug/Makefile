@@ -106,6 +106,9 @@ tlc-test:
 l1-test:
 	cd .. && mill XiangShan.test.testOnly -o -s cache.L1DTest.L1DCacheTest
 
+tlb-test:
+	cd .. && mill XiangShan.test.testOnly -o -s cache.TLBTest.TLBTest
+
 unit-test-all:
 	cd .. && mill XiangShan.test.test -P$(P)
 

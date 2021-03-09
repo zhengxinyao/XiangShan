@@ -1,8 +1,11 @@
 package cache.TLCTest
 
+import cache.TestAgentBase
+
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import chipsalliance.rocketchip.config.Parameters
+
 import scala.util.Random
 import chisel3.util._
 
@@ -146,7 +149,7 @@ class FireQueue[T <: TLCScalaMessage]() {
 class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, AddrState], serialList: ArrayBuffer[(Int, TLCTrans)],
                scoreboard: mutable.Map[BigInt, ScoreboardData], start_clock: Int = 0)
               (implicit p: Parameters)
-  extends TLCOp with BigIntExtract with PermissionTransition {
+  extends TestAgentBase(ID, name, start_clock) with TLCOp with BigIntExtract with PermissionTransition {
   val l2params = p(TLCCacheTestKey)
   val beatNum = l2params.blockBytes / l2params.beatBytes
   val beatBits = l2params.beatBytes * 8
@@ -161,41 +164,7 @@ class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, Add
   val fullBlockMask = BigInt(prefix ++ Array.fill(l2params.blockBytes)(0xff.toByte))
   val offsetMask: Long = (1L << log2Up(l2params.blockBytes)) - 1
 
-  val rand = new Random(0xdad)
-
-  var clock = start_clock
-
-  val error_list: ListBuffer[String] = ListBuffer[String]()
-
-  def transStep(): Unit = {
-    Unit
-  }
-
-  def step(): Unit = {
-    transStep()
-    clock += 1
-  }
-
-  def debugPrefix(): String = {
-    f"[DEBUG][time= $clock%19d] TLAgent$ID-$name: "
-  }
-
-  def debugPrintln(ins: String): Unit = {
-    println(debugPrefix() ++ ins)
-  }
-
-  def addAssert(cond: Boolean, message: String): Unit = {
-    if (!cond) {
-      error_list.append(message)
-    }
-  }
-
-  def checkAssert(): Unit = {
-    if (!error_list.isEmpty) {
-      error_list.foreach(debugPrintln(_))
-      assert(false, "agent assert!\n")
-    }
-  }
+  override val rand = new Random(0xdad)
 
   def getState(addr: BigInt): AddrState = {
     val state = addrStateMap.getOrElse(addr, new AddrState())
