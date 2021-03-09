@@ -209,7 +209,7 @@ class L1DCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
               }
             }
           }
-          if (true) {
+          if (cl % 1000 == 0) {
             if (coreAgent.outerAMO.size <= 0) {
               for (i <- 0 until 4) {
                 val addr = getRandomElement(addr_pool, rand)

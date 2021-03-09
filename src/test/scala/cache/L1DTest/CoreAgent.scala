@@ -6,6 +6,26 @@ import chipsalliance.rocketchip.config.Parameters
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
+
+class waitingListBuffer[T](maxInflight: Int) {
+  val l: ListBuffer[T] = ListBuffer[T]()
+  require(maxInflight >= 0)
+
+  def tryAppend(a: T): Boolean = {
+    if (l.size >= maxInflight) {
+      false
+    }
+    else {
+      l.append(a)
+      true
+    }
+  }
+
+  def isFull(): Boolean = {
+    l.size >= maxInflight
+  }
+}
+
 //!!! for coreAgent, load resp must be fired before store resp
 class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrState], serialList: ArrayBuffer[(Int, TLCTrans)]
                 , scoreboard: mutable.Map[BigInt, ScoreboardData], portNum: Int = 2)
@@ -34,14 +54,27 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
   private val storeIdMap: mutable.Map[BigInt, DCacheStoreCallerTrans] = mutable.Map[BigInt, DCacheStoreCallerTrans]()
   private val amoIdMap: mutable.Map[BigInt, DCacheAMOCallerTrans] = mutable.Map[BigInt, DCacheAMOCallerTrans]()
 
+  private val maxLoadInflight = 12
+  private val loadTransInflight = Array.fill(2)(new waitingListBuffer[DCacheLoadCallerTrans](maxLoadInflight))
+
   def issueLoadReq(): Unit = {
     for (i <- 0 until portNum) {
       if (loadPortsReqMessage(i).isEmpty) {
-        val nextLoad = outerLoad.find(l => !l.reqIssued.getOrElse(true))
-        if (nextLoad.isDefined) {
+        val nextReplay = loadTransInflight(i).l.find(l => !l.reqIssued.getOrElse(true) && l.replayTimer.isTimeout())
+        if (nextReplay.isDefined) {
           //alloc & issue
-          s0_loadTrans(i) = nextLoad
-          loadPortsReqMessage(i) = Some(nextLoad.get.issueLoadReq())
+          s0_loadTrans(i) = nextReplay
+          loadPortsReqMessage(i) = Some(nextReplay.get.issueLoadReq())
+          nextReplay.get.replayTimer.reset()
+        }
+        else if (!loadTransInflight(i).isFull()){
+          val nextLoad = outerLoad.find(l => !l.reqIssued.getOrElse(true))
+          if (nextLoad.isDefined) {
+            //alloc & issue
+            s0_loadTrans(i) = nextLoad
+            loadPortsReqMessage(i) = Some(nextLoad.get.issueLoadReq())
+            loadTransInflight(i).l.append(nextLoad.get)
+          }
         }
       }
     }
@@ -52,6 +85,7 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
   }
 
   def fireLoadReq(i: Int): Unit = {
+    loadPortsReqMessage(i).get.trans.get.startTimer()
     loadPortsReqMessage(i) = None
   }
 
@@ -89,14 +123,15 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
       val conflictWordMask = maskOutOfWord(conflictStoreMask, wordInBlock(loadAddr)) | conflictAMOMask
       insertMaskedWordRead(loadAddr, resp.data, cleanMask(loadT.req.get.mask, conflictWordMask))
       outerLoad -= loadT
+      loadTransInflight(i).l -= loadT
     }
     else if (resp.replay) {
       outerLoad -= loadT //drop it
       loadT.replayLoad() //mark replay
-      outerLoad.append(loadT) //pushpack
     }
     else {
       lsqWaiting.enqueue(loadT)
+      loadTransInflight(i).l -= loadT
     }
 
   }
@@ -173,6 +208,7 @@ class CoreAgent(ID: Int, name: String, addrStateMap: mutable.Map[BigInt, AddrSta
   }
 
   def fireStoreReq(): Unit = {
+    storePortReqMessage.get.trans.get.startTimer()
     //free store req port
     storePortReqMessage = None
   }

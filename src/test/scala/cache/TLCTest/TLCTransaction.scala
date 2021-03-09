@@ -1,8 +1,9 @@
 package cache.TLCTest
 
+import cache.TransTimer
 import freechips.rocketchip.tilelink.TLMessages
 
-import scala.collection.mutable.{Map, Seq, ListBuffer}
+import scala.collection.mutable.{ListBuffer, Map, Seq}
 
 class TLCScalaMessage {
   var trans: Option[TLCTrans] = None
@@ -267,30 +268,24 @@ abstract class TLCTrans extends TLCOp with PermissionTransition with BigIntExtra
   val blockSizeL2 = BigInt(6)
   val beatFullMask = BigInt(prefix ++ Array.fill(4)(0xff.toByte))
 
-  private var timer = 0
-  private var timerRunning = false
+  private val timer = new TransTimer()
 
   def dumpInfo(): Unit = {
   }
 
   def step(): Unit = {
-    if (timerRunning) {
-      timer += 1
-      if (timer > 1000) {
-        dumpInfo()
-        assert(false, "transaction time out!")
-      }
+    if (timer.step()) {
+      dumpInfo()
+      assert(false, "transaction time out!")
     }
   }
 
   def startTimer(): Unit = {
-    timer = 0
-    timerRunning = true
+    timer.start()
   }
 
   def resetTimer(): Unit = {
-    timer = 0
-    timerRunning = false
+    timer.reset()
   }
 }
 

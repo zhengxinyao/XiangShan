@@ -1,6 +1,7 @@
 package cache.L1DTest
 
-import cache.TLCTest.{TLCCallerTrans, TLCTrans}
+import cache.TLCTest.{TLCCallerTrans, TLCScalaMessage, TLCTrans}
+import cache.TransTimer
 import xiangshan.cache.MemoryOpConstants
 
 class LitDCacheWordReq(
@@ -9,7 +10,7 @@ class LitDCacheWordReq(
                         var data: BigInt = 0,
                         val mask: BigInt,
                         var id: BigInt = 0,
-                      ) {
+                      ) extends TLCScalaMessage() {
 }
 
 class LitDCacheWordResp(
@@ -17,7 +18,7 @@ class LitDCacheWordResp(
                          val miss: Boolean,
                          val replay: Boolean,
                          var id: BigInt = 0,
-                       ) {
+                       ) extends TLCScalaMessage() {
 
 }
 
@@ -27,14 +28,14 @@ class LitDCacheLineReq(
                         val data: BigInt,
                         val mask: BigInt,
                         var id: BigInt = 0
-                      ) {
+                      ) extends TLCScalaMessage() {
 }
 
 class LitDCacheLineResp(
                          val data: BigInt,
                          val paddr: BigInt,
                          val id: BigInt,
-                       ) {
+                       ) extends TLCScalaMessage() {
 
 }
 
@@ -65,6 +66,7 @@ class DCacheLoadTrans extends TLCTrans with LitMemOp {
 class DCacheLoadCallerTrans extends DCacheLoadTrans with TLCCallerTrans {
   var reqIssued: Option[Boolean] = None
   var replayCnt = 0
+  var replayTimer = new TransTimer(40)
 
   override def dumpInfo(): Unit = {
     println("===DCacheLoadCallerTrans begin===")
@@ -88,13 +90,14 @@ class DCacheLoadCallerTrans extends DCacheLoadTrans with TLCCallerTrans {
 
   def issueLoadReq(): LitDCacheWordReq = {
     reqIssued = Some(true)
-    startTimer()
+//    startTimer()
+    req.get.trans = Some(this)
     req.get
   }
 
   def replayLoad(): Unit = {
-    reqIssued = Some(false)
     resetTimer()
+    replayTimer.start()
     replayCnt += 1
     assert(replayCnt <= 50, f"load at ${req.get.addr}%x replay more than 50 times!\n")
   }
@@ -157,7 +160,8 @@ class DCacheStoreCallerTrans extends DCacheStoreTrans with TLCCallerTrans {
   def issueStoreReq(allocId: BigInt): LitDCacheLineReq = {
     req.get.id = allocId
     reqIssued = Some(true)
-    startTimer()
+//    startTimer()
+    req.get.trans = Some(this)
     req.get
   }
 
