@@ -5,6 +5,7 @@ import chisel3.util._
 import xiangshan._
 import utils._
 import xiangshan.backend.roq.RoqPtr
+import xiangshan.backend.dispatch.PreDispatchInfo
 
 class RenameBypassInfo extends XSBundle {
   val lsrc1_bypass = MixedVec(List.tabulate(RenameWidth-1)(i => UInt((i+1).W)))
@@ -23,6 +24,7 @@ class Rename extends XSModule with HasCircularQueuePtrHelper {
     // to dispatch1
     val out = Vec(RenameWidth, DecoupledIO(new MicroOp))
     val renameBypass = Output(new RenameBypassInfo)
+    val dispatchInfo = Output(new PreDispatchInfo)
   })
 
   def printRenameInfo(in: DecoupledIO[CfCtrl], out: DecoupledIO[MicroOp]) = {
@@ -202,6 +204,12 @@ class Rename extends XSModule with HasCircularQueuePtrHelper {
     }).reverse)
   }
 
+  val isLs    = VecInit(uops.map(uop => FuType.isLoadStore(uop.ctrl.fuType)))
+  val isStore = VecInit(uops.map(uop => FuType.isStoreExu(uop.ctrl.fuType)))
+  val isAMO   = VecInit(uops.map(uop => FuType.isAMO(uop.ctrl.fuType)))
+  io.dispatchInfo.lsqNeedAlloc := VecInit((0 until RenameWidth).map(i =>
+    Mux(isLs(i), Mux(isStore(i) && !isAMO(i), 2.U, 1.U), 0.U)))
+
   /**
     * Instructions commit: update freelist and rename table
     */
@@ -239,4 +247,13 @@ class Rename extends XSModule with HasCircularQueuePtrHelper {
       freelist.deallocPregs(i) := io.roqCommits.info(i).old_pdest
     }
   }
+
+  XSPerf("in", Mux(RegNext(io.in(0).ready), PopCount(io.in.map(_.valid)), 0.U))
+  XSPerf("utilization", PopCount(io.in.map(_.valid)))
+  XSPerf("waitInstr", PopCount((0 until RenameWidth).map(i => io.in(i).valid && !io.in(i).ready)))
+  XSPerf("stall_cycle_dispatch", hasValid && !io.out(0).ready && fpFreeList.req.canAlloc && intFreeList.req.canAlloc && !io.roqCommits.isWalk)
+  XSPerf("stall_cycle_fp", hasValid && io.out(0).ready && !fpFreeList.req.canAlloc && intFreeList.req.canAlloc && !io.roqCommits.isWalk)
+  XSPerf("stall_cycle_int", hasValid && io.out(0).ready && fpFreeList.req.canAlloc && !intFreeList.req.canAlloc && !io.roqCommits.isWalk)
+  XSPerf("stall_cycle_walk", hasValid && io.out(0).ready && fpFreeList.req.canAlloc && intFreeList.req.canAlloc && io.roqCommits.isWalk)
+
 }

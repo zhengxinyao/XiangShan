@@ -37,7 +37,7 @@ class LoopEntry extends LTBBundle {
   // val unusable = Bool()
 
   def isLearned = conf === 7.U
-  def isConf = conf =/= 0.U
+  def isConf = conf =/= 0.U && conf =/= 7.U
   def isUnconf = conf === 0.U
 }
 
@@ -159,56 +159,67 @@ class LTBColumn extends LTBModule {
   val wen = WireInit(false.B)
   when(wen) {ltb.write(if4_rIdx, wEntry)}
 
+  val loop_entry_is_learned = WireInit(false.B)
+  val loop_learned_entry_conflict = WireInit(false.B)
+  val loop_conf_entry_evicted = WireInit(false.B)
+
   when(redirectValid && redirect.mispred && !isReplay && !doingReset) {
     wen := true.B
-    when(tagMatch && if4_rEntry.isLearned) {
-      XSDebug("[redirect] 0\n")
-      wEntry.conf := 0.U
-      wEntry.specCnt := 0.U
-    }.elsewhen(tagMatch && if4_rEntry.isConf) {
-      when(cntMatch) {
-        XSDebug("[redirect] 1\n")
-        wEntry.conf := if4_rEntry.conf + 1.U
-        wEntry.specCnt := 0.U
-      }.otherwise {
-        XSDebug("[redirect] 2\n")
+    when(tagMatch) {
+      when(if4_rEntry.isLearned) {
+        XSDebug("[redirect] 0\n")
         wEntry.conf := 0.U
         wEntry.specCnt := 0.U
-        wEntry.tripCnt := redirect.specCnt
+      }.elsewhen(if4_rEntry.isConf) {
+        when(cntMatch) {
+          XSDebug("[redirect] 1\n")
+          wEntry.conf := if4_rEntry.conf + 1.U
+          loop_entry_is_learned := true.B
+          wEntry.specCnt := 0.U
+        }.otherwise {
+          XSDebug("[redirect] 2\n")
+          wEntry.conf := 0.U
+          wEntry.specCnt := 0.U
+          wEntry.tripCnt := redirect.specCnt
+        }
+      }.elsewhen(if4_rEntry.isUnconf) {
+        when(cntMatch) {
+          XSDebug("[redirect] 3\n")
+          wEntry.conf := 1.U
+          wEntry.age := 7.U
+          wEntry.specCnt := 0.U
+        }.otherwise {
+          XSDebug("[redirect] 4\n")
+          wEntry.tripCnt := redirect.specCnt
+          wEntry.age := 7.U
+          wEntry.specCnt := 0.U
+        }
       }
-    }.elsewhen(tagMatch && if4_rEntry.isUnconf) {
-      when(cntMatch) {
-        XSDebug("[redirect] 3\n")
-        wEntry.conf := 1.U
-        wEntry.age := 7.U
-        wEntry.specCnt := 0.U
-      }.otherwise {
-        XSDebug("[redirect] 4\n")
-        wEntry.tripCnt := redirect.specCnt
-        wEntry.age := 7.U
-        wEntry.specCnt := 0.U
-      }
-    }.elsewhen(!tagMatch && if4_rEntry.isLearned) {
+    }.otherwise {
+      when(if4_rEntry.isLearned) {
         XSDebug("[redirect] 5\n")
-      // do nothing? or release this entry
-    }.elsewhen(!tagMatch && if4_rEntry.isConf) {
-      when(if4_rEntry.age === 0.U) {
-        XSDebug("[redirect] 6\n")
+        // do nothing? or release this entry
+        loop_learned_entry_conflict := true.B
+      }.elsewhen(if4_rEntry.isConf) {
+        when(if4_rEntry.age === 0.U) {
+          XSDebug("[redirect] 6\n")
+          wEntry.tag := redirectTag
+          loop_conf_entry_evicted := true.B
+          wEntry.conf := 1.U
+          wEntry.specCnt := 0.U
+          wEntry.tripCnt := redirect.specCnt
+        }.otherwise {
+          XSDebug("[redirect] 7\n")
+          wEntry.age := if4_rEntry.age - 1.U
+        }
+      }.elsewhen(if4_rEntry.isUnconf) {
+        XSDebug("[redirect] 8\n")
         wEntry.tag := redirectTag
         wEntry.conf := 1.U
+        wEntry.age := 7.U
         wEntry.specCnt := 0.U
         wEntry.tripCnt := redirect.specCnt
-      }.otherwise {
-        XSDebug("[redirect] 7\n")
-        wEntry.age := if4_rEntry.age - 1.U
       }
-    }.elsewhen(!tagMatch && if4_rEntry.isUnconf) {
-      XSDebug("[redirect] 8\n")
-      wEntry.tag := redirectTag
-      wEntry.conf := 1.U
-      wEntry.age := 7.U
-      wEntry.specCnt := 0.U
-      wEntry.tripCnt := redirect.specCnt
     }
   }.elsewhen(redirectValid && !doingReset){
     XSDebug("[redirect] 9\n")
@@ -262,6 +273,11 @@ class LTBColumn extends LTBModule {
   }
 
   if (BPUDebug && debug) {
+    // Perf counters
+    XSPerf("loop_entry_is_learned ", loop_entry_is_learned)
+    XSPerf("loop_learned_entry_conflict ", loop_learned_entry_conflict)
+    XSPerf("loop_conf_entry_evicted ", loop_conf_entry_evicted)
+
     //debug info
     XSDebug(doingReset, "Reseting...\n")
     XSDebug(io.repair, "Repair...\n")
@@ -375,13 +391,11 @@ class LoopPredictor extends BasePredictor with LTBParams {
   val ltbResps = VecInit((0 until PredictWidth).map(i => ltbs(i).io.resp))
 
   for (i <- 0 until PredictWidth) {
-    io.resp.exit(i) := ltbResps(i).exit
+    io.resp.exit(i) := ltbResps(i).exit && ctrl.loop_enable
     io.meta.specCnts(i) := ltbResps(i).specCnt
   }
 
-  if (!env.FPGAPlatform) {
-    ExcitingUtils.addSource(io.resp.exit.reduce(_||_), "perfCntLoopExit", Perf)
-  }
+  XSPerf("LoopExit", io.resp.exit.reduce(_||_))
 
   if (BPUDebug && debug) {
     // debug info
