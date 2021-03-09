@@ -474,6 +474,29 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
       trunk
   }
 
+  val maxABC = 20
+  val maxBC = 21
+  val maxC = 22
+
+  def abcCnt(): Int = {
+    val an = innerAcquire.filter(a => a.grantIssued.getOrElse(false)).size
+    val bn = innerProbe.filter(a => a.probeIssued.getOrElse(false)).size
+    val cn = innerRelease.filter(a => a.releaseAckIssued.getOrElse(false)).size
+    an + bn + cn
+  }
+
+  def isABCFull(): Boolean = {
+    abcCnt() >= maxABC
+  }
+
+  def isBCFull(): Boolean = {
+    abcCnt() >= maxBC
+  }
+
+  def isCFull(): Boolean = {
+    abcCnt() >= maxC
+  }
+
   var tmpA = new TLCScalaA()
   var a_cnt = 0
   var a_cnt_end = 0
@@ -487,13 +510,27 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
   val dQueue = new FireQueue[TLCScalaD]()
 
   def banIssueGrant(addr: BigInt): Boolean = {
-    val addrState = getState(addr)
-    addrState.pendingProbeAck
+    if (isABCFull()) {
+      true
+    }
+    else {
+      val addrState = getState(addr)
+      addrState.pendingProbeAck
+    }
   }
 
   def banIssueProbe(addr: BigInt): Boolean = {
-    val addrState = getState(addr)
-    addrState.pendingGrantAck || addrState.pendingProbeAck
+    if (isBCFull()) {
+      true
+    }
+    else {
+      val addrState = getState(addr)
+      addrState.pendingGrantAck || addrState.pendingProbeAck
+    }
+  }
+
+  def banIssueReleaseAck(): Boolean = {
+    isCFull()
   }
 
   //Due to no backup pressure in channel E, the handle function is integrated into fire function
@@ -549,7 +586,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
     }
     //search ReleaseAck to issue
     innerRelease --= innerRelease.filter { r =>
-      if (r.releaseAckIssued.getOrElse(true)) {
+      if (banIssueReleaseAck() || r.releaseAckIssued.getOrElse(true)) {
         false
       }
       else {
