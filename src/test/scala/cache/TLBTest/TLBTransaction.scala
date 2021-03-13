@@ -11,7 +11,43 @@ class LitPtePermBundle(
                         var x: Boolean = false,
                         var w: Boolean = false,
                         var r: Boolean = false,
-                      )
+                        var v: Boolean = true,
+                      ) {
+  def copyVals(in: LitPtePermBundle): Unit = {
+    d = in.d
+    a = in.a
+    g = in.g
+    u = in.u
+    x = in.x
+    w = in.w
+    r = in.r
+    v = in.v
+  }
+
+  def ziptoBigInt(): BigInt = {
+    var res = BigInt(0)
+    if (d) res |= (1 << 7)
+    if (a) res |= (1 << 6)
+    if (g) res |= (1 << 5)
+    if (u) res |= (1 << 4)
+    if (x) res |= (1 << 3)
+    if (w) res |= (1 << 2)
+    if (r) res |= (1 << 1)
+    if (v) res |= (1 << 0)
+    res
+  }
+
+  def unzipFromPerm(p: BigInt): Unit = {
+    v = p.testBit(0)
+    r = p.testBit(1)
+    w = p.testBit(2)
+    x = p.testBit(3)
+    u = p.testBit(4)
+    g = p.testBit(5)
+    a = p.testBit(6)
+    d = p.testBit(7)
+  }
+}
 
 class LitFaultBundle(
                       var ld: Boolean = false,
@@ -50,13 +86,13 @@ class LitSfenceBundle(
                      )
 
 class LitTlbCsrBundle(
-                     var satpMode: BigInt = 0,
-                     var satpAsid: BigInt = 0,
-                     var satpPpn: BigInt = 0,
-                     var privMxr: Boolean = false,
-                     var privSum: Boolean = false,
-                     var privImode: BigInt = 0,
-                     var privDmode: BigInt = 0,
+                       var satpMode: BigInt = 0,
+                       var satpAsid: BigInt = 0,
+                       var satpPpn: BigInt = 0,
+                       var privMxr: Boolean = false,
+                       var privSum: Boolean = false,
+                       var privImode: BigInt = 0,
+                       var privDmode: BigInt = 0,
                      )
 
 /*
