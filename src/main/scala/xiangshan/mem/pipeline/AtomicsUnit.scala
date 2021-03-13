@@ -88,6 +88,7 @@ class AtomicsUnit extends XSModule with MemoryOpConstants{
   io.tlbFeedback.valid       := RegNext(RegNext(io.in.valid))
   io.tlbFeedback.bits.hit    := true.B
   io.tlbFeedback.bits.rsIdx  := RegEnable(io.rsIdx, io.in.valid)
+  io.tlbFeedback.bits.flushState := DontCare
 
   // tlb translation, manipulating signals && deal with exception
   when (state === s_tlb) {
@@ -100,6 +101,7 @@ class AtomicsUnit extends XSModule with MemoryOpConstants{
     val is_lr = in.uop.ctrl.fuOpType === LSUOpType.lr_w || in.uop.ctrl.fuOpType === LSUOpType.lr_d
     io.dtlb.req.bits.cmd    := Mux(is_lr, TlbCmd.atom_read, TlbCmd.atom_write)
     io.dtlb.req.bits.debug.pc := in.uop.cf.pc
+    io.dtlb.req.bits.debug.isFirstIssue := false.B
 
     when(io.dtlb.resp.fire && !io.dtlb.resp.bits.miss){
       // exception handling

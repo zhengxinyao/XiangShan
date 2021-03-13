@@ -46,6 +46,7 @@ trait HasICacheParameters extends HasL1CacheParameters with HasIFUConst with Has
   def insLen = if (HasCExtension) 16 else 32
   def RVCInsLen = 16
   def groupPC(pc: UInt): UInt = Cat(pc(PAddrBits-1, groupAlign), 0.U(groupAlign.W))
+  def plruAccessNum = 2  //hit and miss
   // def encRowBits = cacheParams.dataCode.width(rowBits)
   // def encTagBits = cacheParams.tagCode.width(tagBits)
 
@@ -77,6 +78,7 @@ abstract class ICacheBundle extends XSBundle
 abstract class ICacheModule extends XSModule
   with HasICacheParameters
   with HasFrontEndExceptionNo
+  with HasIFUConst
 
 abstract class ICacheArray extends XSModule
   with HasICacheParameters
@@ -365,8 +367,13 @@ class ICache extends ICacheModule
   val replacer = cacheParams.replacement
   val victimWayMask = UIntToOH(replacer.way(s2_idx))
 
-  when(s2_hit) {replacer.access(s2_idx, OHToUInt(hitVec))}
-
+  val (touch_sets, touch_ways) = ( Wire(Vec(plruAccessNum, UInt(log2Ceil(nSets).W))),  Wire(Vec(plruAccessNum, Valid(UInt(log2Ceil(nWays).W)))) )
+  
+  touch_sets(0)       := s2_idx  
+  touch_ways(0).valid := s2_hit
+  touch_ways(0).bits  := OHToUInt(hitVec) 
+  
+  replacer.access(touch_sets, touch_ways)
 
   //deal with icache exception
   val icacheExceptionVec = Wire(Vec(8,Bool()))
@@ -436,7 +443,7 @@ class ICache extends ICacheModule
 
 
   /* icache miss
-   * send a miss req to ICache Miss Queue, excluding exception/flush/blocking
+   * send a miss req to ICache Miss Queue, excluding exception/flush/blocking  
    * block the pipeline until refill finishes
    */
   val icacheMissQueue = Module(new IcacheMissQueue)
@@ -471,6 +478,18 @@ class ICache extends ICacheModule
                                 waymask=metaWriteReq.meta_write_waymask)
 
   val wayNum = OHToUInt(metaWriteReq.meta_write_waymask.asTypeOf(Vec(nWays,Bool())))
+
+  touch_sets(1)       := metaWriteReq.meta_write_idx  
+  touch_ways(1).valid := icacheMissQueue.io.meta_write.valid
+  touch_ways(1).bits  := wayNum
+
+  (0 until nWays).map{ w => 
+    XSPerf("hit_way_" + Integer.toString(w, 10),  s2_hit && OHToUInt(hitVec)  === w.U)
+    XSPerf("refill_way_" + Integer.toString(w, 10), icacheMissQueue.io.meta_write.valid && wayNum === w.U)
+    XSPerf("access_way_" + Integer.toString(w, 10), (icacheMissQueue.io.meta_write.valid && wayNum === w.U) || (s2_hit && OHToUInt(hitVec)  === w.U))
+  }
+
+
   val validPtr = Cat(metaWriteReq.meta_write_idx,wayNum)
   when(icacheMissQueue.io.meta_write.valid && !cacheflushed){
     validArray := validArray.bitSet(validPtr, true.B)
@@ -519,8 +538,8 @@ class ICache extends ICacheModule
       }
     }
     val cutPacket = WireInit(VecInit(Seq.fill(PredictWidth){0.U(insLen.W)}))
-    val insLenLog = log2Ceil(insLen)
-    val start = (pc >> insLenLog.U)(log2Ceil(mmioBeats * mmioBusBytes/instBytes) -1, 0)
+    val insLenLog = log2Ceil(insLen/8)
+    val start = Cat(0.U(2.W),(pc >> insLenLog.U)(log2Ceil(mmioBusBytes/instBytes) -1, 0))    //4bit
     val outMask = mask >> start
     (0 until PredictWidth ).foreach{ i =>
       cutPacket(i) := Mux(outMask(i).asBool,sourceVec_inst(start + i.U),0.U)
@@ -528,7 +547,7 @@ class ICache extends ICacheModule
     (cutPacket.asUInt, outMask.asUInt)
   }
   val mmioDataVec = io.mmio_grant.bits.data.asTypeOf(Vec(mmioBeats,UInt(mmioBusWidth.W)))
-  val (mmio_packet,mmio_mask)  = cutHelperMMIO(mmioDataVec, s3_req_pc, mmioMask)
+  val mmio_packet  = io.mmio_grant.bits.data//cutHelperMMIO(mmioDataVec, s3_req_pc, mmioMask)
 
   XSDebug("mmio data  %x\n", mmio_packet)
 
@@ -541,7 +560,7 @@ class ICache extends ICacheModule
     val refillData = Mux(useRefillReg,cutHelper(refillDataVecReg, s3_req_pc,s3_req_mask),cutHelper(refillDataVec, s3_req_pc,s3_req_mask))
     wayResp.pc := s3_req_pc
     wayResp.data := Mux(s3_valid && s3_hit, wayData, Mux(s3_mmio ,mmio_packet ,refillData))
-    wayResp.mask := Mux(s3_mmio,mmio_mask,s3_req_mask)
+    wayResp.mask := s3_req_mask
     wayResp.ipf := s3_exception_vec(pageFault)
     wayResp.acf := s3_exception_vec(accessFault)  || s3_meta_wrong || s3_data_wrong
     //|| (icacheMissQueue.io.resp.valid && icacheMissQueue.io.resp.bits.eccWrong)
@@ -564,7 +583,7 @@ class ICache extends ICacheModule
 
   //icache response: to pre-decoder
   io.resp.valid := s3_valid && (s3_hit || exception || icacheMissQueue.io.resp.valid || io.mmio_grant.valid)
-  io.resp.bits.mask := Mux(s3_mmio,mmio_mask,s3_req_mask)
+  io.resp.bits.mask := s3_req_mask
   io.resp.bits.pc := s3_req_pc
   io.resp.bits.data := DontCare
   io.resp.bits.ipf := s3_tlb_resp.excp.pf.instr
@@ -579,6 +598,7 @@ class ICache extends ICacheModule
   io.tlb.req.bits.cmd := TlbCmd.exec
   io.tlb.req.bits.roqIdx := DontCare
   io.tlb.req.bits.debug.pc := s2_req_pc
+  io.tlb.req.bits.debug.isFirstIssue := DontCare
 
   //To L1 plus
   io.mem_acquire <> icacheMissQueue.io.mem_acquire
@@ -590,7 +610,7 @@ class ICache extends ICacheModule
   io.prefetchTrainReq.bits.addr := groupPC(s3_tlb_resp.paddr)
 
   //To icache Uncache
-  io.mmio_acquire.valid := s3_mmio && s3_valid
+  io.mmio_acquire.valid := s3_mmio && s3_valid && !s3_has_exception && !s3_flush && !blocking 
   io.mmio_acquire.bits.addr := mmioBusAligned(s3_tlb_resp.paddr)
   io.mmio_acquire.bits.id := cacheID.U
 
@@ -658,7 +678,7 @@ class ICache extends ICacheModule
   dump_pipe_info()
 
   // Performance Counter
-  XSPerf("icache_req", s3_valid && !blocking)
-  XSPerf("icache_miss", s3_miss && blocking && io.resp.fire())
-  XSPerf("icache_mmio", s3_mmio && blocking && io.resp.fire())
+  XSPerf("req", s3_valid && !blocking)
+  XSPerf("miss", s3_miss && blocking && io.resp.fire())
+  XSPerf("mmio", s3_mmio && blocking && io.resp.fire())
 }

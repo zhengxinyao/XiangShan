@@ -7,6 +7,7 @@ import xiangshan._
 import utils._
 import xiangshan.backend.fu.HasExceptionNO
 import xiangshan.backend.ftq.FtqPtr
+import xiangshan.backend.decode.WaitTableParameters
 
 class IbufPtr extends CircularQueuePtr(IbufPtr.IBufSize) { }
 
@@ -28,9 +29,10 @@ class IBufferIO extends XSBundle {
 class Ibuffer extends XSModule with HasCircularQueuePtrHelper {
   val io = IO(new IBufferIO)
 
-  class IBufEntry extends XSBundle {
+  class IBufEntry extends XSBundle with WaitTableParameters {
     val inst = UInt(32.W)
     val pc = UInt(VAddrBits.W)
+    val foldpc = UInt(WaitTableAddrWidth.W)
     val pd = new PreDecodeInfo
     val ipf = Bool()
     val acf = Bool()
@@ -65,9 +67,12 @@ class Ibuffer extends XSModule with HasCircularQueuePtrHelper {
   val allowEnq = RegInit(true.B)
 
   val numEnq = Mux(io.in.fire, PopCount(io.in.bits.mask), 0.U)
+  val numTryDeq = Mux(validEntries >= DecodeWidth.U, DecodeWidth.U, validEntries)
   val numDeq = PopCount(io.out.map(_.fire))
 
-  allowEnq := (IBufSize - PredictWidth).U >= validEntries +& numEnq
+  val numAfterEnq = validEntries +& numEnq
+  val nextValidEntries = Mux(io.out(0).ready, numAfterEnq - numTryDeq, numAfterEnq)
+  allowEnq := (IBufSize - PredictWidth).U >= nextValidEntries
 
   // Enque
   io.in.ready := allowEnq
@@ -89,6 +94,7 @@ class Ibuffer extends XSModule with HasCircularQueuePtrHelper {
     inWire.ipf := io.in.bits.ipf
     inWire.acf := io.in.bits.acf
     inWire.crossPageIPFFix := io.in.bits.crossPageIPFFix
+    inWire.foldpc := io.in.bits.foldpc(i)
     inWire.pred_taken := io.in.bits.pred_taken(i)
     inWire.ftqPtr := io.in.bits.ftqPtr
     inWire.ftqOffset := i.U
@@ -122,6 +128,8 @@ class Ibuffer extends XSModule with HasCircularQueuePtrHelper {
     io.out(i).bits.ftqOffset := outWire.ftqOffset
 
     io.out(i).bits.crossPageIPFFix := outWire.crossPageIPFFix
+    io.out(i).bits.foldpc := outWire.foldpc
+    io.out(i).bits.loadWaitBit := DontCare
   }
   val next_head_vec = VecInit(head_vec.map(_ + numDeq))
   ibuf.io.raddr := VecInit(next_head_vec.map(_.value))
@@ -182,5 +190,17 @@ class Ibuffer extends XSModule with HasCircularQueuePtrHelper {
   //   )
   // }
 
-  XSPerf("ibuf_utilization", validEntries)
+  val afterInit = RegInit(false.B)
+  val headBubble = RegInit(false.B)
+  when (io.in.fire) { afterInit := true.B }
+  when (io.flush) {
+    headBubble := true.B
+  } .elsewhen(validEntries =/= 0.U) {
+    headBubble := false.B
+  }
+  val instrHungry = afterInit && (validEntries === 0.U) && !headBubble
+
+  XSPerf("utilization", validEntries)
+  XSPerf("flush", io.flush)
+  XSPerf("hungry", instrHungry)
 }

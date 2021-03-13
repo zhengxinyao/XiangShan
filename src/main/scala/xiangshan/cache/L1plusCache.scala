@@ -2,7 +2,7 @@ package xiangshan.cache
 
 import chisel3._
 import chisel3.util._
-import utils.{Code, RandomReplacement, HasTLDump, XSDebug, SRAMTemplate}
+import utils.{Code, ReplacementPolicy, HasTLDump, XSDebug, SRAMTemplate, XSPerf}
 import xiangshan.{HasXSLog}
 
 import chipsalliance.rocketchip.config.Parameters
@@ -26,6 +26,7 @@ case class L1plusCacheParameters
     rowBits: Int = 64,
     tagECC: Option[String] = None,
     dataECC: Option[String] = None,
+    replacer: Option[String] = Some("random"),
     nMissEntries: Int = 1,
     blockBytes: Int = 64
 ) extends L1CacheParameters {
@@ -33,7 +34,7 @@ case class L1plusCacheParameters
   def tagCode: Code = Code.fromString(tagECC)
   def dataCode: Code = Code.fromString(dataECC)
 
-  def replacement = new RandomReplacement(nWays)
+  def replacement = ReplacementPolicy.fromString(replacer,nWays,nSets)
 }
 
 trait HasL1plusCacheParameters extends HasL1CacheParameters {
@@ -44,6 +45,11 @@ trait HasL1plusCacheParameters extends HasL1CacheParameters {
   val pcfg = l1plusPrefetcherParameters
 
   def encRowBits = cacheParams.dataCode.width(rowBits)
+  def codeWidth = encRowBits - rowBits
+  def bankNum = 2
+  def bankRows = blockRows / bankNum
+  def blockEcodedBits = blockRows * encRowBits
+  def plruAccessNum = 2  //hit and miss
 
   def missQueueEntryIdWidth = log2Up(cfg.nMissEntries)
   // def icacheMissQueueEntryIdWidth = log2Up(icfg.nMissEntries)
@@ -86,6 +92,11 @@ object L1plusCacheMetadata {
     meta
   }
 }
+
+
+/*  tagIdx is from the io.in.req (Wire)
+ *  validIdx is from s1_addr (Register)
+ */
 
 class L1plusCacheMetaReadReq extends L1plusCacheBundle {
   val tagIdx    = UInt(idxBits.W)
@@ -131,20 +142,39 @@ class L1plusCacheDataArray extends L1plusCacheModule {
   io.read.ready := !rwhazard
 
   for (w <- 0 until nWays) {
-    val array = Module(new SRAMTemplate(Bits((blockRows * encRowBits).W), set=nSets, way=1,
+    val array = List.fill(bankNum)(Module(new SRAMTemplate(UInt((bankRows * rowBits).W), set=nSets, way=1,
+      shouldReset=false, holdRead=false, singlePort=singlePort)))
+    val codeArray = Module(new SRAMTemplate(UInt((blockRows *codeWidth).W), set=nSets, way=1,
       shouldReset=false, holdRead=false, singlePort=singlePort))
     // data write
-    array.io.w.req.valid := io.write.bits.way_en(w) && io.write.valid
-    array.io.w.req.bits.apply(
-      setIdx=waddr,
-      data=io.write.bits.data.asUInt,
-      waymask=1.U)
+    for (b <- 0 until bankNum){
+      val respData = VecInit(io.write.bits.data.map{row => row(rowBits - 1, 0)}).asUInt
+      val respCode = VecInit(io.write.bits.data.map{row => row(encRowBits - 1, rowBits)}).asUInt
+      array(b).io.w.req.valid := io.write.bits.way_en(w) && io.write.valid
+      array(b).io.w.req.bits.apply(
+        setIdx=waddr,
+        data=respData((b+1)*blockBits/2 - 1, b*blockBits/2),
+        waymask=1.U)
+      
+      codeArray.io.w.req.valid := io.write.bits.way_en(w) && io.write.valid
+      codeArray.io.w.req.bits.apply(
+        setIdx=waddr,
+        data=respCode,
+        waymask=1.U)
+      
+      // data read
+      array(b).io.r.req.valid := io.read.bits.way_en(w) && io.read.valid
+      array(b).io.r.req.bits.apply(setIdx=raddr)
 
-    // data read
-    array.io.r.req.valid := io.read.bits.way_en(w) && io.read.valid
-    array.io.r.req.bits.apply(setIdx=raddr)
-    for (r <- 0 until blockRows) {
-      io.resp(w)(r) := RegNext(array.io.r.resp.data(0)((r + 1) * encRowBits - 1, r * encRowBits))
+      codeArray.io.r.req.valid := io.read.bits.way_en(w) && io.read.valid
+      codeArray.io.r.req.bits.apply(setIdx=raddr)
+      for (r <- 0 until blockRows) {
+        if(r < blockRows/2){ io.resp(w)(r) := RegNext(Cat(codeArray.io.r.resp.data(0)((r + 1) * codeWidth - 1, r * codeWidth) ,array(0).io.r.resp.data(0)((r + 1) * rowBits - 1, r * rowBits) )) }
+        else { 
+          val r_half = r - blockRows/2
+          io.resp(w)(r) := RegNext(Cat(codeArray.io.r.resp.data(0)((r + 1) * codeWidth - 1, r * codeWidth) ,array(1).io.r.resp.data(0)((r_half + 1) * rowBits - 1, r_half * rowBits))) 
+        }
+      }
     }
   }
 
@@ -360,6 +390,8 @@ class L1plusCacheImp(outer: L1plusCache) extends LazyModuleImp(outer) with HasL1
   pipe.io.data_resp <> dataArray.io.resp
   pipe.io.meta_read <> metaArray.io.read
   pipe.io.meta_resp <> metaArray.io.resp
+  pipe.io.miss_meta_write.valid := missQueue.io.meta_write.valid
+  pipe.io.miss_meta_write.bits <> missQueue.io.meta_write.bits
 
   missQueue.io.req <> pipe.io.miss_req
   bus.a <> missQueue.io.mem_acquire
@@ -455,6 +487,7 @@ class L1plusCachePipe extends L1plusCacheModule
     val meta_read  = DecoupledIO(new L1plusCacheMetaReadReq)
     val meta_resp  = Input(Vec(nWays, new L1plusCacheMetadata))
     val miss_req   = DecoupledIO(new L1plusCacheMissReq)
+    val miss_meta_write = Flipped(ValidIO(new L1plusCacheMetaWriteReq))
     val inflight_req_idxes = Output(Vec(2, Valid(UInt())))
     val empty = Output(Bool())
   })
@@ -531,6 +564,16 @@ class L1plusCachePipe extends L1plusCacheModule
   val s2_hit           = s2_tag_match_way.orR
   val s2_hit_way       = OHToUInt(s2_tag_match_way, nWays)
 
+  //replacement marker
+  val replacer = cacheParams.replacement
+  val (touch_sets, touch_ways) = ( Wire(Vec(plruAccessNum, UInt(log2Ceil(nSets).W))),  Wire(Vec(plruAccessNum, Valid(UInt(log2Ceil(nWays).W)))) )
+
+  touch_sets(0)       := get_idx(s2_req.addr)  
+  touch_ways(0).valid := s2_valid && s2_hit
+  touch_ways(0).bits  := s2_hit_way
+
+  replacer.access(touch_sets, touch_ways)
+
   val data_resp = io.data_resp
   val s2_data = data_resp(s2_hit_way)
 
@@ -554,8 +597,7 @@ class L1plusCachePipe extends L1plusCacheModule
   io.resp.bits.id   := s2_req.id
 
   // replacement policy
-  val replacer = cacheParams.replacement
-  val replaced_way_en = UIntToOH(replacer.way)
+  val replaced_way_en = UIntToOH(replacer.way(get_idx(s2_req.addr)))
 
   io.miss_req.valid       := s2_valid && !s2_hit
   io.miss_req.bits.id     := s2_req.id
@@ -563,11 +605,17 @@ class L1plusCachePipe extends L1plusCacheModule
   io.miss_req.bits.addr   := s2_req.addr
   io.miss_req.bits.way_en := replaced_way_en
 
-  s2_passdown := s2_valid && ((s2_hit && io.resp.ready) || (!s2_hit && io.miss_req.ready))
-
-  when (io.miss_req.fire()) {
-    replacer.miss
+  val wayNum =  OHToUInt(io.miss_meta_write.bits.way_en.asUInt)
+  touch_sets(1)       := io.miss_meta_write.bits.tagIdx
+  touch_ways(1).valid := io.miss_meta_write.valid
+  touch_ways(1).bits  := wayNum
+  (0 until nWays).map{ w => 
+    XSPerf("hit_way_" + Integer.toString(w, 10),  s2_valid && s2_hit && s2_hit_way === w.U)
+    XSPerf("refill_way_" + Integer.toString(w, 10), io.miss_meta_write.valid && wayNum === w.U)
+    XSPerf("access_way_" + Integer.toString(w, 10), (io.miss_meta_write.valid && wayNum === w.U) || (s2_valid && s2_hit && s2_hit_way === w.U))
   }
+
+  s2_passdown := s2_valid && ((s2_hit && io.resp.ready) || (!s2_hit && io.miss_req.ready))
 
   val resp = io.resp
   when (resp.valid) {
@@ -592,6 +640,10 @@ class L1plusCachePipe extends L1plusCacheModule
         )
       }
   }
+
+  XSPerf("req", s0_valid)
+  XSPerf("miss", s2_valid && !s2_hit)
+
 }
 
 class L1plusCacheMissReq extends L1plusCacheBundle
