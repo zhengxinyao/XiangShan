@@ -479,7 +479,7 @@ class TLCSlaveAgent(ID: Int, name: String = "", val maxSink: Int, addrStateMap: 
   val maxC = 22
 
   def abcCnt(): Int = {
-    val an = innerAcquire.filter(a => a.grantIssued.getOrElse(false)).size
+    val an = innerAcquire.filter(a => a.grantIssued.getOrElse(false)).size + innerGet.size + innerPut.size
     val bn = innerProbe.filter(a => a.probeIssued.getOrElse(false)).size
     val cn = innerRelease.filter(a => a.releaseAckIssued.getOrElse(false)).size
     an + bn + cn

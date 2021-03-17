@@ -381,8 +381,8 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
               }
             }
 
-            val AChannel_ready = true
-            val CChannel_ready = true
+            val AChannel_ready = !slaveAgent.isABCFull()
+            var CChannel_ready = !slaveAgent.isCFull()
             val EChannel_ready = true
             var BChannel_valid = false
             var DChannel_valid = false
@@ -438,6 +438,13 @@ class TLCCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers 
 
             //C channel
             val CChannel_valid = peekBoolean(sio.CChannel.valid)
+            if (CChannel_valid) {
+              val op = peekBigInt(sio.CChannel.bits.opcode)
+              if (op == ProbeAck || op == ProbeAckData) {
+                CChannel_ready = true
+                sio.CChannel.ready.poke(true.B)
+              }
+            }
             if (CChannel_valid && CChannel_ready) { //fire
               val cCh = new TLCScalaC()
               cCh.opcode = peekBigInt(sio.CChannel.bits.opcode)
