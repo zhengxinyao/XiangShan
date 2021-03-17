@@ -53,7 +53,11 @@ class LitFaultBundle(
                       var ld: Boolean = false,
                       var st: Boolean = false,
                       var instr: Boolean = false
-                    )
+                    ) {
+  def isFault(): Boolean = {
+    ld || st || instr
+  }
+}
 
 class LitCircularQueuePtr(
                            var flag: Boolean = false,
@@ -120,13 +124,13 @@ trait LitTlbCmd {
   val tlbAtomRead = TlbCmd.atom_read.litValue() // lr
   val tlbAtomWrite = TlbCmd.atom_write.litValue() // sc / amo
 
-  def isTlbRead(i: BigInt) = i == tlbRead || i == tlbAtomRead
+  def isTlbRead(cmd: BigInt) = cmd == tlbRead || cmd == tlbAtomRead
 
-  def isTlbWrite(i: BigInt) = i == tlbWrite || i == tlbAtomWrite
+  def isTlbWrite(cmd: BigInt) = cmd == tlbWrite || cmd == tlbAtomWrite
 
-  def isTlbExec(i: BigInt) = i == tlbExec
+  def isTlbExec(cmd: BigInt) = cmd == tlbExec
 
-  def isTlbAtom(i: BigInt) = i == tlbAtomRead || i == tlbAtomRead
+  def isTlbAtom(cmd: BigInt) = cmd == tlbAtomRead || cmd == tlbAtomRead
 }
 
 class TLBTransaction extends TLCTrans {
