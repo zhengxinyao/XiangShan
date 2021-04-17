@@ -16,3 +16,15 @@
 [submodule "timingScripts"]
 	path = timingScripts
 	url = https://github.com/RISCVERS/timingScripts.git
+[submodule "riscv-boom"]
+	path = riscv-boom
+	url = https://github.com/riscv-boom/riscv-boom.git
+	branch = 1ef2bc6f6c98e5b0b1fd77899f5ff48280c75f51
+[submodule "sifive-blocks"]
+	path = sifive-blocks
+	url = https://github.com/sifive/sifive-blocks.git
+	branch = 545a396f3486132b01ceef3cbce2085608984478
+[submodule "testchipip"]
+	path = testchipip
+	url = https://github.com/ucb-bar/testchipip.git
+	branch = 6decad81f29e60d976e6f0d89d6ccb9cd855f078

@@ -1,10 +1,11 @@
 package top
 
-import chipsalliance.rocketchip.config.{Config, Parameters}
+import chipsalliance.rocketchip.config.{Config, Field, Parameters}
 import chisel3.stage.ChiselGeneratorAnnotation
 import chisel3._
 import device.{AXI4RAMWrapper, UARTIO}
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp}
+import system.SoCParamsKey
 import utils.GTimer
 import xiangshan.{DebugOptions, DebugOptionsKey, PerfInfoIO}
 
@@ -17,7 +18,7 @@ class SimTop(implicit p: Parameters) extends Module {
   val debugOpts = p(DebugOptionsKey)
   val useDRAMSim = debugOpts.UseDRAMSim
 
-  val l_soc = LazyModule(new XSTopWithoutDMA())
+  val l_soc = if(p(DutNameKey) == "boom") LazyModule(new BoomTop()) else LazyModule(new XSTopWithoutDMA())
   val soc = Module(l_soc.module)
 
   val l_simMMIO = LazyModule(new SimMMIO(l_soc.peripheralNode.in.head._2))
@@ -68,15 +69,23 @@ class SimTop(implicit p: Parameters) extends Module {
   ExcitingUtils.checkAndDisplay()
 }
 
+case object DutNameKey extends Field[String]("XiangShan")
+
 object SimTop extends App {
 
   override def main(args: Array[String]): Unit = {
     val (config, firrtlOpts) = ArgParser.parse(args, fpga = false)
+    val boomSimConfig = new Config(
+      new BoomTopConfig ++ config
+    ).alterPartial({
+      case DutNameKey => "boom"
+    })
+
     // generate verilog
     XiangShanStage.execute(
       firrtlOpts,
       Seq(
-        ChiselGeneratorAnnotation(() => new SimTop()(config))
+        ChiselGeneratorAnnotation(() => new SimTop()(boomSimConfig))
       )
     )
   }

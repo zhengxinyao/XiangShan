@@ -101,6 +101,19 @@ abstract class BaseXSSoc()(implicit p: Parameters) extends LazyModule with HasSo
   val bankedNode = BankBinder(L3NBanks, L3BlockSize)
   val peripheralXbar = TLXbar()
   val l3_xbar = TLXbar()
+  def module: BaseXSSocImp
+}
+
+abstract class BaseXSSocImp(outer: BaseXSSoc)(implicit p: Parameters)
+  extends LazyRawModuleImp(outer) with HasSoCParameter
+{
+  val io = IO(new Bundle {
+    val clock = Input(Bool())
+    val reset = Input(Bool())
+    val extIntrs = Input(UInt(NrExtIntr.W))
+    // val meip = Input(Vec(NumCores, Bool()))
+    val ila = if(debugOpts.FPGAPlatform && EnableILA) Some(Output(new ILABundle)) else None
+  })
 }
 
 // We adapt the following three traits from rocket-chip.
@@ -144,7 +157,9 @@ trait HaveSlaveAXI4Port {
 trait HaveAXI4MemPort {
   this: BaseXSSoc =>
   // 40-bit physical address
-  val memRange = AddressSet(0x00000000L, 0xffffffffffL).subtract(AddressSet(0x0L, 0x7fffffffL))
+  println(soc.PAddrBits)
+  val memRange = AddressSet(0, (BigInt(1) << soc.PAddrBits) - 1).subtract(AddressSet(0x0L, 0x7fffffffL))
+  println(memRange)
   val memAXI4SlaveNode = AXI4SlaveNode(Seq(
     AXI4SlavePortParameters(
       slaves = Seq(
@@ -278,14 +293,7 @@ class XSTopWithoutDMA()(implicit p: Parameters) extends BaseXSSoc()
     bankedNode :*= l3cache.node :*= TLBuffer() :*= l3_xbar
   }
 
-  lazy val module = new LazyRawModuleImp(this) {
-    val io = IO(new Bundle {
-      val clock = Input(Bool())
-      val reset = Input(Bool())
-      val extIntrs = Input(UInt(NrExtIntr.W))
-      // val meip = Input(Vec(NumCores, Bool()))
-      val ila = if(debugOpts.FPGAPlatform && EnableILA) Some(Output(new ILABundle)) else None
-    })
+  lazy val module = new BaseXSSocImp(this){
     childClock := io.clock.asClock()
 
     withClockAndReset(childClock, io.reset) {

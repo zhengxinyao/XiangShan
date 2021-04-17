@@ -85,6 +85,7 @@ object XiangShan extends CommonModule with SbtModule {
   override def ivyDeps = super.ivyDeps() ++ chisel
   override def moduleDeps = super.moduleDeps ++ Seq(
     `rocket-chip`,
+    `riscv-boom`,
     `block-inclusivecache-sifive`,
     chiseltest
   )
@@ -104,3 +105,20 @@ object XiangShan extends CommonModule with SbtModule {
   }
 
 }
+
+object testchipip extends CommonModule with SbtModule {
+  override def ivyDeps = super.ivyDeps() ++ chisel
+  override def moduleDeps = super.moduleDeps ++ Seq(`rocket-chip`, `sifive-blocks`)
+}
+
+object `sifive-blocks` extends CommonModule with SbtModule {
+  override def ivyDeps = super.ivyDeps() ++ chisel
+  override def moduleDeps = super.moduleDeps ++ Seq(`rocket-chip`)
+}
+
+object `riscv-boom` extends CommonModule with SbtModule {
+  override def ivyDeps = super.ivyDeps() ++ chisel
+  override def moduleDeps = super.moduleDeps ++ Seq(
+    `rocket-chip`, `block-inclusivecache-sifive`, testchipip, `sifive-blocks`
+  )
+} 
