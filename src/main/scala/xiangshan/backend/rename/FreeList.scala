@@ -3,37 +3,16 @@ package xiangshan.backend.rename
 import chisel3._
 import chisel3.util._
 import xiangshan._
-import utils.XSDebug
-import xiangshan.backend.brq.BrqPtr
+import utils._
 
 trait HasFreeListConsts extends HasXSParameter {
   def FL_SIZE: Int = NRPhyRegs-32
   def PTR_WIDTH = log2Up(FL_SIZE)
 }
 
-class FreeListPtr extends Bundle with HasFreeListConsts {
+class FreeListPtr extends CircularQueuePtr[FreeListPtr](FreeListPtr.FL_SIZE)
 
-  val flag = Bool()
-  val value = UInt(PTR_WIDTH.W)
-
-  final def +(inc: Bool): FreeListPtr = {
-    Mux(inc && (value ===  (FL_SIZE-1).U),
-      FreeListPtr(!flag, 0.U),
-      FreeListPtr(flag, value + inc)
-    )
-  }
-
-  final def ===(that: FreeListPtr): Bool = {
-    (this.value===that.value) && (this.flag===that.flag)
-  }
-
-  override def toPrintable: Printable = {
-    p"$flag:$value"
-  }
-
-}
-
-object FreeListPtr {
+object FreeListPtr extends HasFreeListConsts {
   def apply(f: Bool, v:UInt): FreeListPtr = {
     val ptr = Wire(new FreeListPtr)
     ptr.flag := f
@@ -42,17 +21,25 @@ object FreeListPtr {
   }
 }
 
-class FreeList extends XSModule with HasFreeListConsts {
+class FreeList extends XSModule with HasFreeListConsts with HasCircularQueuePtrHelper{
   val io = IO(new Bundle() {
-    val redirect = Flipped(ValidIO(new Redirect))
+    val redirect = Input(Bool())
+    val flush = Input(Bool())
 
-    // alloc new phy regs
-    val allocReqs = Input(Vec(RenameWidth, Bool()))
-    val pdests = Output(Vec(RenameWidth, UInt(PhyRegIdxWidth.W)))
-    val canAlloc = Output(Vec(RenameWidth, Bool()))
+    val req = new Bundle {
+      // need to alloc (not actually do the allocation)
+      val allocReqs = Vec(RenameWidth, Input(Bool()))
+      // response pdest according to alloc
+      val pdests = Vec(RenameWidth, Output(UInt(PhyRegIdxWidth.W)))
+      // alloc new phy regs// freelist can alloc
+      val canAlloc = Output(Bool())
+      // actually do the allocation
+      val doAlloc = Input(Bool())
+    }
 
     // do checkpoints
-    val cpReqs = Vec(RenameWidth, Flipped(ValidIO(new BrqPtr)))
+    // val cpReqs = Vec(RenameWidth, Flipped(ValidIO(new BrqPtr)))
+    val walk = Flipped(ValidIO(UInt(log2Up(CommitWidth + 1).W)))
 
     // dealloc phy regs
     val deallocReqs = Input(Vec(CommitWidth, Bool()))
@@ -66,52 +53,63 @@ class FreeList extends XSModule with HasFreeListConsts {
 
   val checkPoints = Reg(Vec(BrqSize, new FreeListPtr()))
 
-  def isEmpty(ptr1: FreeListPtr, ptr2: FreeListPtr): Bool = ptr1===ptr2
-
   // dealloc: commited instructions's 'old_pdest' enqueue
-  var tailPtrNext = WireInit(tailPtr)
-  for((deallocValid, deallocReg) <- io.deallocReqs.zip(io.deallocPregs)){
-    when(deallocValid){
-      freeList(tailPtrNext.value) := deallocReg
-      XSDebug(p"dealloc preg: $deallocReg\n")
+  for(i <- 0 until CommitWidth){
+    val offset = if(i == 0) 0.U else PopCount(io.deallocReqs.take(i))
+    val ptr = tailPtr + offset
+    val idx = ptr.value
+    when(io.deallocReqs(i)){
+      freeList(idx) := io.deallocPregs(i)
+      XSDebug(p"dealloc preg: ${io.deallocPregs(i)}\n")
     }
-    tailPtrNext = tailPtrNext + deallocValid
   }
+  val tailPtrNext = tailPtr + PopCount(io.deallocReqs)
   tailPtr := tailPtrNext
 
   // allocate new pregs to rename instructions
-  var empty = WireInit(isEmpty(headPtr, tailPtr))
-  var headPtrNext = WireInit(headPtr)
-  for(
-    (((allocReq, canAlloc),pdest),cpReq) <-
-    io.allocReqs.zip(io.canAlloc).zip(io.pdests).zip(io.cpReqs)
-  ){
-    canAlloc := !empty
-    pdest := freeList(headPtrNext.value)
-    headPtrNext = headPtrNext + (allocReq && canAlloc)
-    when(cpReq.valid){
-      checkPoints(cpReq.bits.value) := headPtrNext
-      XSDebug(p"do checkPt at BrqIdx=${cpReq.bits.value} headPtr:$headPtrNext\n")
-    }
-    empty = isEmpty(headPtrNext, tailPtr)
-    XSDebug(p"req:$allocReq canAlloc:$canAlloc pdest:$pdest headNext:$headPtrNext\n")
-  }
 
-  headPtr := Mux(io.redirect.valid, // mispredict or exception happen
-    Mux(io.redirect.bits.isException || io.redirect.bits.isFlushPipe, // TODO: need check by JiaWei
-      FreeListPtr(!tailPtrNext.flag, tailPtrNext.value),
-      Mux(io.redirect.bits.isMisPred,
-        checkPoints(io.redirect.bits.brTag.value),
-        headPtrNext // replay
-      )
-    ),
-    headPtrNext
+  // number of free regs in freelist
+  val freeRegs = Wire(UInt())
+  // use RegNext for better timing
+  io.req.canAlloc := RegNext(freeRegs >= RenameWidth.U)
+  XSDebug(p"free regs: $freeRegs\n")
+
+  val allocatePtrs = (0 until RenameWidth).map(i => headPtr + i.U)
+  val allocatePdests = VecInit(allocatePtrs.map(ptr => freeList(ptr.value)))
+
+  for(i <- 0 until RenameWidth){
+    io.req.pdests(i) := allocatePdests(/*if (i == 0) 0.U else */PopCount(io.req.allocReqs.take(i)))
+    // when(io.cpReqs(i).valid){
+    //   checkPoints(io.cpReqs(i).bits.value) := newHeadPtrs(i+1)
+    //   XSDebug(p"do checkPt at BrqIdx=${io.cpReqs(i).bits.value} ${newHeadPtrs(i+1)}\n")
+    // }
+    XSDebug(p"req:${io.req.allocReqs(i)} canAlloc:${io.req.canAlloc} pdest:${io.req.pdests(i)}\n")
+  }
+  val headPtrAllocate = headPtr + PopCount(io.req.allocReqs)
+  val headPtrNext = Mux(io.req.canAlloc && io.req.doAlloc, headPtrAllocate, headPtr)
+  freeRegs := distanceBetween(tailPtr, headPtrNext)
+
+  // priority: (1) exception and flushPipe; (2) walking; (3) mis-prediction; (4) normal dequeue
+  headPtr := Mux(io.flush,
+    FreeListPtr(!tailPtrNext.flag, tailPtrNext.value),
+    Mux(io.walk.valid,
+      headPtr - io.walk.bits,
+      Mux(io.redirect, headPtr, headPtrNext))
   )
 
   XSDebug(p"head:$headPtr tail:$tailPtr\n")
 
-  XSDebug(io.redirect.valid, p"redirect: brqIdx=${io.redirect.bits.brTag.value}\n")
 
+  val enableFreelistCheck = false
+  if (enableFreelistCheck) {
+    for (i <- 0 until FL_SIZE) {
+      for (j <- i+1 until FL_SIZE) {
+        XSError(freeList(i) === freeList(j), s"Found same entry in freelist! (i=$i j=$j)")
+      }
+    }
+  }
 
-
+  XSPerfAccumulate("utilization", freeRegs)
+  XSPerfAccumulate("allocation_blocked", !io.req.canAlloc)
+  XSPerfAccumulate("can_alloc_wrong", !io.req.canAlloc && freeRegs >= RenameWidth.U)
 }

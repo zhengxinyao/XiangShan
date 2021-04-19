@@ -18,7 +18,7 @@ void sd_read(uint32_t *data) {
 }
 
 void init_sd(void) {
-  fp = fopen("/home/xyn/debian/debian.img", "r");
+  fp = fopen("/home/xyn/workloads/debian/riscv-debian.img", "r");
   if(!fp)
   {
     eprintf(ANSI_COLOR_MAGENTA "[warning] sdcard img not found\n");

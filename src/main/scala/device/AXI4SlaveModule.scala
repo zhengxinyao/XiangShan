@@ -6,11 +6,10 @@ import utils._
 import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp, RegionType, TransferSizes}
 import chipsalliance.rocketchip.config.Parameters
 import freechips.rocketchip.amba.axi4.{AXI4Parameters, AXI4SlaveNode, AXI4SlaveParameters, AXI4SlavePortParameters}
-import xiangshan.HasXSLog
 
 abstract class AXI4SlaveModule[T <: Data]
 (
-  address: AddressSet,
+  address: Seq[AddressSet],
   executable: Boolean = true,
   beatBytes: Int = 8,
   burstLen: Int = 1,
@@ -19,7 +18,7 @@ abstract class AXI4SlaveModule[T <: Data]
 
   val node = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
     Seq(AXI4SlaveParameters(
-      Seq(address),
+      address,
       regionType = RegionType.UNCACHED,
       executable = executable,
       supportsWrite = TransferSizes(1, beatBytes * burstLen),
@@ -34,13 +33,16 @@ abstract class AXI4SlaveModule[T <: Data]
 }
 
 class AXI4SlaveModuleImp[T<:Data](outer: AXI4SlaveModule[T])
-  extends LazyModuleImp(outer) with HasXSLog
+  extends LazyModuleImp(outer)
 {
   val io = IO(new Bundle {
     val extra = if(outer._extra == null) None else Some(outer._extra.cloneType)
   })
 
   val (in, edge) = outer.node.in.head
+  // do not let MMIO AXI signals optimized out
+  chisel3.dontTouch(in)
+
 
 //  val timer = GTimer()
   when(in.ar.fire()){
@@ -72,9 +74,9 @@ class AXI4SlaveModuleImp[T<:Data](outer: AXI4SlaveModule[T])
     assert(in.ar.bits.burst === AXI4Parameters.BURST_INCR, "only support busrt ince!")
   }
 
-  private val s_idle :: s_rdata :: s_wdata :: s_wresp :: Nil = Enum(4)
+  val s_idle :: s_rdata :: s_wdata :: s_wresp :: Nil = Enum(4)
 
-  private val state = RegInit(s_idle)
+  val state = RegInit(s_idle)
 
   switch(state){
     is(s_idle){
@@ -150,7 +152,7 @@ class AXI4SlaveModuleImp[T<:Data](outer: AXI4SlaveModule[T])
     (c.value, in.w.bits.last)
   }
 
-  in.aw.ready := state === s_idle
+  in.aw.ready := state === s_idle && !in.ar.valid
   in.w.ready := state === s_wdata
 
   in.b.bits.resp := AXI4Parameters.RESP_OKAY

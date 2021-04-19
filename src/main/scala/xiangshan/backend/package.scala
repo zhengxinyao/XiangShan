@@ -17,10 +17,13 @@ package object backend {
 
   // jump
   object JumpOpType {
-    def jal  = "b11_000".U
-    def jalr = "b11_010".U
-    def call = "b11_011".U
-    def ret  = "b11_100".U
+    def jal  = "b00".U
+    def jalr = "b01".U
+    def auipc = "b10".U
+//    def call = "b11_011".U
+//    def ret  = "b11_100".U
+    def jumpOpisJalr(op: UInt) = op(0)
+    def jumpOpisAuipc(op: UInt) = op(1)
   }
 
   object FenceOpType {
@@ -46,6 +49,10 @@ package object backend {
     def sllw = "b100001".U
     def srlw = "b100101".U
     def sraw = "b101101".U
+
+    def isAddSub(func: UInt) = {
+      func === add || func === sub || func === addw || func === subw
+    }
 
     def isWordOp(func: UInt) = func(5)
 
@@ -121,8 +128,8 @@ package object backend {
     def sw   = "b001010".U
     def sd   = "b001011".U
 
-    // float/double load store
-    def flw  = "b010110".U
+    def isLoad(op: UInt): Bool = !op(3)
+    def isStore(op: UInt): Bool = op(3)
 
     // atomics
     // bit(1, 0) are size
@@ -160,5 +167,18 @@ package object backend {
     def R = "b11".U  // return
 
     def apply() = UInt(2.W)
+  }
+
+  object SelImm {
+    def IMM_X  = "b111".U
+    def IMM_S  = "b000".U
+    def IMM_SB = "b001".U
+    def IMM_U  = "b010".U
+    def IMM_UJ = "b011".U
+    def IMM_I  = "b100".U
+    def IMM_Z  = "b101".U
+    def INVALID_INSTR = "b110".U
+
+    def apply() = UInt(3.W)
   }
 }

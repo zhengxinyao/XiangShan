@@ -1,5 +1,5 @@
-TOP = TopMain
-FPGATOP = FPGANOOP
+TOP = XSTop
+FPGATOP = top.TopMain
 BUILD_DIR = ./build
 TOP_V = $(BUILD_DIR)/$(TOP).v
 SCALA_FILE = $(shell find ./src/main/scala -name '*.scala')
@@ -9,19 +9,28 @@ MEM_GEN = ./scripts/vlsi_mem_gen
 SIMTOP = top.TestMain
 IMAGE ?= temp
 
+# co-simulation with DRAMsim3
+ifeq ($(WITH_DRAMSIM3),1)
+ifndef DRAMSIM3_HOME
+$(error DRAMSIM3_HOME is not set)
+endif
+override SIM_ARGS += --with-dramsim3
+endif
+
 # remote machine with more cores to speedup c++ build
 REMOTE ?= localhost
 
 .DEFAULT_GOAL = verilog
 
 help:
-	mill XiangShan.test.runMain top.$(TOP) --help
+	mill XiangShan.test.runMain $(SIMTOP) --help
 
 $(TOP_V): $(SCALA_FILE)
 	mkdir -p $(@D)
-	mill XiangShan.runMain top.$(TOP) -X verilog -td $(@D) --output-file $(@F) --infer-rw $(FPGATOP) --repl-seq-mem -c:$(FPGATOP):-o:$(@D)/$(@F).conf
-	$(MEM_GEN) $(@D)/$(@F).conf >> $@
-	sed -i -e 's/_\(aw\|ar\|w\|r\|b\)_\(\|bits_\)/_\1/g' $@
+	mill XiangShan.test.runMain $(FPGATOP) -td $(@D) --full-stacktrace --output-file $(@F) --disable-all --remove-assert --infer-rw --repl-seq-mem -c:$(FPGATOP):-o:$(@D)/$(@F).conf $(SIM_ARGS)
+	$(MEM_GEN) $(@D)/$(@F).conf --tsmc28 --output_file $(@D)/tsmc28_sram.v > $(@D)/tsmc28_sram.v.conf
+	$(MEM_GEN) $(@D)/$(@F).conf --output_file $(@D)/sim_sram.v
+	# sed -i -e 's/_\(aw\|ar\|w\|r\|b\)_\(\|bits_\)/_\1/g' $@
 	@git log -n 1 >> .__head__
 	@git diff >> .__diff__
 	@sed -i 's/^/\/\// ' .__head__
@@ -40,67 +49,160 @@ build/top.zip: $(TOP_V)
 
 verilog: $(TOP_V)
 
-SIM_TOP = XSSimTop
+SIM_TOP   = XSSimTop
 SIM_TOP_V = $(BUILD_DIR)/$(SIM_TOP).v
-SIM_ARGS =
 $(SIM_TOP_V): $(SCALA_FILE) $(TEST_FILE)
 	mkdir -p $(@D)
-	mill XiangShan.test.runMain $(SIMTOP) -X verilog -td $(@D) --full-stacktrace --output-file $(@F) $(SIM_ARGS)
+	date -R
+	mill XiangShan.test.runMain $(SIMTOP) -X verilog -td $(@D) --full-stacktrace --output-file $(@F) --infer-rw --repl-seq-mem -c:$(SIMTOP):-o:$(@D)/$(@F).conf $(SIM_ARGS)
+	$(MEM_GEN) $(@D)/$(@F).conf --output_file $(@D)/$(@F).sram.v
+	@git log -n 1 >> .__head__
+	@git diff >> .__diff__
+	@sed -i 's/^/\/\// ' .__head__
+	@sed -i 's/^/\/\//' .__diff__
+	@cat .__head__ .__diff__ $@ $(@D)/$(@F).sram.v > .__out__
+	@mv .__out__ $@
+	@rm .__head__ .__diff__
+	sed -i '/module XSSimTop/,/endmodule/d' $(SIM_TOP_V)
+	sed -i -e 's/$$fatal/xs_assert(`__LINE__)/g' $(SIM_TOP_V)
+	date -R
 
+EMU_TOP      = XSSimSoC
 EMU_CSRC_DIR = $(abspath ./src/test/csrc)
 EMU_VSRC_DIR = $(abspath ./src/test/vsrc)
 EMU_CXXFILES = $(shell find $(EMU_CSRC_DIR) -name "*.cpp")
-EMU_VFILES = $(shell find $(EMU_VSRC_DIR) -name "*.v" -or -name "*.sv")
+EMU_VFILES   = $(shell find $(EMU_VSRC_DIR) -name "*.v" -or -name "*.sv")
 
-EMU_CXXFLAGS  = -std=c++11 -static -Wall -I$(EMU_CSRC_DIR)
+EMU_CXXFLAGS += -std=c++11 -static -Wall -I$(EMU_CSRC_DIR)
 EMU_CXXFLAGS += -DVERILATOR -Wno-maybe-uninitialized
-EMU_LDFLAGS   = -lpthread -lSDL2 -ldl
-EMU_THREADS   = 1
-ifeq ($(EMU_THREADS), 1)
-	VTHREAD_FLAGS = 
-else 
-	VTHREAD_FLAGS = --threads $(EMU_THREADS) --threads-dpi none
+EMU_LDFLAGS  += -lpthread -lSDL2 -ldl -lz
+
+VEXTRA_FLAGS  = -I$(abspath $(BUILD_DIR)) --x-assign unique -O3 -CFLAGS "$(EMU_CXXFLAGS)" -LDFLAGS "$(EMU_LDFLAGS)"
+
+# Verilator trace support
+EMU_TRACE ?=
+ifeq ($(EMU_TRACE),1)
+VEXTRA_FLAGS += --trace
+endif
+
+# Verilator multi-thread support
+EMU_THREADS  ?= 1
+ifneq ($(EMU_THREADS),1)
+VEXTRA_FLAGS += --threads $(EMU_THREADS) --threads-dpi all
+endif
+
+# Verilator savable
+EMU_SNAPSHOT ?=
+ifeq ($(EMU_SNAPSHOT),1)
+VEXTRA_FLAGS += --savable
+EMU_CXXFLAGS += -DVM_SAVABLE
+endif
+
+# Verilator coverage
+EMU_COVERAGE ?=
+ifeq ($(EMU_COVERAGE),1)
+VEXTRA_FLAGS += --coverage-line --coverage-toggle
+endif
+
+# co-simulation with DRAMsim3
+ifeq ($(WITH_DRAMSIM3),1)
+EMU_CXXFLAGS += -I$(DRAMSIM3_HOME)/src
+EMU_CXXFLAGS += -DWITH_DRAMSIM3 -DDRAMSIM3_CONFIG=\\\"$(DRAMSIM3_HOME)/configs/XiangShan.ini\\\" -DDRAMSIM3_OUTDIR=\\\"$(BUILD_DIR)\\\"
+EMU_LDFLAGS  += $(DRAMSIM3_HOME)/build/libdramsim3.a
+endif
+
+ifeq ($(DUALCORE),1)
+EMU_CXXFLAGS += -DDUALCORE
+endif
+
+USE_BIN ?= 0
+ifeq ($(USE_BIN),1)
+EMU_CXXFLAGS += -DUSE_BIN
 endif
 
 # --trace
-VERILATOR_FLAGS = --top-module $(SIM_TOP) \
-  +define+VERILATOR=1 \
-  +define+PRINTF_COND=1 \
-  +define+RANDOMIZE_REG_INIT \
-  +define+RANDOMIZE_MEM_INIT \
-  $(VTHREAD_FLAGS) \
-  --assert \
-  --savable \
-  --stats-vars \
-  --output-split 5000 \
-  --output-split-cfuncs 5000 \
-  -I$(abspath $(BUILD_DIR)) \
-  --x-assign unique -O3 -CFLAGS "$(EMU_CXXFLAGS)" \
-  -LDFLAGS "$(EMU_LDFLAGS)"
+VERILATOR_FLAGS = --top-module $(EMU_TOP) \
+  +define+VERILATOR=1                     \
+  +define+PRINTF_COND=1                   \
+  +define+RANDOMIZE_REG_INIT              \
+  +define+RANDOMIZE_MEM_INIT              \
+  +define+RANDOMIZE_GARBAGE_ASSIGN        \
+  +define+RANDOMIZE_DELAY=0               \
+  $(VEXTRA_FLAGS)                         \
+  -Wno-STMTDLY -Wno-WIDTH                 \
+  --assert                                \
+  --stats-vars                            \
+  --output-split 30000                    \
+  --output-split-cfuncs 30000
 
-EMU_MK := $(BUILD_DIR)/emu-compile/V$(SIM_TOP).mk
+EMU_MK := $(BUILD_DIR)/emu-compile/V$(EMU_TOP).mk
 EMU_DEPS := $(EMU_VFILES) $(EMU_CXXFILES)
 EMU_HEADERS := $(shell find $(EMU_CSRC_DIR) -name "*.h")
 EMU := $(BUILD_DIR)/emu
 
 $(EMU_MK): $(SIM_TOP_V) | $(EMU_DEPS)
 	@mkdir -p $(@D)
+	date -R
 	verilator --cc --exe $(VERILATOR_FLAGS) \
 		-o $(abspath $(EMU)) -Mdir $(@D) $^ $(EMU_DEPS)
+	date -R
+  
+EMU_VCS := simv
 
+VCS_SRC_FILE = $(TOP_V) \
+               $(BUILD_DIR)/plusarg_reader.v \
+               $(BUILD_DIR)/SDHelper.v
+
+VCS_TB_DIR = $(abspath ./src/test/vcs)
+VCS_TB_FILE = $(shell find $(VCS_TB_DIR) -name "*.c") \
+              $(shell find $(VCS_TB_DIR) -name "*.v")
+
+VCS_OPTS := -full64 +v2k -timescale=1ns/10ps \
+  -LDFLAGS -Wl,--no-as-needed \
+  -sverilog \
+  +lint=TFIPC-L \
+  -debug_all +vcd+vcdpluson \
+  +define+RANDOMIZE_GARBAGE_ASSIGN \
+  +define+RANDOMIZE_INVALID_ASSIGN \
+  +define+RANDOMIZE_REG_INIT \
+  +define+RANDOMIZE_MEM_INIT \
+  +define+RANDOMIZE_DELAY=1
+
+$(EMU_VCS): $(VCS_SRC_FILE) $(VCS_TB_FILE)
+	rm -rf csrc
+	vcs $(VCS_OPTS) $(VCS_SRC_FILE) $(VCS_TB_FILE)
+
+ifndef NEMU_HOME
+$(error NEMU_HOME is not set)
+endif
 REF_SO := $(NEMU_HOME)/build/riscv64-nemu-interpreter-so
 $(REF_SO):
 	$(MAKE) -C $(NEMU_HOME) ISA=riscv64 SHARE=1
 
-$(EMU): $(EMU_MK) $(EMU_DEPS) $(EMU_HEADERS) $(REF_SO)
+LOCK = /var/emu/emu.lock
+LOCK_BIN = $(abspath $(BUILD_DIR)/lock-emu)
+
+$(LOCK_BIN): ./scripts/utils/lock-emu.c
+	gcc $^ -o $@
+
+$(EMU): $(EMU_MK) $(EMU_DEPS) $(EMU_HEADERS) $(REF_SO) $(LOCK_BIN)
+	date -R
 ifeq ($(REMOTE),localhost)
 	CPPFLAGS=-DREF_SO=\\\"$(REF_SO)\\\" $(MAKE) VM_PARALLEL_BUILDS=1 OPT_FAST="-O3" -C $(abspath $(dir $(EMU_MK))) -f $(abspath $(EMU_MK))
 else
-	ssh -tt $(REMOTE) 'CPPFLAGS=-DREF_SO=\\\"$(REF_SO)\\\" $(MAKE) -j250 VM_PARALLEL_BUILDS=1 OPT_FAST="-O3" -C $(abspath $(dir $(EMU_MK))) -f $(abspath $(EMU_MK))'
+	@echo "try to get emu.lock ..."
+	ssh -tt $(REMOTE) '$(LOCK_BIN) $(LOCK)'
+	@echo "get lock"
+	ssh -tt $(REMOTE) 'CPPFLAGS=-DREF_SO=\\\"$(REF_SO)\\\" $(MAKE) -j230 VM_PARALLEL_BUILDS=1 OPT_FAST="-O3" -C $(abspath $(dir $(EMU_MK))) -f $(abspath $(EMU_MK))'
+	@echo "release lock ..."
+	ssh -tt $(REMOTE) 'rm -f $(LOCK)'
 endif
+	date -R
 
 SEED ?= $(shell shuf -i 1-10000 -n 1)
 
+VME_SOURCE ?= $(shell pwd)/build/$(TOP).v
+VME_MODULES ?= 
 
 # log will only be printed when (B<=GTimer<=E) && (L < loglevel)
 # use 'emu -h' to see more details
@@ -120,21 +222,63 @@ else
 SNAPSHOT_OPTION = --load-snapshot=$(SNAPSHOT)
 endif
 
-EMU_FLAGS = -s $(SEED) -b $(B) -e $(E) -r /home/glr/scalaTage/branch_record/$(R).csv -a $(A) $(SNAPSHOT_OPTION) $(WAVEFORM)
+ifndef NOOP_HOME
+$(error NOOP_HOME is not set)
+endif
+EMU_FLAGS = -s $(SEED) -b $(B) -e $(E) -r /home/glr/scalaTage/branch_record/$(R).csv -a $(A) $(SNAPSHOT_OPTION) $(WAVEFORM) $(EMU_ARGS)
 
 emu: $(EMU)
 	ls build
 	$(EMU) -i $(IMAGE) $(EMU_FLAGS)
 
+coverage:
+	verilator_coverage --annotate build/logs/annotated --annotate-min 1 build/logs/coverage.dat
+	python3 scripts/coverage/coverage.py build/logs/annotated/XSSimTop.v build/XSSimTop_annotated.v
+	python3 scripts/coverage/statistics.py build/XSSimTop_annotated.v >build/coverage.log
+
+#-----------------------timing scripts-------------------------
+# run "make vme/tap help=1" to get help info
+
+# extract verilog module from TopMain.v
+# usage: make vme VME_MODULES=Roq
+TIMING_SCRIPT_PATH = ./timingScripts
+vme: $(TOP_V)
+	make -C $(TIMING_SCRIPT_PATH) vme
+
+# get and sort timing analysis with total delay(start+end) and max delay(start or end)
+# and print it out
+tap:
+	make -C $(TIMING_SCRIPT_PATH) tap
+
+# usage: make phy_evaluate VME_MODULE=Roq REMOTE=100
+phy_evaluate: vme
+	scp -r ./build/extracted/* $(REMOTE):~/phy_evaluation/remote_run/rtl
+	ssh -tt $(REMOTE) 'cd ~/phy_evaluation/remote_run && $(MAKE) evaluate DESIGN_NAME=$(VME_MODULE)'
+	scp -r  $(REMOTE):~/phy_evaluation/remote_run/rpts ./build
+
+# usage: make phy_evaluate_atc VME_MODULE=Roq REMOTE=100
+phy_evaluate_atc: vme
+	scp -r ./build/extracted/* $(REMOTE):~/phy_evaluation/remote_run/rtl
+	ssh -tt $(REMOTE) 'cd ~/phy_evaluation/remote_run && $(MAKE) evaluate_atc DESIGN_NAME=$(VME_MODULE)'
+	scp -r  $(REMOTE):~/phy_evaluation/remote_run/rpts ./build
+
 cache:
 	$(MAKE) emu IMAGE=Makefile
 
+release-lock:
+	ssh -tt $(REMOTE) 'rm -f $(LOCK)'
+
 clean:
-	rm -rf $(BUILD_DIR)
+	git submodule foreach git clean -fdx
+	git clean -fd
+	rm -rf ./build
 
 init:
 	git submodule update --init
-	# do not use a recursive init to pull some not used submodules
-	cd ./rocket-chip/ && git submodule update --init api-config-chipsalliance hardfloat
 
-.PHONY: verilog emu clean help init $(REF_SO)
+bump:
+	git submodule foreach "git fetch origin&&git checkout master&&git reset --hard origin/master"
+
+bsp:
+	mill -i mill.contrib.BSP/install
+.PHONY: verilog emu clean help init bump bsp $(REF_SO)

@@ -343,8 +343,12 @@ hs_err_pid*
 .vscode
 .metals
 .bloop
+.bsp
 .coursier
 mill.rdiB
 
 stale_outputs_checked
 
+*.snapshot
+__pycache__
+overnight.sh

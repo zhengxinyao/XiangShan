@@ -30,11 +30,36 @@ object AddSinks {
       "perfCntCondMbpIRight",
       "perfCntCondMbpIWrong",
       "perfCntCondMbpRRight",
-      "perfCntCondMbpRWrong"
+      "perfCntCondMbpRWrong",
+      "perfCntS1Right",
+      "perfCntS1Wrong",
+      "perfCntS2Right",
+      "perfCntS2Wrong",
+      "perfCntS3Right",
+      "perfCntS3Wrong",
+      "perfCntubtbRight",
+      "perfCntubtbWrong",
+      "perfCntbtbRight",
+      "perfCntbtbWrong",
+      "perfCnttageRight",
+      "perfCnttageWrong",
+      "perfCntrasRight",
+      "perfCntrasWrong",
+      "perfCntloopRight",
+      "perfCntloopWrong",
+      "perfCntLoopExit",
+      "perfCntTakenAndRight",
+      "perfCntTakenButWrong",
+      // "CntFetchFromICache",
+      // "CntFetchFromLoopBuffer",
+      // "CntExitLoop1",
+      // "CntExitLoop2",
+      // "CntExitLoop3"
     )
     for (s <- sinks){ BoringUtils.addSink(tmp, s) }
 
-    val disp_enable = WireInit(dispBegin.S(64.W).asUInt() < dispEnd.S(64.W).asUInt())
+    // val disp_enable = WireInit(dispBegin.S(64.W).asUInt() < dispEnd.S(64.W).asUInt())
+    val disp_enable = WireInit(true.B)
     val time = GTimer()
     BoringUtils.addSource(disp_enable, "DISPLAY_LOG_ENABLE")
     BoringUtils.addSource(time, "logTimestamp")

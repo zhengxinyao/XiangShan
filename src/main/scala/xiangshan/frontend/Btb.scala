@@ -1,30 +1,32 @@
 package xiangshan.frontend
 
 import chisel3._
+import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import chisel3.util._
 import xiangshan._
 import xiangshan.backend.ALUOpType
 import utils._
-import chisel3.util.experimental.BoringUtils
-import xiangshan.backend.decode.XSTrap
+import chisel3.experimental.chiselName
+
 
 import scala.math.min
 
-trait BTBParams extends HasXSParameter {
+trait BTBParams extends HasXSParameter with HasIFUConst {
   val nRows = BtbSize / (PredictWidth * BtbWays)
   val offsetLen = 13
+  val lowerBitsSize = 13
   val extendedNRows = nRows
 }
 
 class BtbDataEntry extends XSBundle with BTBParams {
-  val offset = SInt(offsetLen.W)
+  val lower = UInt(lowerBitsSize.W)
   val extended = Bool()
 }
 
 object BtbDataEntry {
-  def apply(offset: SInt, extended: Bool) = {
+  def apply(lower: UInt, extended: Bool) = {
     val e = Wire(new BtbDataEntry)
-    e.offset := offset
+    e.lower := lower
     e.extended := extended
     e
   }
@@ -33,17 +35,17 @@ object BtbDataEntry {
 class BtbMetaEntry() extends XSBundle with BTBParams {
   val valid = Bool()
   // TODO: don't need full length of tag
-  val tag = UInt((VAddrBits - log2Up(BtbSize) - 1).W)
-  val btbType = UInt(2.W)
+  val tag = UInt((VAddrBits - log2Ceil(nRows) - log2Ceil(PredictWidth) - instOffsetBits).W)
+  val isBr = Bool()
   val isRVC = Bool()
 }
 
 object BtbMetaEntry {
-  def apply(tag: UInt, btbType: UInt, isRVC: Bool) = {
+  def apply(tag: UInt, isBr: UInt, isRVC: Bool) = {
     val e = Wire(new BtbMetaEntry)
     e.valid := true.B
     e.tag := tag
-    e.btbType := btbType
+    e.isBr := isBr
     e.isRVC := isRVC
     e
   }
@@ -53,89 +55,68 @@ class BTB extends BasePredictor with BTBParams{
   class BTBResp extends Resp {
     val targets = Vec(PredictWidth, UInt(VAddrBits.W))
     val hits = Vec(PredictWidth, Bool())
-    val types = Vec(PredictWidth, UInt(2.W))
+    val isBrs = Vec(PredictWidth, Bool())
     val isRVC = Vec(PredictWidth, Bool())
   }
   class BTBMeta extends Meta {
     val writeWay =  Vec(PredictWidth, UInt(log2Up(BtbWays).W))
-    val hitJal = Vec(PredictWidth, Bool())
+    val hits = Vec(PredictWidth, Bool())
   }
   class BTBFromOthers extends FromOthers {}
-  
+
   class BTBIO extends DefaultBasePredictorIO {
     val resp = Output(new BTBResp)
     val meta = Output(new BTBMeta)
   }
-  // override val debug = true
+  override val debug = true
   override val io = IO(new BTBIO)
   val btbAddr = new TableAddr(log2Up(BtbSize/BtbWays), BtbBanks)
 
-  val pcLatch = RegEnable(io.pc.bits, io.pc.valid)
+  val if1_packetAlignedPC = packetAligned(io.pc.bits)
 
-  val data = List.fill(BtbWays) {
-    List.fill(BtbBanks) {
-      Module(new SRAMTemplate(new BtbDataEntry, set = nRows, shouldReset = true, holdRead = true))
-    }
-  }
-  val meta = List.fill(BtbWays) {
-    List.fill(BtbBanks) {
-      Module(new SRAMTemplate(new BtbMetaEntry, set = nRows, shouldReset = true, holdRead = true))
-    }
-  }
-  val edata = Module(new SRAMTemplate(UInt(VAddrBits.W), set = extendedNRows, shouldReset = true, holdRead = true))
+  val if2_pc = RegEnable(if1_packetAlignedPC, io.pc.valid)
 
+  // layout: way 0 bank 0, way 0 bank 1, ..., way 0 bank BtbBanks-1, way 1 bank 0, ..., way 1 bank BtbBanks-1
+  val data = Module(new SRAMTemplate(new BtbDataEntry, set = nRows, way=BtbWays*BtbBanks, shouldReset = true, holdRead = true, singlePort = true))
+  val meta = Module(new SRAMTemplate(new BtbMetaEntry, set = nRows, way=BtbWays*BtbBanks, shouldReset = true, holdRead = true, singlePort = true))
+
+  val edata = Module(new SRAMTemplate(UInt(VAddrBits.W), set = extendedNRows, shouldReset = true, holdRead = true, singlePort = true))
+
+  val if1_mask = io.inMask
+  val if2_mask = RegEnable(if1_mask, io.pc.valid)
+  val if1_row = btbAddr.getBankIdx(if1_packetAlignedPC)
+  val if2_row = RegEnable(if1_row, io.pc.valid)
+  
   // BTB read requests
-  val baseBank = btbAddr.getBank(io.pc.bits)
-
-  val realMask = circularShiftLeft(io.inMask, BtbBanks, baseBank)
-
-  val realMaskLatch = RegEnable(realMask, io.pc.valid)
-
-  // those banks whose indexes are less than baseBank are in the next row
-  val isInNextRow = VecInit((0 until BtbBanks).map(_.U < baseBank))
-
-
-  val baseRow = btbAddr.getBankIdx(io.pc.bits)
-
-  val nextRowStartsUp = baseRow.andR
-
-  val realRow = VecInit((0 until BtbBanks).map(b => Mux(isInNextRow(b.U), (baseRow+1.U)(log2Up(nRows)-1, 0), baseRow)))
-
-  val realRowLatch = VecInit(realRow.map(RegEnable(_, enable=io.pc.valid)))
-
-  for (w <- 0 until BtbWays) {
-    for (b <- 0 until BtbBanks) {
-      meta(w)(b).reset                := reset.asBool
-      meta(w)(b).io.r.req.valid       := realMask(b) && io.pc.valid
-      meta(w)(b).io.r.req.bits.setIdx := realRow(b)
-      data(w)(b).reset                := reset.asBool
-      data(w)(b).io.r.req.valid       := realMask(b) && io.pc.valid
-      data(w)(b).io.r.req.bits.setIdx := realRow(b)
-    }
-  }
-  edata.reset                := reset.asBool
-  edata.io.r.req.valid       := io.pc.valid
-  edata.io.r.req.bits.setIdx := realRow(0) // Use the baseRow
+  meta.io.r.req.valid  := io.pc.valid
+  data.io.r.req.valid  := io.pc.valid
+  edata.io.r.req.valid := io.pc.valid
+  meta.io.r.req.bits.setIdx  := if1_row
+  data.io.r.req.bits.setIdx  := if1_row
+  edata.io.r.req.bits.setIdx := if1_row
+  
 
   // Entries read from SRAM
-  val metaRead = VecInit((0 until BtbWays).map(w => VecInit((0 until BtbBanks).map( b => meta(w)(b).io.r.resp.data(0)))))
-  val dataRead = VecInit((0 until BtbWays).map(w => VecInit((0 until BtbBanks).map( b => data(w)(b).io.r.resp.data(0)))))
-  val edataRead = edata.io.r.resp.data(0)
+  val if2_metaRead =
+    VecInit((0 until BtbWays).map(
+      w => VecInit((0 until BtbBanks).map(
+        b => meta.io.r.resp.data(w*BtbBanks+b)))))
+  val if2_dataRead =
+    VecInit((0 until BtbWays).map(
+      w => VecInit((0 until BtbBanks).map(
+        b => data.io.r.resp.data(w*BtbBanks+b)))))
+  val if2_edataRead = edata.io.r.resp.data(0)
 
-  val baseBankLatch = btbAddr.getBank(pcLatch)
-  val baseTag = btbAddr.getTag(pcLatch)
+  val if2_tag = btbAddr.getTag(if2_pc)
 
-  val tagIncremented = VecInit((0 until BtbBanks).map(b => RegEnable(isInNextRow(b.U) && nextRowStartsUp, io.pc.valid)))
-  val realTags = VecInit((0 until BtbBanks).map(b => Mux(tagIncremented(b), baseTag + 1.U, baseTag)))
-
-  val totalHits = VecInit((0 until BtbBanks).map( b => 
+  val if2_totalHits = VecInit((0 until BtbBanks).map( b =>
     VecInit((0 until BtbWays).map( w =>
       // This should correspond to the real mask from last valid cycle!
-      metaRead(w)(b).tag === realTags(b) && metaRead(w)(b).valid && realMaskLatch(b)
+      if2_metaRead(w)(b).tag === if2_tag && if2_metaRead(w)(b).valid && if2_mask(b)
     ))
   ))
-  val bankHits = VecInit(totalHits.map(_.reduce(_||_)))
-  val bankHitWays = VecInit(totalHits.map(PriorityEncoder(_)))
+  val if2_bankHits = VecInit(if2_totalHits.map(_.reduce(_||_)))
+  val if2_bankHitWays = VecInit(if2_totalHits.map(PriorityEncoder(_)))
 
 
   def allocWay(valids: UInt, meta_tags: UInt, req_tag: UInt) = {
@@ -146,39 +127,39 @@ class BTB extends BasePredictor with BTBParams{
       val tags = Cat(meta_tags, req_tag)
       val l = log2Up(BtbWays)
       val nChunks = (tags.getWidth + l - 1) / l
-      val chunks = (0 until nChunks).map( i => 
+      val chunks = (0 until nChunks).map( i =>
         tags(min((i+1)*l, tags.getWidth)-1, i*l)
       )
-      w := Mux(valid, chunks.reduce(_^_), (if (randomAlloc) {LFSR64()(log2Up(BtbWays)-1,0)} else {PriorityEncoder(~valids)}))
+      w := Mux(valid, if (randomAlloc) {LFSR64()(log2Up(BtbWays)-1,0)} else {chunks.reduce(_^_)}, PriorityEncoder(~valids))
       w
     } else {
       val w = WireInit(0.U)
       w
     }
   }
-  val allocWays = VecInit((0 until BtbBanks).map(b => 
-    allocWay(VecInit(metaRead.map(w => w(b).valid)).asUInt,
-             VecInit(metaRead.map(w => w(b).tag)).asUInt,
-             realTags(b))))
+  val allocWays = VecInit((0 until BtbBanks).map(b =>
+    allocWay(VecInit(if2_metaRead.map(w => w(b).valid)).asUInt,
+             VecInit(if2_metaRead.map(w => w(b).tag)).asUInt,
+             if2_tag)))
 
   val writeWay = VecInit((0 until BtbBanks).map(
-    b => Mux(bankHits(b), bankHitWays(b), allocWays(b))
+    b => Mux(if2_bankHits(b), if2_bankHitWays(b), allocWays(b))
   ))
 
-  // e.g: baseBank == 5 => (5, 6,..., 15, 0, 1, 2, 3, 4)
-  val bankIdxInOrder = VecInit((0 until BtbBanks).map(b => (baseBankLatch +& b.U)(log2Up(BtbBanks)-1,0)))
 
 
   for (b <- 0 until BtbBanks) {
-    val meta_entry = metaRead(bankHitWays(bankIdxInOrder(b)))(bankIdxInOrder(b))
-    val data_entry = dataRead(bankHitWays(bankIdxInOrder(b)))(bankIdxInOrder(b))
+    val meta_entry = if2_metaRead(if2_bankHitWays(b))(b)
+    val data_entry = if2_dataRead(if2_bankHitWays(b))(b)
+    val target = Mux(data_entry.extended, if2_edataRead, Cat(if2_pc(VAddrBits-1, lowerBitsSize+instOffsetBits), data_entry.lower, 0.U(instOffsetBits.W)))
     // Use real pc to calculate the target
-    io.resp.targets(b) := Mux(data_entry.extended, edataRead, (pcLatch.asSInt + (b << 1).S + data_entry.offset).asUInt)
-    io.resp.hits(b)  := bankHits(bankIdxInOrder(b))
-    io.resp.types(b) := meta_entry.btbType
+    io.resp.targets(b) := target
+    io.resp.hits(b)  := if2_bankHits(b) && ctrl.btb_enable
+    io.resp.isBrs(b) := meta_entry.isBr
     io.resp.isRVC(b) := meta_entry.isRVC
-    io.meta.writeWay(b) := writeWay(bankIdxInOrder(b))
-    io.meta.hitJal(b)   := bankHits(bankIdxInOrder(b)) && meta_entry.btbType === BTBtype.J
+    io.meta.writeWay(b) := writeWay(b)
+    io.meta.hits(b) := if2_bankHits(b)
+    // io.meta.hitJal(b)   := if2_bankHits(b) && meta_entry.btbType === BTBtype.J
   }
 
   def pdInfoToBTBtype(pd: PreDecodeInfo) = {
@@ -189,75 +170,97 @@ class BTB extends BasePredictor with BTBParams{
     when (pd.isBr)   { t := BTBtype.B}
     t
   }
-  val u = io.update.bits.ui
   
-  val max_offset = Cat(0.B, ~(0.U((offsetLen-1).W))).asSInt
-  val min_offset = Cat(1.B,  (0.U((offsetLen-1).W))).asSInt
-  val new_target = Mux(u.pd.isBr, u.brTarget, u.target)
-  val new_offset = (new_target.asSInt - u.pc.asSInt)
-  val new_extended = (new_offset > max_offset || new_offset < min_offset)
+  val do_update = RegNext(io.update)
+  val u = do_update.bits
+
+  val cfi_pc = packetAligned(u.ftqPC) + (u.cfiIndex.bits << instOffsetBits)
+  val new_target = u.target
+  val new_lower = new_target(lowerBitsSize+instOffsetBits-1, instOffsetBits)
+  val update_pc_higher     = cfi_pc(VAddrBits-1, lowerBitsSize+instOffsetBits)
+  val update_target_higher = new_target(VAddrBits-1, lowerBitsSize+instOffsetBits)
+  val higher_identical = update_pc_higher === update_target_higher
+  val new_extended = !higher_identical
 
 
-  val updateWay = u.brInfo.btbWriteWay
-  val updateBankIdx = btbAddr.getBank(u.pc)
-  val updateRow = btbAddr.getBankIdx(u.pc)
-  val updateType = pdInfoToBTBtype(u.pd)
-  val metaWrite = BtbMetaEntry(btbAddr.getTag(u.pc), updateType, u.pd.isRVC)
-  val dataWrite = BtbDataEntry(new_offset, new_extended)
-
-  val jalFirstEncountered = !u.isMisPred && !u.brInfo.btbHitJal && updateType === BTBtype.J
-  val updateValid = io.update.valid && (u.isMisPred || jalFirstEncountered || !u.isMisPred && u.pd.isBr)
+  val updateWay = u.metas(u.cfiIndex.bits).btbWriteWay
+  val updateBank = u.cfiIndex.bits
+  val updateRow = btbAddr.getBankIdx(cfi_pc)
+  val updateIsBr = u.br_mask(u.cfiIndex.bits)
+  val updateTaken = u.cfiIndex.valid && u.valids(u.cfiIndex.bits)
+  val updateIndirectMisPred = u.mispred(u.cfiIndex.bits) && u.cfiIsJalr
+  // TODO: remove isRVC
+  val metaWrite = BtbMetaEntry(btbAddr.getTag(cfi_pc), updateIsBr, u.cfiIsRVC)
+  val dataWrite = BtbDataEntry(new_lower, new_extended)
+  
+  val cfi_hit = u.metas(u.cfiIndex.bits).btbHit
+  // for brs and jals, prediction is right once hit, so we only update on not hit or jalr mispreds
+  val updateValid = do_update.valid && updateTaken && (!cfi_hit || updateIndirectMisPred)
+  in_ready := !updateValid
   // Update btb
-  for (w <- 0 until BtbWays) {
-    for (b <- 0 until BtbBanks) {
-      meta(w)(b).io.w.req.valid := updateValid && b.U === updateBankIdx && w.U === updateWay
-      meta(w)(b).io.w.req.bits.setIdx := updateRow
-      meta(w)(b).io.w.req.bits.data := metaWrite
-      data(w)(b).io.w.req.valid := updateValid && b.U === updateBankIdx && w.U === updateWay
-      data(w)(b).io.w.req.bits.setIdx := updateRow
-      data(w)(b).io.w.req.bits.data := dataWrite
+  require(isPow2(BtbBanks))
+  // this is one hot, since each fetch bundle has at most 1 taken instruction
+  val updateWayMask = UIntToOH(Cat(updateWay, updateBank))
+  meta.io.w.apply(updateValid, metaWrite, updateRow, updateWayMask)
+  data.io.w.apply(updateValid, dataWrite, updateRow, updateWayMask)
+  edata.io.w.apply(updateValid && new_extended, u.target, updateRow, "b1".U)
+
+  
+  if (!env.FPGAPlatform) {
+    val alloc_conflict =
+      VecInit((0 until BtbBanks).map(i =>
+        if2_metaRead(allocWays(i))(i).valid && !if2_bankHits(i) && if2_mask(i)))
+    XSPerfAccumulate("btb_alloc_conflict", PopCount(alloc_conflict))
+    XSPerfAccumulate("btb_update_req", updateValid)
+    XSPerfAccumulate("ebtb_update_req", updateValid && new_extended)
+    XSPerfAccumulate("btb_wr_conflict", updateValid && io.pc.valid)
+    XSPerfAccumulate("ebtb_wr_conflict", updateValid && new_extended && io.pc.valid)
+    XSPerfAccumulate("btb_update_indirect_mispred", updateValid && updateIndirectMisPred)
+    def btb_perf(hit_cond: Bool)(str: String, cfi_cond: PreDecodeInfoForDebug => UInt): Unit = {
+      XSPerfAccumulate(str, PopCount((u.takens zip u.valids zip u.metas zip u.pd) map {
+          case (((t, v), m), pd)  => t && v && (m.btbHit.asBool === hit_cond) && cfi_cond(pd).asBool && do_update.valid && updateTaken}))
     }
+    val btb_miss_perf = btb_perf(false.B)(_,_)
+    val btb_hit_perf = btb_perf(true.B)(_,_)
+    btb_hit_perf("btb_commit_hits", pd => !pd.notCFI)
+    btb_hit_perf("btb_commit_hit_brs", pd => pd.isBr)
+    btb_hit_perf("btb_commit_hit_jals", pd => pd.isJal)
+    btb_hit_perf("btb_commit_hit_jalrs", pd => pd.isJalr)
+    btb_hit_perf("btb_commit_hit_rets", pd => pd.isRet)
+    btb_miss_perf("btb_commit_misses", pd => !pd.notCFI)
+    btb_miss_perf("btb_commit_miss_brs", pd => pd.isBr)
+    btb_miss_perf("btb_commit_miss_jals", pd => pd.isJal)
+    btb_miss_perf("btb_commit_miss_jalrs", pd => pd.isJalr)
+    btb_miss_perf("btb_commit_miss_rets", pd => pd.isRet)
   }
-
-  edata.io.w.req.valid := updateValid && new_extended
-  edata.io.w.req.bits.setIdx := updateRow
-  edata.io.w.req.bits.data := u.target
-
 
   if (BPUDebug && debug) {
     val debug_verbose = true
-    
-    XSDebug("isInNextRow: ")
-    (0 until BtbBanks).foreach(i => {
-      XSDebug(false, true.B, "%d ", isInNextRow(i))
-      if (i == BtbBanks-1) { XSDebug(false, true.B, "\n") }
-    })
-
     val validLatch = RegNext(io.pc.valid)
-    XSDebug(io.pc.valid, "read: pc=0x%x, baseBank=%d, realMask=%b\n", io.pc.bits, baseBank, realMask)
+    XSDebug(io.pc.valid, "read: pc=0x%x, mask=%b\n", if1_packetAlignedPC, if1_mask)
     XSDebug(validLatch, "read_resp: pc=0x%x, readIdx=%d-------------------------------\n",
-      pcLatch, btbAddr.getIdx(pcLatch))
+      if2_pc, btbAddr.getIdx(if2_pc))
     if (debug_verbose) {
       for (i <- 0 until BtbBanks){
         for (j <- 0 until BtbWays) {
-          XSDebug(validLatch, "read_resp[w=%d][b=%d][r=%d] is valid(%d) mask(%d), tag=0x%x, offset=0x%x, type=%d, isExtend=%d, isRVC=%d\n",
-          j.U, i.U, realRowLatch(i), metaRead(j)(i).valid, realMaskLatch(i), metaRead(j)(i).tag, dataRead(j)(i).offset, metaRead(j)(i).btbType, dataRead(j)(i).extended, metaRead(j)(i).isRVC)
+          XSDebug(validLatch, "read_resp[w=%d][b=%d][r=%d] is valid(%d) mask(%d), tag=0x%x, lower=0x%x, isBr=%d, isExtend=%d, isRVC=%d\n",
+          j.U, i.U, if2_row, if2_metaRead(j)(i).valid, if2_mask(i), if2_metaRead(j)(i).tag, if2_dataRead(j)(i).lower, if2_metaRead(j)(i).isBr, if2_dataRead(j)(i).extended, if2_metaRead(j)(i).isRVC)
         }
       }
     }
+
     for (i <- 0 until BtbBanks) {
-      val idx = bankIdxInOrder(i)
-      XSDebug(validLatch && bankHits(bankIdxInOrder(i)), "resp(%d): bank(%d) hits, tgt=%x, isRVC=%d, type=%d\n",
-        i.U, idx, io.resp.targets(i), io.resp.isRVC(i), io.resp.types(i))
+      XSDebug(validLatch && if2_bankHits(i), "resp(%d): bank(%d) hits, tgt=%x, isRVC=%d, isBr=%d\n",
+        i.U, i.U, io.resp.targets(i), io.resp.isRVC(i), io.resp.isBrs(i))
     }
-    XSDebug(updateValid, "update_req: cycle=%d, pc=0x%x, target=0x%x, misPred=%d, offset=%x, extended=%d, way=%d, bank=%d, row=0x%x\n",
-      u.brInfo.debug_btb_cycle, u.pc, new_target, u.isMisPred, new_offset, new_extended, updateWay, updateBankIdx, updateRow)
+    XSDebug(updateValid, "update_req: cycle=%d, pc=0x%x, target=0x%x, misPred=%d, lower=%x, extended=%d, way=%d, bank=%d, row=0x%x\n",
+      u.metas(u.cfiIndex.bits).debug_btb_cycle, cfi_pc, new_target, u.mispred(u.cfiIndex.bits), new_lower, new_extended, updateWay, updateBank, updateRow)
     for (i <- 0 until BtbBanks) {
       // Conflict when not hit and allocating a valid entry
-      val conflict = metaRead(allocWays(i))(i).valid && !bankHits(i)
+      val conflict = if2_metaRead(allocWays(i))(i).valid && !if2_bankHits(i)
       XSDebug(conflict, "bank(%d) is trying to allocate a valid way(%d)\n", i.U, allocWays(i))
       // There is another circumstance when a branch is on its way to update while another
-      // branch chose the same way to udpate, then after the first branch is wrote in, 
+      // branch chose the same way to udpate, then after the first branch is wrote in,
       // the second branch will overwrite the first branch
   }
 

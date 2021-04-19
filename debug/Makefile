@@ -15,20 +15,19 @@ EMU_ARGS = B=$(B) E=$(E) V=$(V) R=$(R) A=$(A)
 # ------------------------------------------------------------------
 
 cache:
-	$(MAKE) -C $(AM_HOME)/tests/cachetest $(ARCH) ALL=loader $(EMU_ARGS) run 2>&1 | tee > loader.log
+	$(MAKE) -C $(AM_HOME)/tests/cachetest $(ARCH) ALL=loader $(EMU_ARGS) run 
+	#2>&1 | tee > loader.log
 	#2>&1 | tee > loader.log
 
 cpu:
-	$(MAKE) -C $(AM_HOME)/tests/cputest $(ARCH) ALL=dummy $(EMU_ARGS) run 2>&1 | tee > dummy.log
+	$(MAKE) -C $(AM_HOME)/tests/cputest $(ARCH) ALL=dummy $(EMU_ARGS) run 2>&1 
 
 # ------------------------------------------------------------------
 # run different test sets
 # ------------------------------------------------------------------
 
 cputest:
-	$(MAKE) -C $(AM_HOME)/tests/cputest $(ARCH) $(EMU_ARGS) run 2>&1 | tee > cpu.log
-	cat cpu.log | grep different
-	cat cpu.log | grep IPC
+	bash cputest.sh
 
 # bputest:
 # 	$(MAKE) -C $(AM_HOME)/tests/bputest $(ARCH) run 2>&1 | tee > bpu.log
@@ -44,12 +43,17 @@ amtest:
 
 microbench:
 	$(MAKE) -C $(AM_HOME)/apps/microbench $(ARCH) $(EMU_ARGS) mainargs=test run 
+	#2>&1 | tee > microbench.log
+	#2 > microbench.log
+	cat microbench.log | grep IPC
 
 microbench_train:
 	$(MAKE) -C $(AM_HOME)/apps/microbench $(ARCH) $(EMU_ARGS) mainargs=train run
 
 coremark:
-	$(MAKE) -C $(AM_HOME)/apps/coremark $(ARCH) $(EMU_ARGS) mainargs=test run 
+	$(MAKE) -C $(AM_HOME)/apps/coremark $(ARCH) $(EMU_ARGS) mainargs=test run
+	#2 > coremark.log
+	cat coremark.log | grep IPC
 
 dhrystone:
 	$(MAKE) -C $(AM_HOME)/apps/dhrystone $(ARCH) $(EMU_ARGS) mainargs=test run
@@ -91,11 +95,16 @@ disassemble-xv6:
 	cp $(XV6_HOME)/build/code.txt ./d-xv6.log
 
 
-P = 4
-SUITE = xiangshan.backend.exu.AluTest
+SUITE = cache.L2CacheTest
 
 unit-test:
-	cd .. && mill XiangShan.test.testOnly -o -s $(SUITE) -P$(P)
+	cd .. && mill XiangShan.test.testOnly -o -s $(SUITE)
+
+tlc-test:
+	cd .. && mill XiangShan.test.testOnly -o -s cache.TLCTest.TLCCacheTest
+
+l1-test:
+	cd .. && mill XiangShan.test.testOnly -o -s cache.L1DTest.L1DCacheTest
 
 unit-test-all:
 	cd .. && mill XiangShan.test.test -P$(P)

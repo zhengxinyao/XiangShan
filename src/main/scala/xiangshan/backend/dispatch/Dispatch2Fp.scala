@@ -5,129 +5,172 @@ import chisel3.util._
 import xiangshan._
 import utils._
 import xiangshan.backend.regfile.RfReadPort
-import xiangshan.backend.exu._
+import xiangshan.backend.rename.BusyTableReadIO
+import xiangshan.backend.exu.Exu._
 
 class Dispatch2Fp extends XSModule {
   val io = IO(new Bundle() {
     val fromDq = Flipped(Vec(dpParams.FpDqDeqWidth, DecoupledIO(new MicroOp)))
-    val readRf = Vec(NRFpReadPorts - exuParameters.StuCnt, Flipped(new RfReadPort))
-    val regRdy = Vec(NRFpReadPorts - exuParameters.StuCnt, Input(Bool()))
+    val readRf = Vec(NRFpReadPorts - exuParameters.StuCnt, Output(UInt(PhyRegIdxWidth.W)))
+    val readState = Vec(NRFpReadPorts - exuParameters.StuCnt, Flipped(new BusyTableReadIO))
     val numExist = Input(Vec(exuParameters.FpExuCnt, UInt(log2Ceil(IssQueSize).W)))
     val enqIQCtrl = Vec(exuParameters.FpExuCnt, DecoupledIO(new MicroOp))
-    val enqIQData = Vec(exuParameters.FpExuCnt, Output(new ExuInput))
+    val readPortIndex = Vec(exuParameters.FpExuCnt, Output(UInt(log2Ceil((NRFpReadPorts - exuParameters.StuCnt) / 3).W)))
   })
 
   /**
     * Part 1: generate indexes for reservation stations
     */
-  assert(exuParameters.JmpCnt == 1)
-  val fmacIndexGen = Module(new IndexMapping(dpParams.FpDqDeqWidth, exuParameters.FmacCnt, true))
+  // val fmacIndexGen = Module(new IndexMapping(dpParams.FpDqDeqWidth, exuParameters.FmacCnt, true))
+  val fmacCanAccept = VecInit(io.fromDq.map(deq => deq.valid && FuType.fmacCanAccept(deq.bits.ctrl.fuType)))
+  val (fmacPriority, fmacIndex) = PriorityGen((0 until exuParameters.FmacCnt).map(i => io.numExist(i)))
+  // fmacIndexGen.io.validBits := fmacCanAccept
+  // fmacIndexGen.io.priority := fmacPriority
+
   val fmiscIndexGen = Module(new IndexMapping(dpParams.FpDqDeqWidth, exuParameters.FmiscCnt, true))
-  val fmacPriority = PriorityGen((0 until exuParameters.FmacCnt).map(i => io.numExist(i)))
-  val fmiscPriority = PriorityGen((0 until exuParameters.FmiscCnt).map(i => io.numExist(i+exuParameters.FmacCnt)))
-  for (i <- 0 until dpParams.FpDqDeqWidth) {
-    fmacIndexGen.io.validBits(i) := io.fromDq(i).valid && Exu.fmacExeUnitCfg.canAccept(io.fromDq(i).bits.ctrl.fuType)
-    fmiscIndexGen.io.validBits(i) := io.fromDq(i).valid && Exu.fmiscExeUnitCfg.canAccept(io.fromDq(i).bits.ctrl.fuType)
+  val fmiscCanAccept = VecInit(io.fromDq.map(deq => deq.valid && FuType.fmiscCanAccept(deq.bits.ctrl.fuType)))
+  val (fmiscPriority, _) = PriorityGen((0 until exuParameters.FmiscCnt).map(i => io.numExist(i+exuParameters.FmacCnt)))
+  fmiscIndexGen.io.validBits := fmiscCanAccept
+  fmiscIndexGen.io.priority := fmiscPriority
 
-    // XSDebug(io.fromDq(i).valid,
-    //   p"fp dp queue $i: ${Hexadecimal(io.fromDq(i).bits.cf.pc)} type ${Binary(io.fromDq(i).bits.ctrl.fuType)}\n")
-  }
-  for (i <- 0 until exuParameters.FmacCnt) {
-    fmacIndexGen.io.priority(i) := fmacPriority(i)
-  }
-  for (i <- 0 until exuParameters.FmiscCnt) {
-    fmiscIndexGen.io.priority(i) := fmiscPriority(i)
-  }
-  val allIndexGen = Seq(fmacIndexGen, fmiscIndexGen)
-  val validVec = allIndexGen.map(_.io.mapping.map(_.valid)).reduceLeft(_ ++ _)
-  val indexVec = allIndexGen.map(_.io.mapping.map(_.bits)).reduceLeft(_ ++ _)
-  val rsValidVec = (0 until dpParams.FpDqDeqWidth).map(i => Cat(allIndexGen.map(_.io.reverseMapping(i).valid)).orR())
-  val rsIndexVec = (0 until dpParams.FpDqDeqWidth).map({i =>
-    val indexOffset = Seq(0, exuParameters.FmacCnt)
-    allIndexGen.zipWithIndex.map{
-      case (index, j) => Mux(index.io.reverseMapping(i).valid,
-        ZeroExt(index.io.reverseMapping(i).bits, log2Ceil(exuParameters.FpExuCnt)) + indexOffset(j).U,
-        0.U)
-    }.reduce(_ | _)
-  })
-
-  for (i <- validVec.indices) {
+  // val allIndexGen = Seq(fmacIndexGen, fmiscIndexGen)
+  // val validVec = allIndexGen.map(_.io.mapping.map(_.valid)).reduceLeft(_ ++ _)
+  // val indexVec = allIndexGen.map(_.io.mapping.map(_.bits)).reduceLeft(_ ++ _)
+  // for (i <- validVec.indices) {
     // XSDebug(p"mapping $i: valid ${validVec(i)} index ${indexVec(i)}\n")
-  }
-  for (i <- rsValidVec.indices) {
-    // XSDebug(p"fmac reverse $i: valid ${fmacIndexGen.io.reverseMapping(i).valid} index ${fmacIndexGen.io.reverseMapping(i).bits}\n")
-    // XSDebug(p"fmisc reverse $i: valid ${fmiscIndexGen.io.reverseMapping(i).valid} index ${fmiscIndexGen.io.reverseMapping(i).bits}\n")
-    // XSDebug(p"reverseMapping $i: valid ${rsValidVec(i)} index ${rsIndexVec(i)}\n")
-  }
+  // }
 
   /**
     * Part 2: assign regfile read ports
     */
-  val fpStaticIndex = Seq(0, 1, 2, 3)
-  val fpDynamicIndex = Seq(4, 5)
-  val fpStaticMappedValid = fpStaticIndex.map(i => validVec(i))
-  val fpDynamicMappedValid = fpDynamicIndex.map(i => validVec(i))
-  val (fpReadPortSrc, fpDynamicExuSrc) = RegfileReadPortGen(fpStaticMappedValid, fpDynamicMappedValid)
-  val fpStaticMapped = fpStaticIndex.map(i => indexVec(i))
-  val fpDynamicMapped = fpDynamicIndex.map(i => indexVec(i))
-  for (i <- fpStaticIndex.indices) {
-    val index = WireInit(VecInit(fpStaticMapped(i) +: fpDynamicMapped))
-    io.readRf(3*i  ).addr := io.fromDq(index(fpReadPortSrc(i))).bits.psrc1
-    io.readRf(3*i+1).addr := io.fromDq(index(fpReadPortSrc(i))).bits.psrc2
-    io.readRf(3*i+2).addr := io.fromDq(index(fpReadPortSrc(i))).bits.psrc3
+  // val fpStaticIndex = Seq(0, 1, 2, 3)
+  // val fpDynamicIndex = Seq(4, 5)
+  // val fpStaticMappedValid = fpStaticIndex.map(i => validVec(i))
+  // val fpDynamicMappedValid = fpDynamicIndex.map(i => validVec(i))
+  // val (fpReadPortSrc, fpDynamicExuSrc) = RegfileReadPortGen(fpStaticMappedValid, fpDynamicMappedValid)
+  // val fpStaticMapped = fpStaticIndex.map(i => indexVec(i))
+  // val fpDynamicMapped = fpDynamicIndex.map(i => indexVec(i))
+  // for (i <- fpStaticIndex.indices) {
+  //   val index = WireInit(VecInit(fpStaticMapped(i) +: fpDynamicMapped))
+  //   io.readRf(3*i  ) := io.fromDq(index(fpReadPortSrc(i))).bits.psrc1
+  //   io.readRf(3*i+1) := io.fromDq(index(fpReadPortSrc(i))).bits.psrc2
+  //   io.readRf(3*i+2) := io.fromDq(index(fpReadPortSrc(i))).bits.psrc3
+  // }
+  // val readPortIndex = Wire(Vec(exuParameters.FpExuCnt, UInt(2.W)))
+  // fpStaticIndex.zipWithIndex.map({case (index, i) => readPortIndex(index) := i.U})
+  // fpDynamicIndex.zipWithIndex.map({case (index, i) => readPortIndex(index) := fpDynamicExuSrc(i)})
+
+  for (i <- 0 until dpParams.IntDqDeqWidth) {
+    io.readState(3*i  ).req := io.fromDq(i).bits.psrc1
+    io.readState(3*i+1).req := io.fromDq(i).bits.psrc2
+    io.readState(3*i+2).req := io.fromDq(i).bits.psrc3
   }
-  val readPortIndex = Wire(Vec(exuParameters.FpExuCnt, UInt(log2Ceil(NRFpReadPorts - exuParameters.StuCnt).W)))
-  fpStaticIndex.zipWithIndex.map({case (index, i) => readPortIndex(index) := (3*i).U})
-  fpDynamicIndex.zipWithIndex.map({case (index, i) => readPortIndex(index) := 3.U * fpDynamicExuSrc(i)})
+  io.readRf(0)  := io.enqIQCtrl(0).bits.psrc1
+  io.readRf(1)  := io.enqIQCtrl(0).bits.psrc2
+  io.readRf(2)  := io.enqIQCtrl(0).bits.psrc3
+  io.readRf(3)  := io.enqIQCtrl(1).bits.psrc1
+  io.readRf(4)  := io.enqIQCtrl(1).bits.psrc2
+  io.readRf(5)  := io.enqIQCtrl(1).bits.psrc3
+  io.readRf(6)  := Mux(io.enqIQCtrl(2).valid, io.enqIQCtrl(2).bits.psrc1, io.enqIQCtrl(4).bits.psrc1)
+  io.readRf(7)  := Mux(io.enqIQCtrl(2).valid, io.enqIQCtrl(2).bits.psrc2, io.enqIQCtrl(4).bits.psrc2)
+  io.readRf(8)  := Mux(io.enqIQCtrl(2).valid, io.enqIQCtrl(2).bits.psrc3, io.enqIQCtrl(4).bits.psrc3)
+  io.readRf(9)  := Mux(io.enqIQCtrl(3).valid, io.enqIQCtrl(3).bits.psrc1, io.enqIQCtrl(5).bits.psrc1)
+  io.readRf(10) := Mux(io.enqIQCtrl(3).valid, io.enqIQCtrl(3).bits.psrc2, io.enqIQCtrl(5).bits.psrc2)
+  io.readRf(11) := Mux(io.enqIQCtrl(3).valid, io.enqIQCtrl(3).bits.psrc3, io.enqIQCtrl(5).bits.psrc3)
 
   /**
     * Part 3: dispatch to reservation stations
     */
+  // val fmacReady = Cat(io.enqIQCtrl.take(exuParameters.FmacCnt).map(_.ready)).andR
+  val fmiscReady = Cat(io.enqIQCtrl.drop(exuParameters.FmacCnt).map(_.ready)).andR
   for (i <- 0 until exuParameters.FpExuCnt) {
     val enq = io.enqIQCtrl(i)
-    enq.valid := validVec(i)
-    enq.bits := io.fromDq(indexVec(i)).bits
-    enq.bits.src1State := io.regRdy(readPortIndex(i))
-    enq.bits.src2State := io.regRdy(readPortIndex(i) + 1.U)
-    enq.bits.src3State := io.regRdy(readPortIndex(i) + 2.U)
+    val deqIndex = if (i < exuParameters.FmacCnt) fmacPriority(i) else fmiscIndexGen.io.mapping(i-exuParameters.FmacCnt).bits
+    if (i < exuParameters.FmacCnt) {
+      enq.valid := fmacCanAccept(fmacPriority(i))//fmacIndexGen.io.mapping(i).valid && fmacReady
+    }
+    else {
+      enq.valid := fmiscIndexGen.io.mapping(i - exuParameters.FmacCnt).valid && fmiscReady && !io.enqIQCtrl(2).valid && !io.enqIQCtrl(3).valid
+    }
+    enq.bits := io.fromDq(deqIndex).bits
+
+    val src1Ready = VecInit((0 until 4).map(i => io.readState(i * 3).resp))
+    val src2Ready = VecInit((0 until 4).map(i => io.readState(i * 3 + 1).resp))
+    val src3Ready = VecInit((0 until 4).map(i => io.readState(i * 3 + 2).resp))
+    enq.bits.src1State := src1Ready(deqIndex)
+    enq.bits.src2State := src2Ready(deqIndex)
+    enq.bits.src3State := src3Ready(deqIndex)
 
     XSInfo(enq.fire(), p"pc 0x${Hexadecimal(enq.bits.cf.pc)} with type ${enq.bits.ctrl.fuType} " +
       p"srcState(${enq.bits.src1State} ${enq.bits.src2State} ${enq.bits.src3State}) " +
-      p"enters reservation station $i from ${indexVec(i)}\n")
+      p"enters reservation station $i from ${deqIndex}\n")
   }
 
   /**
     * Part 4: response to dispatch queue
     */
+  val fmisc2CanOut = !(fmiscCanAccept(0) && fmiscCanAccept(1))
+  val fmisc3CanOut = !(fmiscCanAccept(0) && fmiscCanAccept(1) || fmiscCanAccept(0) && fmiscCanAccept(2) || fmiscCanAccept(1) && fmiscCanAccept(2))
+  val fmacReadyVec = VecInit(io.enqIQCtrl.take(4).map(_.ready))
   for (i <- 0 until dpParams.FpDqDeqWidth) {
-    io.fromDq(i).ready := rsValidVec(i) && io.enqIQCtrl(rsIndexVec(i)).ready
+    io.fromDq(i).ready := fmacCanAccept(i) && fmacReadyVec(fmacIndex(i)) ||
+                          fmiscCanAccept(i) && (if (i <= 1) true.B else if (i == 2) fmisc2CanOut else fmisc3CanOut) && fmiscReady && !io.enqIQCtrl(2).valid && !io.enqIQCtrl(3).valid
 
     XSInfo(io.fromDq(i).fire(),
       p"pc 0x${Hexadecimal(io.fromDq(i).bits.cf.pc)} leaves Fp dispatch queue $i with nroq ${io.fromDq(i).bits.roqIdx}\n")
     XSDebug(io.fromDq(i).valid && !io.fromDq(i).ready,
       p"pc 0x${Hexadecimal(io.fromDq(i).bits.cf.pc)} waits at Fp dispatch queue with index $i\n")
   }
+  XSError(PopCount(io.fromDq.map(_.fire())) =/= PopCount(io.enqIQCtrl.map(_.fire())), "deq =/= enq\n")
 
   /**
-    * Part 5: the second stage of dispatch 2 (send data to reservation station)
+    * Part 5: send read port index of register file to reservation station
     */
-  val readPortIndexReg = Reg(Vec(exuParameters.FpExuCnt, UInt(log2Ceil(NRFpReadPorts - exuParameters.StuCnt).W)))
-  val uopReg = Reg(Vec(exuParameters.FpExuCnt, new MicroOp))
-  val dataValidRegDebug = Reg(Vec(exuParameters.FpExuCnt, Bool()))
-  for (i <- 0 until exuParameters.FpExuCnt) {
-    readPortIndexReg(i) := readPortIndex(i)
-    uopReg(i) := io.enqIQCtrl(i).bits
-    dataValidRegDebug(i) := io.enqIQCtrl(i).fire()
+  // io.readPortIndex := readPortIndex
+  io.readPortIndex := DontCare
+//  val readPortIndexReg = Reg(Vec(exuParameters.FpExuCnt, UInt(log2Ceil(NRFpReadPorts - exuParameters.StuCnt).W)))
+//  val uopReg = Reg(Vec(exuParameters.FpExuCnt, new MicroOp))
+//  val dataValidRegDebug = Reg(Vec(exuParameters.FpExuCnt, Bool()))
+//  for (i <- 0 until exuParameters.FpExuCnt) {
+//    readPortIndexReg(i) := readPortIndex(i)
+//    uopReg(i) := io.enqIQCtrl(i).bits
+//    dataValidRegDebug(i) := io.enqIQCtrl(i).fire()
+//
+//    io.enqIQData(i) := DontCare
+//    io.enqIQData(i).src1 := io.readRf(readPortIndexReg(i)).data
+//    io.enqIQData(i).src2 := io.readRf(readPortIndexReg(i) + 1.U).data
+//    io.enqIQData(i).src3 := io.readRf(readPortIndexReg(i) + 2.U).data
+//
+//    XSDebug(dataValidRegDebug(i),
+//      p"pc 0x${Hexadecimal(uopReg(i).cf.pc)} reads operands from " +
+//        p"(${readPortIndexReg(i)    }, ${uopReg(i).psrc1}, ${Hexadecimal(io.enqIQData(i).src1)}), " +
+//        p"(${readPortIndexReg(i)+1.U}, ${uopReg(i).psrc2}, ${Hexadecimal(io.enqIQData(i).src2)}), " +
+//        p"(${readPortIndexReg(i)+2.U}, ${uopReg(i).psrc3}, ${Hexadecimal(io.enqIQData(i).src3)})\n")
+//  }
 
-    io.enqIQData(i) := DontCare
-    io.enqIQData(i).src1 := io.readRf(readPortIndexReg(i)).data
-    io.enqIQData(i).src2 := io.readRf(readPortIndexReg(i) + 1.U).data
-    io.enqIQData(i).src3 := io.readRf(readPortIndexReg(i) + 2.U).data
-
-    XSDebug(dataValidRegDebug(i),
-      p"pc 0x${Hexadecimal(uopReg(i).cf.pc)} reads operands from " +
-        p"(${readPortIndexReg(i)    }, ${uopReg(i).psrc1}, ${Hexadecimal(io.enqIQData(i).src1)}), " +
-        p"(${readPortIndexReg(i)+1.U}, ${uopReg(i).psrc2}, ${Hexadecimal(io.enqIQData(i).src2)}), " +
-        p"(${readPortIndexReg(i)+2.U}, ${uopReg(i).psrc3}, ${Hexadecimal(io.enqIQData(i).src3)})\n")
-  }
+  XSPerfAccumulate("in", PopCount(io.fromDq.map(_.valid)))
+  XSPerfAccumulate("out", PopCount(io.enqIQCtrl.map(_.fire())))
+  XSPerfAccumulate("out_fmac0", io.enqIQCtrl(0).fire())
+  XSPerfAccumulate("out_fmac1", io.enqIQCtrl(1).fire())
+  XSPerfAccumulate("out_fmac2", io.enqIQCtrl(2).fire())
+  XSPerfAccumulate("out_fmac3", io.enqIQCtrl(3).fire())
+  XSPerfAccumulate("out_fmisc0", io.enqIQCtrl(4).fire())
+  XSPerfAccumulate("out_fmisc1", io.enqIQCtrl(5).fire())
+  val block_num = PopCount(io.fromDq.map(deq => deq.valid && !deq.ready))
+  XSPerfAccumulate("blocked", block_num)
+  XSPerfAccumulate("blocked_index", Mux(block_num =/= 0.U, PriorityEncoder(io.fromDq.map(deq => deq.valid && !deq.ready)), 0.U))
+  XSPerfAccumulate("misc_deq", PopCount(fmiscCanAccept))
+  XSPerfAccumulate("misc_deq_exceed_limit", Mux(PopCount(fmiscCanAccept) >= 2.U, PopCount(fmiscCanAccept) - 2.U, 0.U))
+  XSPerfAccumulate("mac0_blocked_by_mac0", io.enqIQCtrl(0).valid && !io.enqIQCtrl(0).ready)
+  XSPerfAccumulate("mac1_blocked_by_mac1", io.enqIQCtrl(1).valid && !io.enqIQCtrl(1).ready)
+  XSPerfAccumulate("mac2_blocked_by_mac2", io.enqIQCtrl(2).valid && !io.enqIQCtrl(2).ready)
+  XSPerfAccumulate("mac3_blocked_by_mac3", io.enqIQCtrl(3).valid && !io.enqIQCtrl(3).ready)
+  XSPerfAccumulate("misc0_blocked_by_mac", fmiscIndexGen.io.mapping(0).valid && fmiscReady && (io.enqIQCtrl(2).valid || io.enqIQCtrl(3).valid))
+  XSPerfAccumulate("misc0_blocked_by_mac2", fmiscIndexGen.io.mapping(0).valid && fmiscReady && io.enqIQCtrl(2).valid && !io.enqIQCtrl(3).valid)
+  XSPerfAccumulate("misc0_blocked_by_mac3", fmiscIndexGen.io.mapping(0).valid && fmiscReady && !io.enqIQCtrl(2).valid && io.enqIQCtrl(3).valid)
+  XSPerfAccumulate("misc0_blocked_by_misc1", fmiscIndexGen.io.mapping(0).valid && io.enqIQCtrl(4).ready && !io.enqIQCtrl(5).ready && !io.enqIQCtrl(2).valid && !io.enqIQCtrl(3).valid)
+  XSPerfAccumulate("misc1_blocked_by_mac", fmiscIndexGen.io.mapping(1).valid && fmiscReady && (io.enqIQCtrl(2).valid || io.enqIQCtrl(3).valid))
+  XSPerfAccumulate("misc1_blocked_by_mac2", fmiscIndexGen.io.mapping(1).valid && fmiscReady && io.enqIQCtrl(2).valid && !io.enqIQCtrl(3).valid)
+  XSPerfAccumulate("misc1_blocked_by_mac3", fmiscIndexGen.io.mapping(1).valid && fmiscReady && !io.enqIQCtrl(2).valid && io.enqIQCtrl(3).valid)
+  XSPerfAccumulate("misc1_blocked_by_misc0", fmiscIndexGen.io.mapping(1).valid && !io.enqIQCtrl(4).ready && io.enqIQCtrl(5).ready && !io.enqIQCtrl(2).valid && !io.enqIQCtrl(3).valid)
 }

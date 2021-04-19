@@ -3,53 +3,44 @@ package xiangshan.backend.decode
 import chisel3._
 import chisel3.util._
 import xiangshan._
-import xiangshan.backend.brq.BrqPtr
 import utils._
 
 class DecodeStage extends XSModule {
   val io = IO(new Bundle() {
-    // enq Brq
-    val toBrq = Vec(DecodeWidth, DecoupledIO(new CfCtrl))
-    // get brMask/brTag
-    val brTags = Input(Vec(DecodeWidth, new BrqPtr))
-
     // from Ibuffer
     val in = Vec(DecodeWidth, Flipped(DecoupledIO(new CtrlFlow)))
-
+    // from memblock
+    val waitTableUpdate = Vec(StorePipelineWidth, Input(new WaitTableUpdateReq))
     // to DecBuffer
     val out = Vec(DecodeWidth, DecoupledIO(new CfCtrl))
+    // waitable ctrl
+    val csrCtrl = Input(new CustomCSRCtrlIO)
   })
-  val decoders = Seq.fill(DecodeWidth)(Module(new Decoder))
-  val decoderToBrq = Wire(Vec(DecodeWidth, new CfCtrl)) // without brTag and brMask
-  val decoderToDecBuffer = Wire(Vec(DecodeWidth, new CfCtrl)) // with brTag and brMask
 
-  // Handshake ---------------------
-  // 1. if current instruction is valid, then:
-  //    First, assert toBrq(i).valid if (in.valid and out.ready and isBr) and present toBrq(i).bits
-  //    Second, check toBrq(i).ready and connect it to io.out(i).valid
-  // 2. To Decode Buffer:
-  //    First, assert in(i).ready if out(i).ready
-  //    Second, assert out(i).valid iff in(i).valid and instruction is valid (not implemented) and toBrq(i).ready
-
+  val decoders = Seq.fill(DecodeWidth)(Module(new DecodeUnit))
+  val waittable = Module(new WaitTable)
   for (i <- 0 until DecodeWidth) {
-    decoders(i).io.in <> io.in(i).bits
-    decoderToBrq(i) := decoders(i).io.out // CfCtrl without bfTag and brMask
-    decoderToBrq(i).brTag := DontCare
-    io.toBrq(i).bits := decoderToBrq(i)
+    decoders(i).io.enq.ctrl_flow <> io.in(i).bits
 
-    decoderToDecBuffer(i) := decoders(i).io.out
-    decoderToDecBuffer(i).brTag := io.brTags(i)
-    io.out(i).bits := decoderToDecBuffer(i)
+    // read waittable, update loadWaitBit
+    waittable.io.raddr(i) := io.in(i).bits.foldpc
+    decoders(i).io.enq.ctrl_flow.loadWaitBit := waittable.io.rdata(i)
 
-    val thisReady = io.out(i).ready && io.toBrq(i).ready
-    val isMret = decoders(i).io.out.cf.instr === BitPat("b001100000010_00000_000_00000_1110011")
-    val isSret = decoders(i).io.out.cf.instr === BitPat("b000100000010_00000_000_00000_1110011")
-    val thisBrqValid = io.in(i).valid && (!decoders(i).io.out.cf.brUpdate.pd.notCFI || isMret || isSret) && io.out(i).ready
-    val thisOutValid =  io.in(i).valid && io.toBrq(i).ready
-    io.in(i).ready    := { if (i == 0) thisReady    else io.in(i-1).ready && thisReady }
-    io.out(i).valid   := { if (i == 0) thisOutValid else io.in(i-1).ready && thisOutValid }
-    io.toBrq(i).valid := { if (i == 0) thisBrqValid else io.in(i-1).ready && thisBrqValid }
-
-    XSDebug(io.in(i).valid || io.out(i).valid || io.toBrq(i).valid, "i:%d In(%d %d) Out(%d %d) ToBrq(%d %d) pc:%x instr:%x\n", i.U, io.in(i).valid, io.in(i).ready, io.out(i).valid, io.out(i).ready, io.toBrq(i).valid, io.toBrq(i).ready, io.in(i).bits.pc, io.in(i).bits.instr)
+    io.out(i).valid      := io.in(i).valid
+    io.out(i).bits       := decoders(i).io.deq.cf_ctrl
+    io.in(i).ready       := io.out(i).ready
   }
+
+  for (i <- 0 until StorePipelineWidth) {
+    waittable.io.update(i) <> RegNext(io.waitTableUpdate(i))
+  }
+  waittable.io.csrCtrl <> io.csrCtrl
+
+  val loadWaitBitSet = PopCount(io.out.map(o => o.fire() && o.bits.cf.loadWaitBit))
+  XSPerfAccumulate("loadWaitBitSet", loadWaitBitSet)
+
+  val hasValid = VecInit(io.in.map(_.valid)).asUInt.orR
+  XSPerfAccumulate("utilization", PopCount(io.in.map(_.valid)))
+  XSPerfAccumulate("waitInstr", PopCount((0 until DecodeWidth).map(i => io.in(i).valid && !io.in(i).ready)))
+  XSPerfAccumulate("stall_cycle", hasValid && !io.out(0).ready)
 }

@@ -3,20 +3,19 @@ package top
 import chisel3._
 import chipsalliance.rocketchip.config
 import device._
-import freechips.rocketchip.amba.axi4.{AXI4MasterParameters, AXI4MasterPortParameters, AXI4SlaveNode, AXI4SlavePortParameters, AXI4ToTL, AXI4Xbar}
+import freechips.rocketchip.amba.axi4.AXI4Xbar
 import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp}
-import freechips.rocketchip.tilelink.{TLErrorEvaluator, TLMasterParameters, TLXbar}
 
 class SimMMIO()(implicit p: config.Parameters) extends LazyModule {
 
-  val uart = LazyModule(new AXI4UART(AddressSet(0x40600000L, 0xf)))
+  val flash = LazyModule(new AXI4Flash(Seq(AddressSet(0x10000000L, 0xfffffff))))
+  val uart = LazyModule(new AXI4UART(Seq(AddressSet(0x40600000L, 0xf))))
   val vga = LazyModule(new AXI4VGA(
     sim = false,
-    fbAddress = AddressSet(0x50000000L, 0x3fffffL),
-    ctrlAddress = AddressSet(0x40001000L, 0x7L)
+    fbAddress = Seq(AddressSet(0x50000000L, 0x3fffffL)),
+    ctrlAddress = Seq(AddressSet(0x40001000L, 0x7L))
   ))
-  val flash = LazyModule(new AXI4Flash(AddressSet(0x40000000L, 0xfff)))
-  val sd = LazyModule(new AXI4DummySD(AddressSet(0x40002000L, 0xfff)))
+  val sd = LazyModule(new AXI4DummySD(Seq(AddressSet(0x40002000L, 0xfff))))
 
   val axiBus = AXI4Xbar()
 

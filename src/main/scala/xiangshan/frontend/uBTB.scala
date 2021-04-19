@@ -4,18 +4,22 @@ import chisel3._
 import chisel3.util._
 import utils._
 import xiangshan._
+import chisel3.experimental.chiselName
 
 import scala.math.min
 
 trait MicroBTBPatameter{
     val nWays = 16
-    val offsetSize = 20
+    val lowerBitsSize = 20
+    val tagSize = 20
 }
 
+@chiselName
 class MicroBTB extends BasePredictor
     with MicroBTBPatameter
 {
-    val tagSize = VAddrBits - log2Ceil(PredictWidth) - 1
+    // val tagSize = VAddrBits - log2Ceil(PredictWidth) - 1
+    val untaggedBits = log2Up(PredictWidth) + instOffsetBits
 
     class MicroBTBResp extends Resp
     {
@@ -26,34 +30,18 @@ class MicroBTB extends BasePredictor
         val is_RVC = Vec(PredictWidth, Bool())
     }
 
-    class MicroBTBBranchInfo extends Meta
-    {
-        val writeWay = Vec(PredictWidth,UInt(log2Ceil(nWays).W))
-        val hits = Vec(PredictWidth,Bool())
-    }
-    val out_ubtb_br_info = Wire(new MicroBTBBranchInfo)
-    override val metaLen = out_ubtb_br_info.asUInt.getWidth
+    class MicroBTBBranchInfo extends Meta {}
 
     class MicroBTBIO extends DefaultBasePredictorIO
     {
         val out = Output(new MicroBTBResp)   //
-        val uBTBBranchInfo = Output(new MicroBTBBranchInfo)
     }
 
     // override val debug = true
     override val io = IO(new MicroBTBIO)
-    io.uBTBBranchInfo <> out_ubtb_br_info
 
-    def getTag(pc: UInt) = (pc >> (log2Ceil(PredictWidth) + 1)).asUInt()
-    def getBank(pc: UInt) = pc(log2Ceil(PredictWidth) ,1)
-    def satUpdate(old: UInt, len: Int, taken: Bool): UInt = {
-        val oldSatTaken = old === ((1 << len)-1).U
-        val oldSatNotTaken = old === 0.U
-        Mux(oldSatTaken && taken, ((1 << len)-1).U,
-            Mux(oldSatNotTaken && !taken, 0.U,
-            Mux(taken, old + 1.U, old - 1.U)))
-    } 
-
+    def getTag(pc: UInt) = (pc >> untaggedBits)(tagSize-1, 0)
+    def getBank(pc: UInt) = pc(log2Ceil(PredictWidth), instOffsetBits)
 
     class MicroBTBMeta extends XSBundle
     {
@@ -64,162 +52,221 @@ class MicroBTB extends BasePredictor
         val tag = UInt(tagSize.W)
     }
 
-    class MicroBTBEntry extends XSBundle
+    class MicroBTBData extends XSBundle
     {
-        val offset = SInt(offsetSize.W)
+        val lower = UInt(lowerBitsSize.W)
     }
 
-    val uBTBMeta = RegInit((0.U).asTypeOf(Vec(nWays, Vec(PredictWidth, new MicroBTBMeta))))
-    val uBTB = Reg(Vec(nWays, Vec(PredictWidth, new MicroBTBEntry)))
-
-    //uBTB read
-    //tag is bank align
-    val read_valid = io.pc.valid
-    val read_req_tag = getTag(io.pc.bits)
-    val read_req_basebank = getBank(io.pc.bits)
-    // val read_mask = circularShiftLeft(io.inMask, PredictWidth, read_req_basebank)
-
-    
-    class ReadRespEntry extends XSBundle
+    class ReadResp extends XSBundle
     {
-        val is_RVC = Bool()
-        val target = UInt(VAddrBits.W)
         val valid = Bool()
         val taken = Bool()
+        val target = UInt(VAddrBits.W)
+        val is_RVC = Bool()
         val is_Br = Bool()
     }
-    val read_resp = Wire(Vec(PredictWidth,new ReadRespEntry))
 
-    val read_bank_inOrder = VecInit((0 until PredictWidth).map(b => (read_req_basebank + b.U)(log2Up(PredictWidth)-1,0) ))
-    val isInNextRow = VecInit((0 until PredictWidth).map(_.U < read_req_basebank))
-    val read_hit_ohs = read_bank_inOrder.map{ b =>
-        VecInit((0 until nWays) map {w => 
-            Mux(isInNextRow(b),read_req_tag + 1.U,read_req_tag) === uBTBMeta(w)(b).tag
+    class UBTBBank(val nWays: Int) extends XSModule with HasIFUConst {
+        val io = IO(new Bundle {
+            val read_pc = Flipped(Valid(UInt(VAddrBits.W)))
+            val read_resp = Output(new ReadResp)
+            val read_hit = Output(Bool())
+
+            val update_write_meta = Flipped(Valid(new MicroBTBMeta))
+            val update_write_data = Flipped(Valid(new MicroBTBData))
+            val update_taken = Input(Bool())
         })
-    }
-    val read_hit_vec = VecInit(read_hit_ohs.map{oh => ParallelOR(oh).asBool})
-    val read_hit_ways = VecInit(read_hit_ohs.map{oh => PriorityEncoder(oh)})
-    val read_hit =  ParallelOR(read_hit_vec).asBool
-    val read_hit_way = PriorityEncoder(ParallelOR(read_hit_ohs.map(_.asUInt)))
-    
 
-    val  uBTBMeta_resp = VecInit((0 until PredictWidth).map(b => uBTBMeta(read_hit_ways(b))(read_bank_inOrder(b))))
-    val  btb_resp = VecInit((0 until PredictWidth).map(b => uBTB(read_hit_ways(b))(read_bank_inOrder(b))))  
+        val debug_io = IO(new Bundle {
+            val read_hit = Output(Bool())
+            val read_hit_way = Output(UInt(log2Ceil(nWays).W))
 
-    for(i <- 0 until PredictWidth){
-        // do not need to decide whether to produce results\
-        read_resp(i).valid := uBTBMeta_resp(i).valid && read_hit_vec(i) && io.inMask(i)
-        read_resp(i).taken := read_resp(i).valid && uBTBMeta_resp(i).pred(1)
-        read_resp(i).is_Br  := read_resp(i).valid && uBTBMeta_resp(i).is_Br
-        read_resp(i).target := ((io.pc.bits).asSInt + (i<<1).S + btb_resp(i).offset).asUInt
-        read_resp(i).is_RVC := read_resp(i).valid && uBTBMeta_resp(i).is_RVC
+            val update_hit = Output(Bool())
+            val update_hit_way = Output(UInt(log2Ceil(nWays).W))
+            val update_write_way = Output(UInt(log2Ceil(nWays).W))
+            val update_old_pred = Output(UInt(2.W))
+            val update_new_pred = Output(UInt(2.W))
+        })
+        val meta = Module(new AsyncDataModuleTemplate(new MicroBTBMeta, nWays, nWays*2, 1))
+        val data = Module(new AsyncDataModuleTemplate(new MicroBTBData, nWays,   nWays, 1))
 
-        out_ubtb_br_info.hits(i) := read_hit_vec(i)
-    }
-
-    //TODO: way alloc algorithm
-    def alloc_way(valids:UInt ,meta_tags:UInt,req_tag:UInt) = {
-        val way = Wire(UInt(log2Up(BtbWays).W))
-        val all_valid = valids.andR.asBool
-        val tags = Cat(meta_tags,req_tag)
-        val l = log2Ceil(nWays)
-        val nChunks = (tags.getWidth + l - 1) / l
-        val chunks = (0 until nChunks) map { i =>
-            tags(min((i+1)*l, tags.getWidth)-1, i*l)
+        for (w <- 0 until nWays) {
+            meta.io.raddr(w) := w.U
+            meta.io.raddr(w+nWays) := w.U
+            data.io.raddr(w) := w.U
         }
-        way := Mux(all_valid,chunks.reduce(_^_),PriorityEncoder(~valids))
-        way
-    }
-    val alloc_ways = read_bank_inOrder.map{ b => 
-        alloc_way(VecInit(uBTBMeta.map(w => w(b).valid)).asUInt,
-                  VecInit(uBTBMeta.map(w => w(b).tag)).asUInt,
-                  Mux(isInNextRow(b).asBool,read_req_tag + 1.U,read_req_tag))
         
-    }
-    (0 until PredictWidth).map(i => out_ubtb_br_info.writeWay(i) := Mux(read_hit_vec(i).asBool,read_hit_ways(i),alloc_ways(i)))
+        val rmetas = meta.io.rdata.take(nWays)
+        val rdatas = data.io.rdata
+        
+        val packetAlignedPC = packetAligned(io.read_pc.bits)
+        val read_tag = getTag(io.read_pc.bits)
+        
+        val hits = VecInit(rmetas.map(m => m.valid && m.tag === read_tag))
+        val takens = VecInit(rmetas.map(m => m.pred(1)))
+        val hit_oh = hits.asUInt
+        val hit_and_taken = VecInit((hits zip takens) map {case (h, t) => h && t}).asUInt.orR
+        val hit_meta = ParallelMux(hits zip rmetas)
+        val hit_data = ParallelMux(hits zip rdatas)
+        val target = Cat(io.read_pc.bits(VAddrBits-1, lowerBitsSize+instOffsetBits), hit_data.lower, 0.U(instOffsetBits.W))
+        
+        val ren = io.read_pc.valid
+        io.read_resp.valid := ren
+        io.read_resp.is_RVC := ren && hit_meta.is_RVC
+        io.read_resp.is_Br := ren && hit_meta.is_Br
+        io.read_resp.taken := ren && hit_and_taken
+        io.read_resp.target := target
+        io.read_hit := hit_oh.orR
 
-    //response
-    //only when hit and instruction valid and entry valid can output data
-    for(i <- 0 until PredictWidth)
-    {
-        io.out.targets(i) := read_resp(i).target
-        io.out.hits(i) := read_resp(i).valid
-        io.out.takens(i) := read_resp(i).taken
-        io.out.is_RVC(i) := read_resp(i).is_RVC
-        io.out.brMask(i) := read_resp(i).is_Br
+        debug_io.read_hit := hit_oh.orR
+        debug_io.read_hit_way := OHToUInt(hit_oh)
+        
+        val do_reset = RegInit(true.B)
+        val reset_way = RegInit(0.U(log2Ceil(nWays).W))
+        when (RegNext(reset.asBool) && !reset.asBool) {
+            do_reset := true.B
+            reset_way := 0.U
+        }
+        when (do_reset) { reset_way := reset_way + 1.U }
+        when (reset_way === (nWays-1).U) { do_reset := false.B }
+
+        val update_rmetas = meta.io.rdata.drop(nWays)
+        val update_tag = io.update_write_meta.bits.tag
+        val update_hits = VecInit(update_rmetas.map(m => m.valid && m.tag === update_tag))
+        val update_hit = update_hits.asUInt.orR
+        val update_hit_way = OHToUInt(update_hits.asUInt)
+        val update_hit_meta = ParallelMux(update_hits zip update_rmetas)
+        val update_old_pred = update_hit_meta.pred
+        val update_new_pred =
+            Mux(update_hit,
+                satUpdate(update_old_pred, 2, io.update_taken),
+                Mux(io.update_taken, 3.U, 0.U))
+        val update_alloc_way = {
+            val source = Cat(VecInit(update_rmetas.map(_.tag)).asUInt, update_tag)
+            val l = log2Ceil(nWays)
+            val nChunks = (source.getWidth + l - 1) / l
+            val chunks = (0 until nChunks) map { i =>
+                source(min((i+1)*l, source.getWidth)-1, i*l)
+            }
+            ParallelXOR(chunks)
+        }
+        val update_emptys = update_rmetas.map(m => !m.valid)
+        val update_has_empty_way = update_emptys.reduce(_||_)
+        val update_empty_way = ParallelPriorityEncoder(update_emptys)
+        val update_way = Mux(update_hit, update_hit_way, Mux(update_has_empty_way, update_empty_way, update_alloc_way))
+    
+        meta.io.waddr(0) := Mux(do_reset, reset_way, RegNext(update_way))
+        meta.io.wen(0)   := do_reset || RegNext(io.update_write_meta.valid)
+        meta.io.wdata(0) := Mux(do_reset,
+                                0.U.asTypeOf(new MicroBTBMeta),
+                                RegNext(io.update_write_meta.bits))
+        meta.io.wdata(0).pred := Mux(do_reset, 0.U(2.W), RegNext(update_new_pred))
+        data.io.waddr(0) := Mux(do_reset, reset_way, RegNext(update_way))
+        data.io.wen(0)   := do_reset || RegNext(io.update_write_data.valid)
+        data.io.wdata(0) := Mux(do_reset,
+                                0.U.asTypeOf(new MicroBTBData),
+                                RegNext(io.update_write_data.bits))
+        
+        debug_io.update_hit := update_hit
+        debug_io.update_hit_way := update_hit_way
+        debug_io.update_write_way := update_way
+        debug_io.update_old_pred := update_old_pred
+        debug_io.update_new_pred := update_new_pred
+    }
+
+    val ubtbBanks = Seq.fill(PredictWidth)(Module(new UBTBBank(nWays)))
+    val banks = VecInit(ubtbBanks.map(_.io))
+    
+    val read_resps = VecInit(banks.map(b => b.read_resp))
+
+    for (b <- 0 until PredictWidth) {
+        banks(b).read_pc.valid := io.inMask(b)
+        banks(b).read_pc.bits := io.pc.bits
+        
+        //only when hit and instruction valid and entry valid can output data
+        io.out.targets(b) := read_resps(b).target
+        io.out.hits(b)   := banks(b).read_hit && ctrl.ubtb_enable
+        io.out.takens(b) := read_resps(b).taken
+        io.out.is_RVC(b) := read_resps(b).is_RVC
+        io.out.brMask(b) := read_resps(b).is_Br
     }
 
     //uBTB update 
     //backend should send fetch pc to update
-    val u = io.update.bits.ui
-    val update_br_pc  = u.pc
-    val update_br_idx = u.fetchIdx
-    val update_br_offset = (update_br_idx << 1).asUInt()
-    val update_fetch_pc = update_br_pc - update_br_offset
-    val update_write_way = u.brInfo.ubtbWriteWay
-    val update_hits = u.brInfo.ubtbHits
-    val update_taken = u.taken
+    val u = RegNext(io.update.bits)
+    val update_valid = RegNext(io.update.valid)
+    val update_packet_pc = packetAligned(u.ftqPC)
+    val update_takens = u.takens
 
-    val update_bank = getBank(update_br_pc)
-    val update_base_bank = getBank(update_fetch_pc)
-    val update_tag = getTag(update_br_pc)
-    val update_target = Mux(u.pd.isBr, u.brTarget, u.target)
-    val update_taget_offset =  update_target.asSInt - update_br_pc.asSInt
-    val update_is_BR_or_JAL = (u.pd.brType === BrType.branch) || (u.pd.brType === BrType.jal) 
+    val update_tag = getTag(update_packet_pc)
+    val update_target_lower = u.target(lowerBitsSize-1+instOffsetBits, instOffsetBits)
   
-  
-    val jalFirstEncountered = !u.isMisPred && !u.brInfo.btbHitJal && (u.pd.brType === BrType.jal)
-    val entry_write_valid = io.update.valid && (u.isMisPred || !u.isMisPred && u.pd.isBr || jalFirstEncountered)//io.update.valid //&& update_is_BR_or_JAL
-    val meta_write_valid = io.update.valid && (u.isMisPred || !u.isMisPred && u.pd.isBr || jalFirstEncountered)//io.update.valid //&& update_is_BR_or_JAL
-    //write btb target when miss prediction
-    when(entry_write_valid)
-    {
-        uBTB(update_write_way)(update_bank).offset := update_taget_offset
+    // only when taken should we update target
+    val data_write_valids = 
+        VecInit((0 until PredictWidth).map(i =>
+            update_valid && u.valids(i) && u.takens(i)))
+    val meta_write_valids = 
+        VecInit((0 until PredictWidth).map(i =>
+            update_valid && u.valids(i) && (u.br_mask(i) || u.takens(i))))
+        
+    val update_write_metas = Wire(Vec(PredictWidth, new MicroBTBMeta))
+    val update_write_datas = Wire(Vec(PredictWidth, new MicroBTBData))
+    for (i <- 0 until PredictWidth) {
+        update_write_metas(i).is_Br  := u.br_mask(i)
+        update_write_metas(i).is_RVC := u.rvc_mask(i)
+        update_write_metas(i).valid  := true.B
+        update_write_metas(i).tag    := update_tag
+        update_write_metas(i).pred   := DontCare
+
+        update_write_datas(i).lower := update_target_lower
     }
-    //write the uBTBMeta
-    when(meta_write_valid)
-    {
-        //commit update
-        uBTBMeta(update_write_way)(update_bank).is_Br := u.pd.brType === BrType.branch
-        uBTBMeta(update_write_way)(update_bank).is_RVC := u.pd.isRVC
-        //(0 until PredictWidth).foreach{b =>  uBTBMeta(update_write_way)(b).valid := false.B}
-        uBTBMeta(update_write_way)(update_bank).valid := true.B
-        uBTBMeta(update_write_way)(update_bank).tag := update_tag
-        uBTBMeta(update_write_way)(update_bank).pred := 
-        Mux(!update_hits,
-            Mux(update_taken,3.U,0.U),
-            satUpdate( uBTBMeta(update_write_way)(update_bank).pred,2,update_taken)
-        )
+    
+    for (b <- 0 until PredictWidth) {
+        banks(b).update_write_meta.valid := meta_write_valids(b)
+        banks(b).update_write_meta.bits := update_write_metas(b)
+        banks(b).update_write_data.valid := data_write_valids(b)
+        banks(b).update_write_data.bits := update_write_datas(b)
+        banks(b).update_taken := update_takens(b)
     }
 
+    if (!env.FPGAPlatform) {
+        XSPerfAccumulate("ubtb_commit_hits",
+            PopCount((u.takens zip u.valids zip u.metas zip u.pd) map {
+                case (((t, v), m), pd)  => t && v && m.ubtbHit.asBool && !pd.notCFI && update_valid}))
+        XSPerfAccumulate("ubtb_commit_misses",
+            PopCount((u.takens zip u.valids zip u.metas zip u.pd) map {
+                case (((t, v), m), pd)  => t && v && !m.ubtbHit.asBool && !pd.notCFI && update_valid}))
+    }
+    
     if (BPUDebug && debug) {
-        XSDebug(read_valid,"uBTB read req: pc:0x%x, tag:%x  basebank:%d\n",io.pc.bits,read_req_tag,read_req_basebank)
-        XSDebug(read_valid,"uBTB read resp:   read_hit_vec:%b, \n",read_hit_vec.asUInt)
+        val update_pcs  = VecInit((0 until PredictWidth).map(i => update_packet_pc + (i << instOffsetBits).U))
+        val update_bank = u.cfiIndex.bits
+        val read_valid = io.pc.valid
+        val read_req_tag = getTag(io.pc.bits)
+        val debug_banks = VecInit(ubtbBanks.map(_.debug_io))
+        val read_hit_vec = VecInit(debug_banks.map(b => b.read_hit))
+        val read_hit_ways = VecInit(debug_banks.map(b => b.read_hit_way))
+        val update_hits = VecInit(debug_banks.map(b => b.update_hit))
+        val update_hit_ways = VecInit(debug_banks.map(b => b.update_hit_way))
+        val update_write_ways = VecInit(debug_banks.map(b => b.update_write_way))
+        val update_old_preds = VecInit(debug_banks.map(b => b.update_old_pred))
+        val update_new_preds = VecInit(debug_banks.map(b => b.update_new_pred))
+        XSDebug(read_valid,p"uBTB read req: pc:0x${Hexadecimal(io.pc.bits)}, tag:${Hexadecimal(read_req_tag)}\n")
+        XSDebug(read_valid,p"uBTB read resp: read_hit_vec:${Binary(read_hit_vec.asUInt)}\n")
         for(i <- 0 until PredictWidth) {
-            XSDebug(read_valid,"bank(%d)   hit:%d   way:%d   valid:%d  is_RVC:%d  taken:%d   isBr:%d   target:0x%x  alloc_way:%d\n",
-                                    i.U,read_hit_vec(i),read_hit_ways(i),read_resp(i).valid,read_resp(i).is_RVC,read_resp(i).taken,read_resp(i).is_Br,read_resp(i).target,out_ubtb_br_info.writeWay(i))
+            XSDebug(read_valid,
+                p"bank($i) hit:${read_hit_vec(i)} way:${read_hit_ways(i)} " +
+                p"valid:${read_resps(i).valid} is_RVC:${read_resps(i).is_RVC} " +
+                p"taken:${read_resps(i).taken} isBr:${read_resps(i).is_Br} " +
+                p"target:0x${Hexadecimal(read_resps(i).target)}\n")
+            XSDebug(data_write_valids(i),
+                p"uBTB update data($i): update pc:0x${Hexadecimal(update_pcs(i))} " +
+                p"update_lower 0x$update_target_lower\n")
+            XSDebug(meta_write_valids(i),
+                p"update hit:${update_hits(i)} udpate_hit_way:${update_hit_ways(i)} " +
+                p"update_write_way:${update_write_ways(i)} update_taken:${update_takens(i)}" +
+                p"isBr:${u.br_mask(i)} isRVC:${u.rvc_mask(i)} update_tag:${update_tag}" +
+                p"update_pred(${update_old_preds(i)} -> ${update_new_preds(i)}\n")
         }
-
-        XSDebug(meta_write_valid,"uBTB update: update | pc:0x%x  | update hits:%b | | update_write_way:%d  | update_bank: %d| update_br_index:%d | update_tag:%x | upadate_offset 0x%x\n "
-                    ,update_br_pc,update_hits,update_write_way,update_bank,update_br_idx,update_tag,update_taget_offset(offsetSize-1,0))
-        XSDebug(meta_write_valid, "uBTB update: update_taken:%d | old_pred:%b | new_pred:%b\n",
-            update_taken, uBTBMeta(update_write_way)(update_bank).pred,
-            Mux(!update_hits,
-                Mux(update_taken,3.U,0.U),
-                satUpdate( uBTBMeta(update_write_way)(update_bank).pred,2,update_taken)))
-
     }
-   
-   //bypass:read-after-write 
-//    for( b <- 0 until PredictWidth) {
-//         when(update_bank === b.U && meta_write_valid && read_valid
-//             && Mux(b.U < update_base_bank,update_tag===read_req_tag+1.U ,update_tag===read_req_tag))  //read and write is the same fetch-packet
-//         {
-//             io.out.targets(b) := u.target
-//             io.out.takens(b) := u.taken
-//             io.out.is_RVC(b) := u.pd.isRVC
-//             io.out.notTakens(b) := (u.pd.brType === BrType.branch) && (!io.out.takens(b))
-//             XSDebug("uBTB bypass hit! :   hitpc:0x%x |  hitbanck:%d  |  out_target:0x%x\n",io.pc.bits+(b<<1).asUInt(),b.U, io.out.targets(b))
-//         }
-//     }
 }

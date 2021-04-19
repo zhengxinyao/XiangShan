@@ -5,7 +5,6 @@ import chipsalliance.rocketchip.config.Parameters
 import chisel3.util.DecoupledIO
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp}
 import freechips.rocketchip.tilelink.{TLBundle, TLClientNode, TLIdentityNode, TLMasterParameters, TLMasterPortParameters}
-import xiangshan.HasXSLog
 
 class DebugIdentityNode()(implicit p: Parameters) extends LazyModule  {
 
@@ -17,7 +16,7 @@ class DebugIdentityNode()(implicit p: Parameters) extends LazyModule  {
     )
   )))
 
-  lazy val module = new LazyModuleImp(this) with HasXSLog with HasTLDump{
+  lazy val module = new LazyModuleImp(this) with HasTLDump{
     val (out, _) = node.out(0)
     val (in, _) = node.in(0)
 
@@ -26,12 +25,12 @@ class DebugIdentityNode()(implicit p: Parameters) extends LazyModule  {
       val channels = Seq(t.a, t.b, t.c, t.d, t.e)
       channels.foreach(c =>
         when(fire(c)){
-          XSDebug(" ")
+          XSDebug(" isFire:%d ",c.fire())
           c.bits.dump
         }
       )
     }
-    debug(in, true)
+    debug(in, false)
   }
 }
 

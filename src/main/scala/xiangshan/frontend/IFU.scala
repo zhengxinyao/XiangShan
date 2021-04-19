@@ -6,49 +6,119 @@ import device.RAMHelper
 import xiangshan._
 import utils._
 import xiangshan.cache._
+import chisel3.experimental.chiselName
+import freechips.rocketchip.tile.HasLazyRoCC
+import chisel3.ExcitingUtils._
+import xiangshan.backend.ftq.FtqPtr
+import xiangshan.backend.decode.WaitTableParameters
+import system.L1CacheErrorInfo
 
-trait HasIFUConst { this: XSModule =>
-  val resetVector = 0x80000000L//TODO: set reset vec
-  val groupAlign = log2Up(FetchWidth * 4 * 2)
-  def groupPC(pc: UInt): UInt = Cat(pc(VAddrBits-1, groupAlign), 0.U(groupAlign.W))
-  // each 1 bit in mask stands for 2 Bytes
-  def mask(pc: UInt): UInt = (Fill(PredictWidth * 2, 1.U(1.W)) >> pc(groupAlign - 1, 1))(PredictWidth - 1, 0)
-  def snpc(pc: UInt): UInt = pc + (PopCount(mask(pc)) << 1)
-  
+trait HasInstrMMIOConst extends HasXSParameter with HasIFUConst{
+  def mmioBusWidth = 64
+  def mmioBusBytes = mmioBusWidth /8
+  def mmioBeats = FetchWidth * 4 * 8 / mmioBusWidth
+  def mmioMask  = VecInit(List.fill(PredictWidth)(true.B)).asUInt
+  def mmioBusAligned(pc :UInt): UInt = align(pc, mmioBusBytes)
+}
+
+trait HasIFUConst extends HasXSParameter {
+  val resetVector = 0x10000000L//TODO: set reset vec
+  def align(pc: UInt, bytes: Int): UInt = Cat(pc(VAddrBits-1, log2Ceil(bytes)), 0.U(log2Ceil(bytes).W))
+  val groupBytes = 64 // correspond to cache line size
+  val groupOffsetBits = log2Ceil(groupBytes)
+  val groupWidth = groupBytes / instBytes
+  val packetBytes = PredictWidth * instBytes
+  val packetOffsetBits = log2Ceil(packetBytes)
+  def offsetInPacket(pc: UInt) = pc(packetOffsetBits-1, instOffsetBits)
+  def packetIdx(pc: UInt) = pc(VAddrBits-1, log2Ceil(packetBytes))
+  def groupAligned(pc: UInt)  = align(pc, groupBytes)
+  def packetAligned(pc: UInt) = align(pc, packetBytes)
+  def mask(pc: UInt): UInt = ((~(0.U(PredictWidth.W))) << offsetInPacket(pc))(PredictWidth-1,0)
+  def snpc(pc: UInt): UInt = packetAligned(pc) + packetBytes.U
+
+  val enableGhistRepair = true
   val IFUDebug = true
 }
 
-class GlobalHistoryInfo() extends XSBundle {
-  val sawNTBr = Bool()
-  val takenOnBr = Bool()
-  val saveHalfRVI = Bool()
-  def shifted = takenOnBr || sawNTBr
-  def newPtr(ptr: UInt) = Mux(shifted, ptr - 1.U, ptr)
+class GlobalHistory extends XSBundle {
+  val predHist = UInt(HistoryLength.W)
+  def update(sawNTBr: Bool, takenOnBr: Bool, hist: UInt = predHist): GlobalHistory = {
+    val g = Wire(new GlobalHistory)
+    val shifted = takenOnBr || sawNTBr
+    g.predHist := Mux(shifted, (hist << 1) | takenOnBr.asUInt, hist)
+    g
+  }
+
+  final def === (that: GlobalHistory): Bool = {
+    predHist === that.predHist
+  }
+
+  final def =/= (that: GlobalHistory): Bool = !(this === that)
+
   implicit val name = "IFU"
-  def debug = XSDebug("[GHInfo] sawNTBr=%d, takenOnBr=%d, saveHalfRVI=%d\n", sawNTBr, takenOnBr, saveHalfRVI)
+  def debug(where: String) = XSDebug(p"[${where}_GlobalHistory] hist=${Binary(predHist)}\n")
   // override def toString(): String = "histPtr=%d, sawNTBr=%d, takenOnBr=%d, saveHalfRVI=%d".format(histPtr, sawNTBr, takenOnBr, saveHalfRVI)
 }
 
+
 class IFUIO extends XSBundle
 {
+  // to ibuffer
   val fetchPacket = DecoupledIO(new FetchPacket)
+  // from backend
   val redirect = Flipped(ValidIO(new Redirect))
-  val outOfOrderBrInfo = Flipped(ValidIO(new BranchUpdateInfo))
-  val inOrderBrInfo = Flipped(ValidIO(new BranchUpdateInfo))
-  val icacheReq = DecoupledIO(new ICacheReq)
-  val icacheResp = Flipped(DecoupledIO(new ICacheResp))
-  val icacheFlush = Output(UInt(2.W))
+  val bp_ctrl = Input(new BPUCtrl)
+  val commitUpdate = Flipped(ValidIO(new FtqEntry))
+  val ftqEnqPtr = Input(new FtqPtr)
+  val ftqLeftOne = Input(Bool())
+  // to backend
+  val toFtq = DecoupledIO(new FtqEntry)
+  // to icache
+  val icacheMemGrant = Flipped(DecoupledIO(new L1plusCacheResp))
+  val fencei = Input(Bool())
+  // from icache
+  val icacheMemAcq = DecoupledIO(new L1plusCacheReq)
+  val l1plusFlush = Output(Bool())
+  val prefetchTrainReq = ValidIO(new IcacheMissReq)
+  val error = new L1CacheErrorInfo
+  // to tlb
+  val sfence = Input(new SfenceBundle)
+  val tlbCsr = Input(new TlbCsrBundle)
+  // from tlb
+  val ptw = new TlbPtwIO
+  // icache uncache
+  val mmio_acquire = DecoupledIO(new InsUncacheReq)
+  val mmio_grant  = Flipped(DecoupledIO(new InsUncacheResp))
+  val mmio_flush = Output(Bool())
 }
 
+class PrevHalfInstr extends XSBundle {
+  val pc = UInt(VAddrBits.W)
+  val npc = UInt(VAddrBits.W)
+  val instr = UInt(16.W)
+  val ipf = Bool()
+}
 
-class IFU extends XSModule with HasIFUConst
+@chiselName
+class IFU extends XSModule with HasIFUConst with HasCircularQueuePtrHelper with WaitTableParameters
 {
   val io = IO(new IFUIO)
   val bpu = BPU(EnableBPU)
-  val pd = Module(new PreDecode)
+  val icache = Module(new ICache)
+
+  io.ptw <> TLB(
+    in = Seq(icache.io.tlb),
+    sfence = io.sfence,
+    csr = io.tlbCsr,
+    width = 1,
+    isDtlb = false,
+    shouldBlock = true
+  )
 
   val if2_redirect, if3_redirect, if4_redirect = WireInit(false.B)
   val if1_flush, if2_flush, if3_flush, if4_flush = WireInit(false.B)
+
+  val icacheResp = icache.io.resp.bits
 
   if4_flush := io.redirect.valid
   if3_flush := if4_flush || if4_redirect
@@ -59,408 +129,509 @@ class IFU extends XSModule with HasIFUConst
   val if1_valid = !reset.asBool && GTimer() > 500.U
   val if1_npc = WireInit(0.U(VAddrBits.W))
   val if2_ready = WireInit(false.B)
-  val if1_fire = if1_valid && (if2_ready || if1_flush) && io.icacheReq.ready
+  val if2_valid = RegInit(init = false.B)
+  val if2_allReady = WireInit(if2_ready && icache.io.req.ready && bpu.io.in_ready)
+  val if1_fire = if1_valid &&  if2_allReady
 
-
-  val if1_histPtr, if2_histPtr, if3_histPtr, if4_histPtr = Wire(UInt(log2Up(ExtHistoryLength).W))
-  val if2_newPtr, if3_newPtr, if4_newPtr = Wire(UInt(log2Up(ExtHistoryLength).W))
-
-  val extHist = RegInit(VecInit(Seq.fill(ExtHistoryLength)(0.U(1.W))))
-  val shiftPtr = WireInit(false.B)
-  val newPtr = Wire(UInt(log2Up(ExtHistoryLength).W))
-  val ptr = Mux(shiftPtr, newPtr, if1_histPtr)
-  val hist = Wire(Vec(HistoryLength, UInt(1.W)))
-  for (i <- 0 until HistoryLength) {
-    hist(i) := extHist(ptr + i.U)
-  }
-
-  shiftPtr := false.B
-  newPtr := if1_histPtr
-
-
-
-  val if1_GHInfo = Wire(new GlobalHistoryInfo())
-  if1_GHInfo := 0.U.asTypeOf(new GlobalHistoryInfo)
+  val if1_gh, if2_gh, if3_gh, if4_gh = Wire(new GlobalHistory)
+  val if2_predicted_gh, if3_predicted_gh, if4_predicted_gh = Wire(new GlobalHistory)
+  val final_gh = RegInit(0.U.asTypeOf(new GlobalHistory))
 
   //********************** IF2 ****************************//
-  val if2_valid = RegEnable(next = if1_valid, init = false.B, enable = if1_fire)
+  val if2_allValid = if2_valid && icache.io.tlb.resp.valid
   val if3_ready = WireInit(false.B)
-  val if2_fire = if2_valid && if3_ready && !if2_flush
+  val if2_fire = if2_allValid && if3_ready
   val if2_pc = RegEnable(next = if1_npc, init = resetVector.U, enable = if1_fire)
   val if2_snpc = snpc(if2_pc)
-  val if2_GHInfo = RegEnable(if1_GHInfo, if1_fire)
-  val if2_predHistPtr = RegEnable(ptr, enable=if1_fire)
-  if2_ready := if2_fire || !if2_valid || if2_flush
-  when (if2_flush) { if2_valid := if1_fire }
-  .elsewhen (if1_fire) { if2_valid := if1_valid }
-  .elsewhen (if2_fire) { if2_valid := false.B }
+  val if2_predHist = RegEnable(if1_gh.predHist, enable=if1_fire)
+  if2_ready := if3_ready && icache.io.tlb.resp.valid || !if2_valid
+  when (if1_fire)       { if2_valid := true.B }
+  .elsewhen (if2_flush) { if2_valid := false.B }
+  .elsewhen (if2_fire)  { if2_valid := false.B }
 
-  when (RegNext(reset.asBool) && !reset.asBool) {
-    if1_npc := resetVector.U(VAddrBits.W)
-  }.elsewhen (if2_fire) {
-    if1_npc := if2_snpc
-  }.otherwise {
-    if1_npc := RegNext(if1_npc)
-  }
+  val npcGen = new PriorityMuxGenerator[UInt]
+  npcGen.register(true.B, RegNext(if1_npc), Some("stallPC"))
+  val if2_bp = bpu.io.out(0)
 
-  val if2_bp = bpu.io.out(0).bits
   // if taken, bp_redirect should be true
   // when taken on half RVI, we suppress this redirect signal
-  if2_redirect := if2_fire && bpu.io.out(0).valid && if2_bp.redirect && !if2_bp.saveHalfRVI
-  when (if2_redirect) {
-    if1_npc := if2_bp.target
-  }
 
-  val if2_realGHInfo = Wire(new GlobalHistoryInfo())
-  if2_realGHInfo.sawNTBr     := if2_bp.hasNotTakenBrs
-  if2_realGHInfo.takenOnBr   := if2_bp.takenOnBr
-  if2_realGHInfo.saveHalfRVI := if2_bp.saveHalfRVI
+  npcGen.register(if2_valid, Mux(if2_bp.taken, if2_bp.target, if2_snpc), Some("if2_target"))
 
-  when (if2_fire && if2_realGHInfo.shifted) {
-    shiftPtr := true.B
-    newPtr := if2_newPtr
-  }
-  when (if2_realGHInfo.shifted && if2_newPtr >= ptr) {
-    hist(if2_newPtr-ptr) := if2_realGHInfo.takenOnBr.asUInt
-  }
-
-
+  if2_predicted_gh := if2_gh.update(if2_bp.hasNotTakenBrs, if2_bp.takenOnBr)
 
   //********************** IF3 ****************************//
-  val if3_valid = RegEnable(next = if2_valid, init = false.B, enable = if2_fire)
+  // if3 should wait for instructions resp to arrive
+  val if3_valid = RegInit(init = false.B)
   val if4_ready = WireInit(false.B)
-  val if3_fire = if3_valid && if4_ready && io.icacheResp.valid && !if3_flush
+  val if3_allValid = if3_valid && icache.io.resp.valid
+  val if3_fire = if3_allValid && if4_ready
   val if3_pc = RegEnable(if2_pc, if2_fire)
-  val if3_GHInfo = RegEnable(if2_realGHInfo, if2_fire)
-  val if3_predHistPtr = RegEnable(if2_predHistPtr, enable=if2_fire)
-  if3_ready := if3_fire || !if3_valid || if3_flush
-  when (if3_flush) { if3_valid := false.B }
-  .elsewhen (if2_fire) { if3_valid := if2_valid }
-  .elsewhen (if3_fire) { if3_valid := false.B }
-
-  val if3_bp = bpu.io.out(1).bits
-
-  val if3_realGHInfo = Wire(new GlobalHistoryInfo())
-  if3_realGHInfo.sawNTBr     := if3_bp.hasNotTakenBrs
-  if3_realGHInfo.takenOnBr   := if3_bp.takenOnBr
-  if3_realGHInfo.saveHalfRVI := if3_bp.saveHalfRVI
-
-  class PrevHalfInstr extends Bundle {
-    val valid = Bool()
-    val taken = Bool()
-    val ghInfo = new GlobalHistoryInfo()
-    val fetchpc = UInt(VAddrBits.W) // only for debug
-    val idx = UInt(VAddrBits.W) // only for debug
-    val pc = UInt(VAddrBits.W)
-    val target = UInt(VAddrBits.W)
-    val instr = UInt(16.W)
-    val ipf = Bool()
-    val newPtr = UInt(log2Up(ExtHistoryLength).W)
+  val if3_snpc = RegEnable(if2_snpc, if2_fire)
+  val if3_predHist = RegEnable(if2_predHist, enable=if2_fire)
+  if3_ready := if4_ready && icache.io.resp.valid || !if3_valid
+  when (if3_flush) {
+    if3_valid := false.B
+  }.elsewhen (if2_fire && !if2_flush) {
+    if3_valid := true.B
+  }.elsewhen (if3_fire) {
+    if3_valid := false.B
   }
 
-  val if3_prevHalfInstr = RegInit(0.U.asTypeOf(new PrevHalfInstr))
-  val if4_prevHalfInstr = Wire(new PrevHalfInstr)
+  val if3_bp = bpu.io.out(1)
+  if3_predicted_gh := if3_gh.update(if3_bp.hasNotTakenBrs, if3_bp.takenOnBr)
+
+
+  val prevHalfInstrReq = WireInit(0.U.asTypeOf(ValidUndirectioned(new PrevHalfInstr)))
+  // only valid when if4_fire
+  val hasPrevHalfInstrReq = prevHalfInstrReq.valid && HasCExtension.B
+
+  val if3_prevHalfInstr = RegInit(0.U.asTypeOf(ValidUndirectioned(new PrevHalfInstr)))
+
   // 32-bit instr crosses 2 pages, and the higher 16-bit triggers page fault
   val crossPageIPF = WireInit(false.B)
-  when (if4_prevHalfInstr.valid) {
-    if3_prevHalfInstr := if4_prevHalfInstr
-  }
-  val prevHalfInstr = Mux(if4_prevHalfInstr.valid, if4_prevHalfInstr, if3_prevHalfInstr)
+
+  val if3_pendingPrevHalfInstr = if3_prevHalfInstr.valid && HasCExtension.B
 
   // the previous half of RVI instruction waits until it meets its last half
-  val if3_hasPrevHalfInstr = prevHalfInstr.valid && (prevHalfInstr.pc + 2.U) === if3_pc
+  val if3_prevHalfInstrMet = if3_pendingPrevHalfInstr && if3_prevHalfInstr.bits.npc === if3_pc && if3_valid
   // set to invalid once consumed or redirect from backend
-  val prevHalfConsumed = if3_hasPrevHalfInstr && if3_fire || if4_flush
-  when (prevHalfConsumed) {
+  val if3_prevHalfConsumed = if3_prevHalfInstrMet && if3_fire
+  val if3_prevHalfFlush = if4_flush
+  when (if3_prevHalfFlush) {
+    if3_prevHalfInstr.valid := false.B
+  }.elsewhen (hasPrevHalfInstrReq) {
+    if3_prevHalfInstr.valid := true.B
+  }.elsewhen (if3_prevHalfConsumed) {
     if3_prevHalfInstr.valid := false.B
   }
-
+  when (hasPrevHalfInstrReq) {
+    if3_prevHalfInstr.bits := prevHalfInstrReq.bits
+  }
   // when bp signal a redirect, we distinguish between taken and not taken
   // if taken and saveHalfRVI is true, we do not redirect to the target
-  if3_redirect := if3_fire && bpu.io.out(1).valid && (if3_hasPrevHalfInstr && prevHalfInstr.taken || if3_bp.redirect && (if3_bp.taken && !if3_bp.saveHalfRVI || !if3_bp.taken) )
 
-  when (if3_redirect) {
-    when (!(if3_hasPrevHalfInstr && prevHalfInstr.taken)) {
-      if1_npc := if3_bp.target
-      when (if3_realGHInfo.shifted){
-        shiftPtr := true.B
-        newPtr := if3_newPtr
-      }
-    }
+  class IF3_PC_COMP extends XSModule {
+    val io = IO(new Bundle {
+      val if2_pc = Input(UInt(VAddrBits.W))
+      val pc     = Input(UInt(VAddrBits.W))
+      val if2_valid = Input(Bool())
+      val res = Output(Bool())
+    })
+    io.res := !io.if2_valid || io.if2_valid && io.if2_pc =/= io.pc
+  }
+  def if3_nextValidPCNotEquals(pc: UInt) = {
+    val comp = Module(new IF3_PC_COMP)
+    comp.io.if2_pc := if2_pc
+    comp.io.pc     := pc
+    comp.io.if2_valid := if2_valid
+    comp.io.res
   }
 
-  // when it does not redirect, we still need to modify hist(wire)
-  when(if3_realGHInfo.shifted && if3_newPtr >= ptr) {
-    hist(if3_newPtr-ptr) := if3_realGHInfo.takenOnBr
-  }
-  when (if3_hasPrevHalfInstr && prevHalfInstr.ghInfo.shifted && prevHalfInstr.newPtr >= ptr) {
-    hist(prevHalfInstr.newPtr-ptr) := prevHalfInstr.ghInfo.takenOnBr
-  }
+  val if3_prevHalfNotMetRedirect = if3_pendingPrevHalfInstr && !if3_prevHalfInstrMet && if3_nextValidPCNotEquals(if3_prevHalfInstr.bits.npc)
+  val if3_predTakenRedirect    = !if3_pendingPrevHalfInstr && if3_bp.taken && if3_nextValidPCNotEquals(if3_bp.target)
+  val if3_predNotTakenRedirect = !if3_pendingPrevHalfInstr && !if3_bp.taken && if3_nextValidPCNotEquals(if3_snpc)
+  // when pendingPrevHalfInstr, if3_GHInfo is set to the info of last prev half instr
+  // val if3_ghInfoNotIdenticalRedirect = !if3_pendingPrevHalfInstr && if3_GHInfo =/= if3_lastGHInfo && enableGhistRepair.B
+
+  if3_redirect := if3_valid && (
+                    // prevHalf does not match if3_pc and the next fetch packet is not snpc
+                    if3_prevHalfNotMetRedirect && HasCExtension.B ||
+                    // pred taken and next fetch packet is not the predicted target
+                    if3_predTakenRedirect ||
+                    // pred not taken and next fetch packet is not snpc
+                    if3_predNotTakenRedirect
+                    // GHInfo from last pred does not corresponds with this packet
+                    // if3_ghInfoNotIdenticalRedirect
+                  )
+
+  val if3_target = WireInit(if3_snpc)
+
+  if3_target := Mux1H(Seq((if3_prevHalfNotMetRedirect -> if3_prevHalfInstr.bits.npc),
+                          (if3_predTakenRedirect      -> if3_bp.target),
+                          (if3_predNotTakenRedirect   -> if3_snpc)))
+
+  npcGen.register(if3_redirect, if3_target, Some("if3_target"))
+
 
   //********************** IF4 ****************************//
-  val if4_pd = RegEnable(pd.io.out, if3_fire)
-  val if4_ipf = RegEnable(io.icacheResp.bits.ipf || if3_hasPrevHalfInstr && prevHalfInstr.ipf, if3_fire)
+  val ftqEnqBuf_ready = Wire(Bool())
+  val if4_ftqEnqPtr = Wire(new FtqPtr)
+  val if4_pd = RegEnable(icache.io.pd_out, if3_fire)
+  val if4_ipf = RegEnable(icacheResp.ipf || if3_prevHalfInstrMet && if3_prevHalfInstr.bits.ipf, if3_fire)
+  val if4_acf = RegEnable(icacheResp.acf, if3_fire)
   val if4_crossPageIPF = RegEnable(crossPageIPF, if3_fire)
   val if4_valid = RegInit(false.B)
-  val if4_fire = if4_valid && io.fetchPacket.ready
+  val if4_fire = if4_valid && io.fetchPacket.ready && ftqEnqBuf_ready
   val if4_pc = RegEnable(if3_pc, if3_fire)
+  val if4_snpc = RegEnable(if3_snpc, if3_fire)
+  // This is the real mask given from icache
+  val if4_mask = RegEnable(icacheResp.mask, if3_fire)
 
-  val if4_GHInfo = RegEnable(if3_realGHInfo, if3_fire)
-  val if4_predHistPtr = RegEnable(if3_predHistPtr, enable=if3_fire)
-  if4_ready := (if4_fire || !if4_valid || if4_flush) && GTimer() > 500.U
-  when (if4_flush)     { if4_valid := false.B }
-  .elsewhen (if3_fire) { if4_valid := if3_valid }
-  .elsewhen(if4_fire)  { if4_valid := false.B }
+
+  val if4_predHist = RegEnable(if3_predHist, enable=if3_fire)
+  // wait until prevHalfInstr written into reg
+  if4_ready := (io.fetchPacket.ready && !hasPrevHalfInstrReq && ftqEnqBuf_ready || !if4_valid) && GTimer() > 500.U
+  when (if4_flush) {
+    if4_valid := false.B
+  }.elsewhen (if3_fire && !if3_flush) {
+    if4_valid := Mux(if3_pendingPrevHalfInstr, if3_prevHalfInstrMet, true.B)
+  }.elsewhen (if4_fire) {
+    if4_valid := false.B
+  }
 
   val if4_bp = Wire(new BranchPrediction)
-  if4_bp := bpu.io.out(2).bits
+  if4_bp := bpu.io.out(2)
 
-  val if4_realGHInfo = Wire(new GlobalHistoryInfo())
-  if4_realGHInfo.sawNTBr     := if4_bp.hasNotTakenBrs
-  if4_realGHInfo.takenOnBr   := if4_bp.takenOnBr
-  if4_realGHInfo.saveHalfRVI := if4_bp.saveHalfRVI
+  if4_predicted_gh := if4_gh.update(if4_bp.hasNotTakenBrs, if4_bp.takenOnBr)
 
-
-  val if4_cfi_jal = if4_pd.instrs(if4_bp.jmpIdx)
-  val if4_cfi_jal_tgt = if4_pd.pc(if4_bp.jmpIdx) + Mux(if4_pd.pd(if4_bp.jmpIdx).isRVC,
-    SignExt(Cat(if4_cfi_jal(12), if4_cfi_jal(8), if4_cfi_jal(10, 9), if4_cfi_jal(6), if4_cfi_jal(7), if4_cfi_jal(2), if4_cfi_jal(11), if4_cfi_jal(5, 3), 0.U(1.W)), XLEN),
-    SignExt(Cat(if4_cfi_jal(31), if4_cfi_jal(19, 12), if4_cfi_jal(20), if4_cfi_jal(30, 21), 0.U(1.W)), XLEN))
-  if4_bp.target := Mux(if4_pd.pd(if4_bp.jmpIdx).isJal && if4_bp.taken, if4_cfi_jal_tgt, bpu.io.out(2).bits.target)
-  if4_bp.redirect := bpu.io.out(2).bits.redirect || if4_pd.pd(if4_bp.jmpIdx).isJal && if4_bp.taken && if4_cfi_jal_tgt =/= bpu.io.out(2).bits.target
-
-  if4_prevHalfInstr := 0.U.asTypeOf(new PrevHalfInstr)
-  when (bpu.io.out(2).valid && if4_fire && if4_bp.saveHalfRVI) {
-    if4_prevHalfInstr.valid := true.B
-    if4_prevHalfInstr.taken := if4_bp.taken
-    if4_prevHalfInstr.ghInfo := if4_realGHInfo
-    // Make sure shifted can work
-    if4_prevHalfInstr.ghInfo.saveHalfRVI := false.B
-    if4_prevHalfInstr.newPtr := if4_newPtr
-    if4_prevHalfInstr.fetchpc := if4_pc
-    if4_prevHalfInstr.idx := PopCount(mask(if4_pc)) - 1.U
-    if4_prevHalfInstr.pc := if4_pd.pc(if4_prevHalfInstr.idx)
-    if4_prevHalfInstr.target := if4_bp.target
-    if4_prevHalfInstr.instr := if4_pd.instrs(if4_prevHalfInstr.idx)(15, 0)
-    if4_prevHalfInstr.ipf := if4_ipf
+  def jal_offset(inst: UInt, rvc: Bool): SInt = {
+    Mux(rvc,
+      Cat(inst(12), inst(8), inst(10, 9), inst(6), inst(7), inst(2), inst(11), inst(5, 3), 0.U(1.W)).asSInt(),
+      Cat(inst(31), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W)).asSInt()
+    )
   }
-
-  // Redirect and npc logic for if4
-  when (bpu.io.out(2).valid && if4_fire && if4_bp.redirect) {
-    if4_redirect := true.B
-    when (if4_bp.saveHalfRVI) {
-      if1_npc := snpc(if4_pc)
-    }.otherwise {
-      if1_npc := if4_bp.target
-    }
+  def br_offset(inst: UInt, rvc: Bool): SInt = {
+    Mux(rvc,
+      Cat(inst(12), inst(6, 5), inst(2), inst(11, 10), inst(4, 3), 0.U(1.W)).asSInt,
+      Cat(inst(31), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W)).asSInt()
+    )
   }
-  // }.elsewhen (bpu.io.out(2).valid && if4_fire/* && !if4_bp.redirect*/) {
-  //   // We redirect the pipeline to the next fetch packet,
-  //   // which contains the last half of the RVI instruction
-  //   when (if4_bp.saveHalfRVI && if4_bp.taken) {
-  //     if4_redirect := true.B
-  //     if1_npc := snpc(if4_pc)
-  //   }
-  // }
-
-  // This should cover the if4 redirect to snpc when saveHalfRVI
-  when (if3_redirect) {
-    when (if3_hasPrevHalfInstr && prevHalfInstr.taken) {
-      if1_npc := prevHalfInstr.target
+  val if4_instrs = if4_pd.instrs
+  val if4_jals = if4_bp.jalMask
+  val if4_jal_tgts = VecInit((0 until PredictWidth).map(i => (if4_pd.pc(i).asSInt + jal_offset(if4_instrs(i), if4_pd.pd(i).isRVC)).asUInt))
+  val if4_brs = if4_bp.brMask
+  val if4_br_tgts = VecInit((0 until PredictWidth).map(i => (if4_pd.pc(i).asSInt + br_offset(if4_instrs(i), if4_pd.pd(i).isRVC)).asUInt))
+  (0 until PredictWidth).foreach {i =>
+    when (if4_jals(i)) {
+      if4_bp.targets(i) := if4_jal_tgts(i)
+    }.elsewhen (if4_brs(i)) {
+      if4_bp.targets(i) := if4_br_tgts(i)
     }
   }
 
-  // history logic for if4
-  when (bpu.io.out(2).valid && if4_fire && if4_bp.redirect) {
-    shiftPtr := true.B
-    newPtr := if4_newPtr
-  // }.elsewhen (bpu.io.out(2).valid && if4_fire/* && !if4_bp.redirect*/) {
-  //   // only if we hasn't seen not taken branches and 
-  //   // see a not taken branch in if4 should we tell 
-  //   // if3 and if4 to update histptr
-  //   // We do not shift global history pointer unless we have the full
-  //   // RVI instruction
-  //   when (if4_newSawNTBrs && !if4_bp.takenOnBr) {
-  //     shiftPtr := true.B
-  //     // newPtr := if4_realGHInfo.newPtr
-  //   }
+  // we need this to tell BPU the prediction of prev half
+  // because the prediction is with the start of each inst
+  val if4_prevHalfInstr = RegInit(0.U.asTypeOf(ValidUndirectioned(new PrevHalfInstr)))
+  val if4_pendingPrevHalfInstr = if4_prevHalfInstr.valid && HasCExtension.B
+  val if4_prevHalfInstrMet = if4_pendingPrevHalfInstr && if4_valid
+  val if4_prevHalfConsumed = if4_prevHalfInstrMet && if4_fire
+  val if4_prevHalfFlush = if4_flush
+
+  when (if4_prevHalfFlush) {
+    if4_prevHalfInstr.valid := false.B
+  }.elsewhen (if3_prevHalfConsumed) {
+    if4_prevHalfInstr.valid := if3_prevHalfInstr.valid
+  }.elsewhen (if4_prevHalfConsumed) {
+    if4_prevHalfInstr.valid := false.B
   }
 
-  when (if4_realGHInfo.shifted && if4_newPtr >= ptr) {
-    hist(if4_newPtr-ptr) := if4_realGHInfo.takenOnBr
+  when (if3_prevHalfConsumed) {
+    if4_prevHalfInstr.bits := if3_prevHalfInstr.bits
   }
 
-  when (if3_redirect) {
-    // when redirect and if3_hasPrevHalfInstr, this prevHalfInstr should only be taken
-    when (if3_hasPrevHalfInstr && prevHalfInstr.ghInfo.shifted) {
-      shiftPtr := true.B
-      newPtr := prevHalfInstr.newPtr
-      extHist(prevHalfInstr.newPtr) := prevHalfInstr.ghInfo.takenOnBr
+  prevHalfInstrReq.valid := if4_fire && if4_bp.saveHalfRVI && HasCExtension.B
+
+  // // this is result of the last half RVI
+  prevHalfInstrReq.bits.pc := if4_pd.pc(PredictWidth-1)
+  prevHalfInstrReq.bits.npc := snpc(if4_pc)
+  prevHalfInstrReq.bits.instr := if4_pd.instrs(PredictWidth-1)(15, 0)
+  prevHalfInstrReq.bits.ipf := if4_ipf
+
+  class IF4_PC_COMP extends XSModule {
+    val io = IO(new Bundle {
+      val if2_pc = Input(UInt(VAddrBits.W))
+      val if3_pc = Input(UInt(VAddrBits.W))
+      val pc     = Input(UInt(VAddrBits.W))
+      val if2_valid = Input(Bool())
+      val if3_valid = Input(Bool())
+      val res = Output(Bool())
+    })
+    io.res := io.if3_valid  && io.if3_pc =/= io.pc ||
+              !io.if3_valid && (io.if2_valid && io.if2_pc =/= io.pc) ||
+              !io.if3_valid && !io.if2_valid
+  }
+  def if4_nextValidPCNotEquals(pc: UInt) = {
+    val comp = Module(new IF4_PC_COMP)
+    comp.io.if2_pc := if2_pc
+    comp.io.if3_pc := if3_pc
+    comp.io.pc     := pc
+    comp.io.if2_valid := if2_valid
+    comp.io.if3_valid := if3_valid
+    comp.io.res
+  }
+
+  val if4_prevHalfNextNotMet = hasPrevHalfInstrReq && if4_nextValidPCNotEquals(prevHalfInstrReq.bits.pc+2.U)
+  val if4_predTakenRedirect = if4_bp.taken && if4_nextValidPCNotEquals(if4_bp.target)
+  val if4_predNotTakenRedirect = !if4_bp.taken && if4_nextValidPCNotEquals(if4_snpc)
+  // val if4_ghInfoNotIdenticalRedirect = if4_GHInfo =/= if4_lastGHInfo && enableGhistRepair.B
+
+  if4_redirect := if4_valid && (
+                    // when if4 has a lastHalfRVI, but the next fetch packet is not snpc
+                    // if4_prevHalfNextNotMet ||
+                    // when if4 preds taken, but the pc of next fetch packet is not the target
+                    if4_predTakenRedirect ||
+                    // when if4 preds not taken, but the pc of next fetch packet is not snpc
+                    if4_predNotTakenRedirect
+                    // GHInfo from last pred does not corresponds with this packet
+                    // if4_ghInfoNotIdenticalRedirect
+                  )
+
+  val if4_target = WireInit(if4_snpc)
+
+  if4_target := Mux(if4_bp.taken, if4_bp.target, if4_snpc)
+
+  npcGen.register(if4_redirect, if4_target, Some("if4_target"))
+
+  when (if4_fire) {
+    final_gh := if4_predicted_gh
+  }
+  if4_gh := final_gh
+  if3_gh := Mux(if4_valid, if4_predicted_gh, if4_gh)
+  if2_gh := Mux(if3_valid && !if3_flush, if3_predicted_gh, if3_gh)
+  if1_gh := Mux(if2_valid && !if2_flush, if2_predicted_gh, if2_gh)
+
+  // ***************** Ftq enq buffer ********************
+  val toFtqBuf = Wire(new FtqEntry)
+  val ftqEnqBuf = RegEnable(toFtqBuf, enable=if4_fire)
+  val ftqEnqBuf_valid = RegInit(false.B)
+  val ftqLeftOne = WireInit(false.B) // TODO: to be replaced
+  ftqEnqBuf_ready := io.toFtq.ready && !(io.ftqLeftOne && ftqEnqBuf_valid)
+  println(io.ftqEnqPtr)
+  val x = io.ftqEnqPtr + 1.U
+  println(x)
+  if4_ftqEnqPtr := Mux(ftqEnqBuf_valid, io.ftqEnqPtr+1.U, io.ftqEnqPtr)
+  when (io.redirect.valid)  { ftqEnqBuf_valid := false.B }
+  .elsewhen (if4_fire)      { ftqEnqBuf_valid := true.B }
+  .elsewhen (io.toFtq.fire) { ftqEnqBuf_valid := false.B }
+
+  io.toFtq.valid := ftqEnqBuf_valid
+  io.toFtq.bits  := ftqEnqBuf
+
+  toFtqBuf := DontCare
+  toFtqBuf.ftqPC    := if4_pc
+  toFtqBuf.lastPacketPC.valid := if4_pendingPrevHalfInstr
+  toFtqBuf.lastPacketPC.bits  := if4_prevHalfInstr.bits.pc
+
+  toFtqBuf.hist     := final_gh
+  toFtqBuf.predHist := if4_predHist.asTypeOf(new GlobalHistory)
+  toFtqBuf.rasSp    := bpu.io.brInfo.rasSp
+  toFtqBuf.rasTop   := bpu.io.brInfo.rasTop
+  toFtqBuf.specCnt  := bpu.io.brInfo.specCnt
+  toFtqBuf.metas    := bpu.io.brInfo.metas
+
+  // For perf counters
+  toFtqBuf.pd    := if4_pd.pd
+
+
+  val if4_jmpIdx = WireInit(if4_bp.jmpIdx)
+  val if4_taken = WireInit(if4_bp.taken)
+  val if4_real_valids = if4_pd.mask &
+    (Fill(PredictWidth, !if4_taken) |
+      (Fill(PredictWidth, 1.U(1.W)) >> (~if4_jmpIdx)))
+
+  val cfiIsCall = if4_pd.pd(if4_jmpIdx).isCall
+  val cfiIsRet  = if4_pd.pd(if4_jmpIdx).isRet
+  val cfiIsRVC  = if4_pd.pd(if4_jmpIdx).isRVC
+  val cfiIsJalr = if4_pd.pd(if4_jmpIdx).isJalr
+  toFtqBuf.cfiIsCall := cfiIsCall
+  toFtqBuf.cfiIsRet  := cfiIsRet
+  toFtqBuf.cfiIsJalr := cfiIsJalr
+  toFtqBuf.cfiIsRVC  := cfiIsRVC
+  toFtqBuf.cfiIndex.valid := if4_taken
+  toFtqBuf.cfiIndex.bits  := if4_jmpIdx
+
+  toFtqBuf.br_mask   := if4_bp.brMask.asTypeOf(Vec(PredictWidth, Bool()))
+  toFtqBuf.rvc_mask  := VecInit(if4_pd.pd.map(_.isRVC))
+  toFtqBuf.valids    := if4_real_valids.asTypeOf(Vec(PredictWidth, Bool()))
+  toFtqBuf.target := Mux(if4_taken, if4_target, if4_snpc)
+
+
+
+  val r = io.redirect
+  val cfiUpdate = io.redirect.bits.cfiUpdate
+  when (r.valid) {
+    val isMisPred = r.bits.level === 0.U
+    val b = cfiUpdate
+    val oldGh = b.hist
+    val sawNTBr = b.sawNotTakenBranch
+    val isBr = b.pd.isBr
+    val taken = Mux(isMisPred, b.taken, b.predTaken)
+    val updatedGh = oldGh.update(sawNTBr, isBr && taken)
+    final_gh := updatedGh
+    if1_gh := updatedGh
+  }
+
+  npcGen.register(io.redirect.valid, io.redirect.bits.cfiUpdate.target, Some("backend_redirect"))
+  npcGen.register(RegNext(reset.asBool) && !reset.asBool, resetVector.U(VAddrBits.W), Some("reset_vector"))
+
+  if1_npc := npcGen()
+
+
+  icache.io.req.valid := if1_fire
+  icache.io.resp.ready := if4_ready
+  icache.io.req.bits.addr := if1_npc
+  icache.io.req.bits.mask := mask(if1_npc)
+  icache.io.flush := Cat(if3_flush, if2_flush)
+  icache.io.mem_grant <> io.icacheMemGrant
+  icache.io.fencei := io.fencei
+  icache.io.prev.valid := if3_prevHalfInstrMet
+  icache.io.prev.bits := if3_prevHalfInstr.bits.instr
+  icache.io.prev_ipf := if3_prevHalfInstr.bits.ipf
+  icache.io.prev_pc := if3_prevHalfInstr.bits.pc
+  icache.io.mmio_acquire <> io.mmio_acquire
+  icache.io.mmio_grant <> io.mmio_grant
+  icache.io.mmio_flush <> io.mmio_flush
+  io.icacheMemAcq <> icache.io.mem_acquire
+  io.l1plusFlush := icache.io.l1plusflush
+  io.prefetchTrainReq := icache.io.prefetchTrainReq
+  io.error <> icache.io.error
+
+  bpu.io.ctrl := RegNext(io.bp_ctrl)
+  bpu.io.commit <> io.commitUpdate
+  bpu.io.redirect <> io.redirect
+
+  bpu.io.inFire(0) := if1_fire
+  bpu.io.inFire(1) := if2_fire
+  bpu.io.inFire(2) := if3_fire
+  bpu.io.inFire(3) := if4_fire
+  bpu.io.in.pc := if1_npc
+  bpu.io.in.hist := if1_gh.asUInt
+  bpu.io.in.inMask := mask(if1_npc)
+  bpu.io.predecode.mask := if4_pd.mask
+  bpu.io.predecode.lastHalf := if4_pd.lastHalf
+  bpu.io.predecode.pd := if4_pd.pd
+  bpu.io.predecode.hasLastHalfRVI := if4_prevHalfInstrMet
+
+
+  when (if3_prevHalfInstrMet && icacheResp.ipf && !if3_prevHalfInstr.bits.ipf) {
+    crossPageIPF := true.B // higher 16 bits page fault
+  }
+
+  val fetchPacketValid = if4_valid && !io.redirect.valid && ftqEnqBuf_ready
+  val fetchPacketWire = Wire(new FetchPacket)
+
+  fetchPacketWire.mask := if4_real_valids
+  //RVC expand
+  val expandedInstrs = Wire(Vec(PredictWidth, UInt(32.W)))
+  for(i <- 0 until PredictWidth){
+      val expander = Module(new RVCExpander)
+      expander.io.in := if4_pd.instrs(i)
+      expandedInstrs(i) := expander.io.out.bits
+  }
+  fetchPacketWire.instrs := expandedInstrs
+
+  fetchPacketWire.pc := if4_pd.pc
+  fetchPacketWire.foldpc := if4_pd.pc.map(i => XORFold(i(VAddrBits-1,1), WaitTableAddrWidth))
+
+  fetchPacketWire.pdmask := if4_pd.mask
+  fetchPacketWire.pd := if4_pd.pd
+  fetchPacketWire.ipf := if4_ipf
+  fetchPacketWire.acf := if4_acf
+  fetchPacketWire.crossPageIPFFix := if4_crossPageIPF
+  fetchPacketWire.ftqPtr := if4_ftqEnqPtr
+
+  // predTaken Vec
+  fetchPacketWire.pred_taken := if4_bp.takens
+
+  io.fetchPacket.bits := fetchPacketWire
+  io.fetchPacket.valid := fetchPacketValid
+
+  if (!env.FPGAPlatform && env.EnablePerfDebug) {
+    val predictor_s3 = RegEnable(Mux(if3_redirect, 1.U(log2Up(4).W), 0.U(log2Up(4).W)), if3_fire)
+    val predictor_s4 = Mux(if4_redirect, 2.U, predictor_s3)
+    val predictor = predictor_s4
+    toFtqBuf.metas.map(_.predictor := predictor)
+
+    toFtqBuf.metas.zipWithIndex.foreach{ case(x,i) =>
+      x.predictor := predictor
+
+      x.ubtbAns := bpu.io.brInfo.metas(i).ubtbAns
+      x.btbAns := bpu.io.brInfo.metas(i).btbAns
+      x.tageAns := bpu.io.brInfo.metas(i).tageAns
+      x.rasAns := bpu.io.brInfo.metas(i).rasAns // Is this right?
+      x.loopAns := bpu.io.brInfo.metas(i).loopAns
     }
   }
 
-  // modify GHR at the end of a prediction lifetime
-  when (if4_fire && if4_realGHInfo.shifted) {
-    extHist(if4_newPtr) := if4_realGHInfo.takenOnBr
-  }
+  // TODO: perfs
+  // frontend redirect from each stage
+  XSPerfAccumulate("if2_redirect", if2_valid && if2_bp.taken && !if2_flush)
+  XSPerfAccumulate("if2_redirect_fired", if2_fire && if2_bp.taken && !if2_flush)
+  XSPerfAccumulate("if3_redirect", if3_valid && if3_redirect && !if3_flush)
+  XSPerfAccumulate("if3_redirect_fired", if3_fire && if3_redirect && !if3_flush)
+  XSPerfAccumulate("if4_redirect", if4_valid && if4_redirect && !if4_flush)
+  XSPerfAccumulate("if4_redirect_fired", if4_fire && if4_redirect && !if4_flush)
+  
+  XSPerfAccumulate("if1_total_stall", !if2_allReady && if1_valid)
+  XSPerfAccumulate("if1_stall_from_icache_req", !icache.io.req.ready && if1_valid)
+  XSPerfAccumulate("if1_stall_from_if2", !if2_ready && if1_valid)
+  XSPerfAccumulate("if1_stall_from_bpu", !bpu.io.in_ready && if1_valid)
+  XSPerfAccumulate("itlb_stall", if2_valid && if3_ready && !icache.io.tlb.resp.valid)
+  XSPerfAccumulate("icache_resp_stall", if3_valid && if4_ready && !icache.io.resp.valid)
+  XSPerfAccumulate("if4_stall", if4_valid && !if4_fire)
+  XSPerfAccumulate("if4_stall_ibuffer", if4_valid && !io.fetchPacket.ready && ftqEnqBuf_ready)
+  XSPerfAccumulate("if4_stall_ftq", if4_valid && io.fetchPacket.ready && !ftqEnqBuf_ready)
 
-  // This is a histPtr which is only modified when a prediction
-  // is sent, so that it can get the final prediction info
-  val finalPredHistPtr = RegInit(0.U(log2Up(ExtHistoryLength).W))
-  if4_histPtr := finalPredHistPtr
-  if4_newPtr  := if3_histPtr
-  when (if4_fire && if4_realGHInfo.shifted) {
-    finalPredHistPtr := if4_newPtr
-  }
-
-  if3_histPtr := Mux(if4_realGHInfo.shifted && if4_valid && !if4_flush, if4_histPtr - 1.U, if4_histPtr)
-  if3_newPtr  := if2_histPtr
-
-  if2_histPtr := Mux(if3_realGHInfo.shifted && if3_valid && !if3_flush, if3_histPtr - 1.U, if3_histPtr)
-  if2_newPtr  := if1_histPtr
-
-  if1_histPtr := Mux(if2_realGHInfo.shifted && if2_valid && !if2_flush, if2_histPtr - 1.U, if2_histPtr)
-
-
-
-
-  when (io.outOfOrderBrInfo.valid && io.outOfOrderBrInfo.bits.isMisPred) {
-    val b = io.outOfOrderBrInfo.bits
-    val oldPtr = b.brInfo.histPtr
-    shiftPtr := true.B
-    when (!b.pd.isBr && !b.brInfo.sawNotTakenBranch) {
-      // If mispredicted cfi is not a branch,
-      // and there wasn't any not taken branch before it,
-      // we should only recover the pointer to an unshifted state
-      newPtr := oldPtr
-      finalPredHistPtr := oldPtr
-    }.otherwise {
-      newPtr := oldPtr - 1.U
-      finalPredHistPtr := oldPtr - 1.U
-      hist(0) := Mux(b.pd.isBr, b.taken, 0.U)
-      extHist(newPtr) := Mux(b.pd.isBr, b.taken, 0.U)
-    }
-  }
-
-  when (io.redirect.valid) {
-    if1_npc := io.redirect.bits.target
-  }
-
-  io.icacheReq.valid := if1_valid && if2_ready
-  io.icacheReq.bits.addr := if1_npc
-  io.icacheReq.bits.mask := mask(if1_npc)
-  io.icacheResp.ready := if4_ready
-  //io.icacheResp.ready := if3_valid
-  io.icacheFlush := Cat(if3_flush, if2_flush)
-
-  val inOrderBrHist = Wire(Vec(HistoryLength, UInt(1.W)))
-  (0 until HistoryLength).foreach(i => inOrderBrHist(i) := extHist(i.U + io.inOrderBrInfo.bits.brInfo.predHistPtr))
-  bpu.io.inOrderBrInfo.valid := io.inOrderBrInfo.valid
-  bpu.io.inOrderBrInfo.bits := BranchUpdateInfoWithHist(io.inOrderBrInfo.bits, inOrderBrHist.asUInt)
-  bpu.io.outOfOrderBrInfo.valid := io.outOfOrderBrInfo.valid
-  bpu.io.outOfOrderBrInfo.bits := BranchUpdateInfoWithHist(io.outOfOrderBrInfo.bits, inOrderBrHist.asUInt) // Dont care about hist
-
-  // bpu.io.flush := Cat(if4_flush, if3_flush, if2_flush)
-  bpu.io.flush := VecInit(if2_flush, if3_flush, if4_flush)
-  bpu.io.cacheValid := io.icacheResp.valid
-  bpu.io.in.valid := if1_fire
-  bpu.io.in.bits.pc := if1_npc
-  bpu.io.in.bits.hist := hist.asUInt
-  bpu.io.in.bits.histPtr := ptr
-  bpu.io.in.bits.inMask := mask(if1_npc)
-  bpu.io.out(0).ready := if2_fire
-  bpu.io.out(1).ready := if3_fire
-  bpu.io.out(2).ready := if4_fire
-  bpu.io.predecode.valid := if4_valid
-  bpu.io.predecode.bits.mask := if4_pd.mask
-  bpu.io.predecode.bits.pd := if4_pd.pd
-  bpu.io.predecode.bits.isFetchpcEqualFirstpc := if4_pc === if4_pd.pc(0)
-  bpu.io.branchInfo.ready := if4_fire
-
-  pd.io.in := io.icacheResp.bits
-  pd.io.prev.valid := if3_hasPrevHalfInstr
-  pd.io.prev.bits := prevHalfInstr.instr
-  // if a fetch packet triggers page fault, set the pf instruction to nop
-  when (!if3_hasPrevHalfInstr && io.icacheResp.bits.ipf) {
-    val instrs = Wire(Vec(FetchWidth, UInt(32.W)))
-    (0 until FetchWidth).foreach(i => instrs(i) := ZeroExt("b0010011".U, 32)) // nop
-    pd.io.in.data := instrs.asUInt
-  }.elsewhen (if3_hasPrevHalfInstr && (prevHalfInstr.ipf || io.icacheResp.bits.ipf)) {
-    pd.io.prev.bits := ZeroExt("b0010011".U, 16)
-    val instrs = Wire(Vec(FetchWidth, UInt(32.W)))
-    (0 until FetchWidth).foreach(i => instrs(i) := Cat(ZeroExt("b0010011".U, 16), Fill(16, 0.U(1.W))))
-    pd.io.in.data := instrs.asUInt
-
-    when (io.icacheResp.bits.ipf && !prevHalfInstr.ipf) { crossPageIPF := true.B } // higher 16 bits page fault
-  }
-
-  io.fetchPacket.valid := if4_valid && !io.redirect.valid
-  io.fetchPacket.bits.instrs := if4_pd.instrs
-  io.fetchPacket.bits.mask := if4_pd.mask & (Fill(PredictWidth, !if4_bp.taken) | (Fill(PredictWidth, 1.U(1.W)) >> (~if4_bp.jmpIdx)))
-  io.fetchPacket.bits.pc := if4_pd.pc
-  (0 until PredictWidth).foreach(i => io.fetchPacket.bits.pnpc(i) := if4_pd.pc(i) + Mux(if4_pd.pd(i).isRVC, 2.U, 4.U))
-  when (if4_bp.taken) {
-    io.fetchPacket.bits.pnpc(if4_bp.jmpIdx) := if4_bp.target
-  }
-  io.fetchPacket.bits.brInfo := bpu.io.branchInfo.bits
-  (0 until PredictWidth).foreach(i => io.fetchPacket.bits.brInfo(i).histPtr := finalPredHistPtr)
-  (0 until PredictWidth).foreach(i => io.fetchPacket.bits.brInfo(i).predHistPtr := if4_predHistPtr)
-  io.fetchPacket.bits.pd := if4_pd.pd
-  io.fetchPacket.bits.ipf := if4_ipf
-  io.fetchPacket.bits.crossPageIPFFix := if4_crossPageIPF
+  XSPerfAccumulate("if3_prevHalfConsumed", if3_prevHalfConsumed)
+  XSPerfAccumulate("if4_prevHalfConsumed", if4_prevHalfConsumed)
+  
 
   // debug info
   if (IFUDebug) {
     XSDebug(RegNext(reset.asBool) && !reset.asBool, "Reseting...\n")
-    XSDebug(io.icacheFlush(0).asBool, "Flush icache stage2...\n")
-    XSDebug(io.icacheFlush(1).asBool, "Flush icache stage3...\n")
-    XSDebug(io.redirect.valid, "Redirect from backend! isExcp=%d isFpp:%d isMisPred=%d isReplay=%d pc=%x\n",
-      io.redirect.bits.isException, io.redirect.bits.isFlushPipe, io.redirect.bits.isMisPred, io.redirect.bits.isReplay, io.redirect.bits.pc)
-    XSDebug(io.redirect.valid, p"Redirect from backend! target=${Hexadecimal(io.redirect.bits.target)} brTag=${io.redirect.bits.brTag}\n")
+    XSDebug(icache.io.flush(0).asBool, "Flush icache stage2...\n")
+    XSDebug(icache.io.flush(1).asBool, "Flush icache stage3...\n")
+    XSDebug(io.redirect.valid, p"Redirect from backend! target=${Hexadecimal(io.redirect.bits.cfiUpdate.target)}\n")
 
-    XSDebug("[IF1] v=%d     fire=%d            flush=%d pc=%x ptr=%d mask=%b\n", if1_valid, if1_fire, if1_flush, if1_npc, ptr, mask(if1_npc))
-    XSDebug("[IF2] v=%d r=%d fire=%d redirect=%d flush=%d pc=%x ptr=%d snpc=%x\n", if2_valid, if2_ready, if2_fire, if2_redirect, if2_flush, if2_pc, if2_histPtr, if2_snpc)
-    XSDebug("[IF3] v=%d r=%d fire=%d redirect=%d flush=%d pc=%x ptr=%d crossPageIPF=%d sawNTBrs=%d\n", if3_valid, if3_ready, if3_fire, if3_redirect, if3_flush, if3_pc, if3_histPtr, crossPageIPF, if3_realGHInfo.sawNTBr)
-    XSDebug("[IF4] v=%d r=%d fire=%d redirect=%d flush=%d pc=%x ptr=%d crossPageIPF=%d sawNTBrs=%d\n", if4_valid, if4_ready, if4_fire, if4_redirect, if4_flush, if4_pc, if4_histPtr, if4_crossPageIPF, if4_realGHInfo.sawNTBr)
-    XSDebug("[IF1][icacheReq] v=%d r=%d addr=%x\n", io.icacheReq.valid, io.icacheReq.ready, io.icacheReq.bits.addr)
-    XSDebug("[IF1][ghr] headPtr=%d shiftPtr=%d newPtr=%d ptr=%d\n", if1_histPtr, shiftPtr, newPtr, ptr)
-    XSDebug("[IF1][ghr] hist=%b\n", hist.asUInt)
-    XSDebug("[IF1][ghr] extHist=%b\n\n", extHist.asUInt)
+    XSDebug("[IF1] v=%d      fire=%d             flush=%d pc=%x mask=%b\n", if1_valid, if1_fire, if1_flush, if1_npc, mask(if1_npc))
+    XSDebug("[IF2] v=%d r=%d fire=%d redirect=%d flush=%d pc=%x snpc=%x\n", if2_valid, if2_ready, if2_fire, if2_redirect, if2_flush, if2_pc, if2_snpc)
+    XSDebug("[IF3] v=%d r=%d fire=%d redirect=%d flush=%d pc=%x crossPageIPF=%d sawNTBrs=%d\n", if3_valid, if3_ready, if3_fire, if3_redirect, if3_flush, if3_pc, crossPageIPF, if3_bp.hasNotTakenBrs)
+    XSDebug("[IF4] v=%d r=%d fire=%d redirect=%d flush=%d pc=%x crossPageIPF=%d sawNTBrs=%d\n", if4_valid, if4_ready, if4_fire, if4_redirect, if4_flush, if4_pc, if4_crossPageIPF, if4_bp.hasNotTakenBrs)
+    XSDebug("[IF1][icacheReq] v=%d r=%d addr=%x\n", icache.io.req.valid, icache.io.req.ready, icache.io.req.bits.addr)
+    XSDebug("[IF1][ghr] hist=%b\n", if1_gh.asUInt)
 
-    XSDebug("[IF2][bp] redirect=%d taken=%d jmpIdx=%d hasNTBrs=%d target=%x saveHalfRVI=%d\n\n", if2_bp.redirect, if2_bp.taken, if2_bp.jmpIdx, if2_bp.hasNotTakenBrs, if2_bp.target, if2_bp.saveHalfRVI)
-    // XSDebug("[IF2][GHInfo]: %s\n", if2_realGHInfo)
-    if2_realGHInfo.debug
+    XSDebug("[IF2][bp] taken=%d jmpIdx=%d hasNTBrs=%d target=%x saveHalfRVI=%d\n\n", if2_bp.taken, if2_bp.jmpIdx, if2_bp.hasNotTakenBrs, if2_bp.target, if2_bp.saveHalfRVI)
+    if2_gh.debug("if2")
 
-    XSDebug("[IF3][icacheResp] v=%d r=%d pc=%x mask=%b\n", io.icacheResp.valid, io.icacheResp.ready, io.icacheResp.bits.pc, io.icacheResp.bits.mask)
-    XSDebug("[IF3][bp] redirect=%d taken=%d jmpIdx=%d hasNTBrs=%d target=%x saveHalfRVI=%d\n", if3_bp.redirect, if3_bp.taken, if3_bp.jmpIdx, if3_bp.hasNotTakenBrs, if3_bp.target, if3_bp.saveHalfRVI)
+    XSDebug("[IF3][icacheResp] v=%d r=%d pc=%x mask=%b\n", icache.io.resp.valid, icache.io.resp.ready, icache.io.resp.bits.pc, icache.io.resp.bits.mask)
+    XSDebug("[IF3][bp] taken=%d jmpIdx=%d hasNTBrs=%d target=%x saveHalfRVI=%d\n", if3_bp.taken, if3_bp.jmpIdx, if3_bp.hasNotTakenBrs, if3_bp.target, if3_bp.saveHalfRVI)
+    XSDebug("[IF3][redirect]: v=%d, prevNMet=%d, predT=%d, predNT=%d\n", if3_redirect, if3_prevHalfNotMetRedirect, if3_predTakenRedirect, if3_predNotTakenRedirect)
     // XSDebug("[IF3][prevHalfInstr] v=%d redirect=%d fetchpc=%x idx=%d tgt=%x taken=%d instr=%x\n\n",
     //   prev_half_valid, prev_half_redirect, prev_half_fetchpc, prev_half_idx, prev_half_tgt, prev_half_taken, prev_half_instr)
-    XSDebug("[IF3][    prevHalfInstr] v=%d taken=%d fetchpc=%x idx=%d pc=%x tgt=%x instr=%x ipf=%d\n",
-      prevHalfInstr.valid, prevHalfInstr.taken, prevHalfInstr.fetchpc, prevHalfInstr.idx, prevHalfInstr.pc, prevHalfInstr.target, prevHalfInstr.instr, prevHalfInstr.ipf)
-    XSDebug("[IF3][if3_prevHalfInstr] v=%d taken=%d fetchpc=%x idx=%d pc=%x tgt=%x instr=%x ipf=%d\n\n",
-      if3_prevHalfInstr.valid, if3_prevHalfInstr.taken, if3_prevHalfInstr.fetchpc, if3_prevHalfInstr.idx, if3_prevHalfInstr.pc, if3_prevHalfInstr.target, if3_prevHalfInstr.instr, if3_prevHalfInstr.ipf)
-    // XSDebug("[IF3][GHInfo]: %s\n", if3_realGHInfo)
-    if3_realGHInfo.debug
+    XSDebug("[IF3][if3_prevHalfInstr] v=%d pc=%x npc=%x  instr=%x ipf=%d\n\n",
+    if3_prevHalfInstr.valid, if3_prevHalfInstr.bits.pc, if3_prevHalfInstr.bits.npc, if3_prevHalfInstr.bits.instr, if3_prevHalfInstr.bits.ipf)
+    if3_gh.debug("if3")
 
     XSDebug("[IF4][predecode] mask=%b\n", if4_pd.mask)
-    XSDebug("[IF4][bp] redirect=%d taken=%d jmpIdx=%d hasNTBrs=%d target=%x saveHalfRVI=%d\n", if4_bp.redirect, if4_bp.taken, if4_bp.jmpIdx, if4_bp.hasNotTakenBrs, if4_bp.target, if4_bp.saveHalfRVI)
-    XSDebug(if4_pd.pd(if4_bp.jmpIdx).isJal && if4_bp.taken, "[IF4] cfi is jal!  instr=%x target=%x\n", if4_cfi_jal, if4_cfi_jal_tgt)
-    XSDebug("[IF4][if4_prevHalfInstr] v=%d taken=%d fetchpc=%x idx=%d pc=%x tgt=%x instr=%x ipf=%d\n",
-      if4_prevHalfInstr.valid, if4_prevHalfInstr.taken, if4_prevHalfInstr.fetchpc, if4_prevHalfInstr.idx, if4_prevHalfInstr.pc, if4_prevHalfInstr.target, if4_prevHalfInstr.instr, if4_prevHalfInstr.ipf)
-    // XSDebug("[IF4][GHInfo]: %s\n", if4_realGHInfo)
-    if4_realGHInfo.debug
-    XSDebug(io.fetchPacket.fire(), "[IF4][fetchPacket] v=%d r=%d mask=%b ipf=%d crossPageIPF=%d\n",
-      io.fetchPacket.valid, io.fetchPacket.ready, io.fetchPacket.bits.mask, io.fetchPacket.bits.ipf, io.fetchPacket.bits.crossPageIPFFix)
+    XSDebug("[IF4][snpc]: %x, realMask=%b\n", if4_snpc, if4_mask)
+    XSDebug("[IF4][bp] taken=%d jmpIdx=%d hasNTBrs=%d target=%x saveHalfRVI=%d\n", if4_bp.taken, if4_bp.jmpIdx, if4_bp.hasNotTakenBrs, if4_bp.target, if4_bp.saveHalfRVI)
+    XSDebug("[IF4][redirect]: v=%d, prevNotMet=%d, predT=%d, predNT=%d\n", if4_redirect, if4_prevHalfNextNotMet, if4_predTakenRedirect, if4_predNotTakenRedirect)
+    XSDebug(if4_pd.pd(if4_bp.jmpIdx).isJal && if4_bp.taken, "[IF4] cfi is jal!  instr=%x target=%x\n", if4_instrs(if4_bp.jmpIdx), if4_jal_tgts(if4_bp.jmpIdx))
+    XSDebug("[IF4][ prevHalfInstrReq] v=%d pc=%x npc=%x instr=%x ipf=%d\n",
+      prevHalfInstrReq.valid, prevHalfInstrReq.bits.pc, prevHalfInstrReq.bits.npc, prevHalfInstrReq.bits.instr, prevHalfInstrReq.bits.ipf)
+    XSDebug("[IF4][if4_prevHalfInstr] v=%d pc=%x npc=%x instr=%x ipf=%d\n",
+      if4_prevHalfInstr.valid, if4_prevHalfInstr.bits.pc, if4_prevHalfInstr.bits.npc, if4_prevHalfInstr.bits.instr, if4_prevHalfInstr.bits.ipf)
+    if4_gh.debug("if4")
+    XSDebug(io.fetchPacket.fire(), "[IF4][fetchPacket] v=%d r=%d mask=%b ipf=%d acf=%d crossPageIPF=%d\n",
+      io.fetchPacket.valid, io.fetchPacket.ready, io.fetchPacket.bits.mask, io.fetchPacket.bits.ipf, io.fetchPacket.bits.acf, io.fetchPacket.bits.crossPageIPFFix)
     for (i <- 0 until PredictWidth) {
-      XSDebug(io.fetchPacket.fire(), "[IF4][fetchPacket] %b %x pc=%x pnpc=%x pd: rvc=%d brType=%b call=%d ret=%d\n",
+      XSDebug(io.fetchPacket.fire(), "[IF4][fetchPacket] %b %x pc=%x pd: rvc=%d brType=%b call=%d ret=%d\n",
         io.fetchPacket.bits.mask(i),
         io.fetchPacket.bits.instrs(i),
         io.fetchPacket.bits.pc(i),
-        io.fetchPacket.bits.pnpc(i),
         io.fetchPacket.bits.pd(i).isRVC,
         io.fetchPacket.bits.pd(i).brType,
         io.fetchPacket.bits.pd(i).isCall,
         io.fetchPacket.bits.pd(i).isRet
       )
     }
+    val b = ftqEnqBuf
+    XSDebug("[FtqEnqBuf] v=%d r=%d pc=%x cfiIndex(%d)=%d cfiIsCall=%d cfiIsRet=%d cfiIsJalr=%d cfiIsRVC=%d\n",
+      ftqEnqBuf_valid, ftqEnqBuf_ready, b.ftqPC, b.cfiIndex.valid, b.cfiIndex.bits, b.cfiIsCall, b.cfiIsRet, b.cfiIsJalr, b.cfiIsRVC)
+    XSDebug("[FtqEnqBuf] valids=%b br_mask=%b rvc_mask=%b hist=%x predHist=%x rasSp=%d rasTopAddr=%x rasTopCtr=%d\n",
+      b.valids.asUInt, b.br_mask.asUInt, b.rvc_mask.asUInt, b.hist.asUInt, b.predHist.asUInt, b.rasSp, b.rasTop.retAddr, b.rasTop.ctr)
+    XSDebug("[ToFTQ] v=%d r=%d leftOne=%d ptr=%d\n", io.toFtq.valid, io.toFtq.ready, io.ftqLeftOne, io.ftqEnqPtr.value)
   }
+
 }

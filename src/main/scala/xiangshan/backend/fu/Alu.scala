@@ -1,88 +1,187 @@
-//package xiangshan.backend.fu
-//
-//import chisel3._
-//import chisel3.util._
-//import xiangshan._
-//import utils._
-//import xiangshan.backend._
-//
-//import xiangshan.backend.fu.FunctionUnit._
-//
-//class Alu extends FunctionUnit(aluCfg) {
-//  val io = IO(new ExuIO)
-//
-//
-//  override def toString: String = "Alu"
-//
-//  val (iovalid, src1, src2, offset, func, pc, uop) = (io.in.valid, io.in.bits.src1, io.in.bits.src2,
-//    io.in.bits.uop.ctrl.imm, io.in.bits.uop.ctrl.fuOpType, SignExt(io.in.bits.uop.cf.pc, AddrBits), io.in.bits.uop)
-//
-//  val redirectHit = uop.brTag.needFlush(io.redirect)
-//  val valid = iovalid && !redirectHit
-//
-//  val isAdderSub = (func =/= ALUOpType.add) && (func =/= ALUOpType.addw) && !ALUOpType.isJump(func)
-//  val adderRes = (src1 +& (src2 ^ Fill(XLEN, isAdderSub))) + isAdderSub
-//  val xorRes = src1 ^ src2
-//  val sltu = !adderRes(XLEN)
-//  val slt = xorRes(XLEN-1) ^ sltu
-//
-//  val shsrc1 = LookupTreeDefault(func, src1, List(
-//    ALUOpType.srlw -> ZeroExt(src1(31,0), 64),
-//    ALUOpType.sraw -> SignExt(src1(31,0), 64)
-//  ))
-//  val shamt = Mux(ALUOpType.isWordOp(func), src2(4, 0), src2(5, 0))
-//  val res = LookupTreeDefault(func(3, 0), adderRes, List(
-//    ALUOpType.sll  -> ((shsrc1  << shamt)(XLEN-1, 0)),
-//    ALUOpType.slt  -> ZeroExt(slt, XLEN),
-//    ALUOpType.sltu -> ZeroExt(sltu, XLEN),
-//    ALUOpType.xor  -> xorRes,
-//    ALUOpType.srl  -> (shsrc1  >> shamt),
-//    ALUOpType.or   -> (src1  |  src2),
-//    ALUOpType.and  -> (src1  &  src2),
-//    ALUOpType.sra  -> ((shsrc1.asSInt >> shamt).asUInt)
-//  ))
-//  val aluRes = Mux(ALUOpType.isWordOp(func), SignExt(res(31,0), 64), res)
-//
-//  val branchOpTable = List(
-//    ALUOpType.getBranchType(ALUOpType.beq)  -> !xorRes.orR,
-//    ALUOpType.getBranchType(ALUOpType.blt)  -> slt,
-//    ALUOpType.getBranchType(ALUOpType.bltu) -> sltu
-//  )
-//
-//  val isBru = ALUOpType.isBru(func)
-//  // val isBranch =  io.in.bits.uop.cf.isBr// ALUOpType.isBranch(func)
-//  val isBranch =  ALUOpType.isBranch(func)
-//  val isJump = ALUOpType.isJump(func)
-//  val taken = LookupTree(ALUOpType.getBranchType(func), branchOpTable) ^ ALUOpType.isBranchInvert(func)
-//  val target = Mux(isBranch, pc + offset, adderRes)(VAddrBits-1,0)
-//  val isRVC = uop.cf.isRVC//(io.in.bits.cf.instr(1,0) =/= "b11".U)
-//
-//  io.in.ready := io.out.ready
-//  val pcLatchSlot = Mux(isRVC, pc + 2.U, pc + 4.U)
-//  io.out.bits.redirectValid := io.out.valid && isBru//isBranch
-//  io.out.bits.redirect.target := Mux(!taken && isBranch, pcLatchSlot, target)
-//  io.out.bits.redirect.brTag := uop.brTag
-//  io.out.bits.redirect.isException := DontCare // false.B
-//  io.out.bits.redirect.roqIdx := uop.roqIdx
-//
-//  io.out.valid := valid
-//  io.out.bits.uop <> io.in.bits.uop
-//  io.out.bits.data := Mux(isJump, pcLatchSlot, aluRes)
-//
-//  XSDebug(io.in.valid,
-//    "In(%d %d) Out(%d %d) Redirect:(%d %d %d) brTag:f:%d v:%d\n",
-//    io.in.valid,
-//    io.in.ready,
-//    io.out.valid,
-//    io.out.ready,
-//    io.redirect.valid,
-//    io.redirect.bits.isException,
-//    redirectHit,
-//    io.redirect.bits.brTag.flag,
-//    io.redirect.bits.brTag.value
-//  )
-//  XSDebug(io.in.valid, "src1:%x src2:%x offset:%x func:%b pc:%x\n",
-//    src1, src2, offset, func, pc)
-//  XSDebug(io.out.valid, "res:%x aluRes:%x isRVC:%d isBru:%d isBranch:%d isJump:%d target:%x taken:%d\n",
-//    io.out.bits.data, aluRes, isRVC, isBru, isBranch, isJump, target, taken)
-//}
+package xiangshan.backend.fu
+
+import chisel3._
+import chisel3.util._
+import utils.{LookupTree, ParallelMux, SignExt, ZeroExt}
+import xiangshan._
+import xiangshan.backend.ALUOpType
+
+class AddModule extends XSModule {
+  val io = IO(new Bundle() {
+    val src1, src2 = Input(UInt(XLEN.W))
+    val out = Output(UInt((XLEN+1).W))
+  })
+  io.out := io.src1 +& io.src2
+}
+
+class SubModule extends XSModule {
+  val io = IO(new Bundle() {
+    val src1, src2 = Input(UInt(XLEN.W))
+    val out = Output(UInt((XLEN+1).W))
+  })
+  io.out := (io.src1 +& (~io.src2).asUInt()) + 1.U
+}
+
+class LeftShiftModule extends XSModule {
+  val io = IO(new Bundle() {
+    val shamt = Input(UInt(6.W))
+    val sllSrc = Input(UInt(XLEN.W))
+    val sll = Output(UInt(XLEN.W))
+  })
+  io.sll := (io.sllSrc << io.shamt)(XLEN - 1, 0)
+}
+
+class RightShiftModule extends XSModule {
+  val io = IO(new Bundle() {
+    val shamt = Input(UInt(6.W))
+    val srlSrc, sraSrc = Input(UInt(XLEN.W))
+    val srl_l, srl_w, sra_l, sra_w = Output(UInt(XLEN.W))
+  })
+  io.srl_l := io.srlSrc >> io.shamt
+  io.srl_w := io.srlSrc(31, 0) >> io.shamt
+  io.sra_l := (io.sraSrc.asSInt() >> io.shamt).asUInt()
+  io.sra_w := (Cat(Fill(32, io.sraSrc(31)), io.sraSrc(31, 0)).asSInt() >> io.shamt).asUInt()
+}
+
+class MiscResultSelect extends XSModule {
+  val io = IO(new Bundle() {
+    val func = Input(UInt())
+    val sll, slt, sltu, xor, srl, or, and, sra = Input(UInt(XLEN.W))
+    val miscRes = Output(UInt(XLEN.W))
+
+  })
+  io.miscRes := ParallelMux(List(
+    ALUOpType.and  -> io.and,
+    ALUOpType.or   -> io.or,
+    ALUOpType.xor  -> io.xor,
+    ALUOpType.slt  -> ZeroExt(io.slt, XLEN),
+    ALUOpType.sltu -> ZeroExt(io.sltu, XLEN),
+    ALUOpType.srl  -> io.srl,
+    ALUOpType.sll  -> io.sll,
+    ALUOpType.sra  -> io.sra
+  ).map(x => (x._1 === io.func(3, 0), x._2)))
+}
+
+class AluResSel extends XSModule {
+  val io = IO(new Bundle() {
+    val func = Input(UInt())
+    val isSub = Input(Bool())
+    val addRes, subRes, miscRes = Input(UInt(XLEN.W))
+    val aluRes = Output(UInt(XLEN.W))
+  })
+  val isAddSub = ALUOpType.isAddSub(io.func)
+  val res = Mux(ALUOpType.isAddSub(io.func),
+    Mux(io.isSub, io.subRes, io.addRes),
+    io.miscRes
+  )
+  val h32 = Mux(ALUOpType.isWordOp(io.func), Fill(32, res(31)), res(63, 32))
+  io.aluRes := Cat(h32, res(31, 0))
+}
+
+class AluDataModule extends XSModule {
+  val io = IO(new Bundle() {
+    val src1, src2 = Input(UInt(XLEN.W))
+    val func = Input(FuOpType())
+    val pred_taken, isBranch = Input(Bool())
+    val result = Output(UInt(XLEN.W))
+    val taken, mispredict = Output(Bool())
+  })
+  val (src1, src2, func) = (io.src1, io.src2, io.func)
+
+  val isAdderSub = (func =/= ALUOpType.add) && (func =/= ALUOpType.addw)
+  val addModule = Module(new AddModule)
+  addModule.io.src1 := src1
+  addModule.io.src2 := src2
+  val subModule = Module(new SubModule)
+  subModule.io.src1 := src1
+  subModule.io.src2 := src2
+  val addRes = addModule.io.out
+  val subRes = subModule.io.out
+  val xorRes = src1 ^ src2
+  val sltu = !subRes(XLEN)
+  val slt = xorRes(XLEN-1) ^ sltu
+
+  val isW = ALUOpType.isWordOp(func)
+  val shamt = Cat(!isW && src2(5), src2(4, 0))
+
+  val leftShiftModule = Module(new LeftShiftModule)
+  leftShiftModule.io.sllSrc := src1
+  leftShiftModule.io.shamt := shamt
+
+  val rightShiftModule = Module(new RightShiftModule)
+  rightShiftModule.io.shamt := shamt
+  rightShiftModule.io.srlSrc := src1
+  rightShiftModule.io.sraSrc := src1
+
+  val sll = leftShiftModule.io.sll
+  val srl = Mux(isW, rightShiftModule.io.srl_w, rightShiftModule.io.srl_l)
+  val sra = Mux(isW, rightShiftModule.io.sra_w, rightShiftModule.io.sra_l)
+
+  val miscResSel = Module(new MiscResultSelect)
+  miscResSel.io.func := func(3, 0)
+  miscResSel.io.sll := sll
+  miscResSel.io.slt := ZeroExt(slt, XLEN)
+  miscResSel.io.sltu := ZeroExt(sltu, XLEN)
+  miscResSel.io.xor := xorRes
+  miscResSel.io.srl := srl
+  miscResSel.io.or := (src1 | src2)
+  miscResSel.io.and := (src1 & src2)
+  miscResSel.io.sra := sra
+
+  val miscRes = miscResSel.io.miscRes
+
+  val aluResSel = Module(new AluResSel)
+  aluResSel.io.func := func
+  aluResSel.io.isSub := isAdderSub
+  aluResSel.io.addRes := addRes
+  aluResSel.io.subRes := subRes
+  aluResSel.io.miscRes := miscRes
+  val aluRes = aluResSel.io.aluRes
+
+  val branchOpTable = List(
+    ALUOpType.getBranchType(ALUOpType.beq)  -> !xorRes.orR,
+    ALUOpType.getBranchType(ALUOpType.blt)  -> slt,
+    ALUOpType.getBranchType(ALUOpType.bltu) -> sltu
+  )
+  val taken = LookupTree(ALUOpType.getBranchType(func), branchOpTable) ^ ALUOpType.isBranchInvert(func)
+
+  io.result := aluRes
+  io.taken := taken
+  io.mispredict := (io.pred_taken ^ taken) && io.isBranch
+}
+
+class Alu extends FunctionUnit with HasRedirectOut {
+
+  val (src1, src2, func, pc, uop) = (
+    io.in.bits.src(0),
+    io.in.bits.src(1),
+    io.in.bits.uop.ctrl.fuOpType,
+    SignExt(io.in.bits.uop.cf.pc, AddrBits),
+    io.in.bits.uop
+  )
+
+  val valid = io.in.valid
+  val isBranch = ALUOpType.isBranch(func)
+  val dataModule = Module(new AluDataModule)
+
+  dataModule.io.src1 := src1
+  dataModule.io.src2 := src2
+  dataModule.io.func := func
+  dataModule.io.pred_taken := uop.cf.pred_taken
+  dataModule.io.isBranch := isBranch
+
+  redirectOutValid := io.out.valid && isBranch
+  redirectOut := DontCare
+  redirectOut.level := RedirectLevel.flushAfter
+  redirectOut.roqIdx := uop.roqIdx
+  redirectOut.ftqIdx := uop.cf.ftqPtr
+  redirectOut.ftqOffset := uop.cf.ftqOffset
+  redirectOut.cfiUpdate.isMisPred := dataModule.io.mispredict
+  redirectOut.cfiUpdate.taken := dataModule.io.taken
+  redirectOut.cfiUpdate.predTaken := uop.cf.pred_taken
+
+  io.in.ready := io.out.ready
+  io.out.valid := valid
+  io.out.bits.uop <> io.in.bits.uop
+  io.out.bits.data := dataModule.io.result
+}
