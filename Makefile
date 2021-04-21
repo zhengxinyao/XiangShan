@@ -111,43 +111,19 @@ $(REF_SO):
 SEED ?= $(shell shuf -i 1-10000 -n 1)
 
 VME_SOURCE ?= $(shell pwd)/build/$(TOP).v
-<<<<<<< HEAD
-VME_MODULES ?= 
-
-# log will only be printed when (B<=GTimer<=E) && (L < loglevel)
-# use 'emu -h' to see more details
 B ?= 0
 E ?= -1
 SNAPSHOT ?=
 R ?= coremark
 A ?= -1
 
-# enable this runtime option if you want to generate a vcd file
-# use 'emu -h' to see more details
-#WAVEFORM = --dump-wave
-
-ifeq ($(SNAPSHOT),)
-SNAPSHOT_OPTION = 
-else
-SNAPSHOT_OPTION = --load-snapshot=$(SNAPSHOT)
-endif
-
 ifndef NOOP_HOME
 $(error NOOP_HOME is not set)
 endif
 EMU_FLAGS = -s $(SEED) -b $(B) -e $(E) -r /home/glr/scalaTage/branch_record/$(R).csv -a $(A) $(SNAPSHOT_OPTION) $(WAVEFORM) $(EMU_ARGS)
 
-emu: $(EMU)
-	ls build
-	$(EMU) -i $(IMAGE) $(EMU_FLAGS)
 
-coverage:
-	verilator_coverage --annotate build/logs/annotated --annotate-min 1 build/logs/coverage.dat
-	python3 scripts/coverage/coverage.py build/logs/annotated/XSSimTop.v build/XSSimTop_annotated.v
-	python3 scripts/coverage/statistics.py build/XSSimTop_annotated.v >build/coverage.log
-=======
 VME_MODULES ?=
->>>>>>> master
 
 #-----------------------timing scripts-------------------------
 # run "make vme/tap help=1" to get help info
