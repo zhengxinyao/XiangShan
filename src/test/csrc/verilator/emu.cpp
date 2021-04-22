@@ -284,10 +284,12 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
     trapCode = difftest_state();
     if (trapCode != STATE_RUNNING) break;
 
+#if 0
     if (difftest_step()) {
       trapCode = STATE_ABORT;
       break;
     }
+#endif
     if (trapCode != STATE_RUNNING) break;
 
 #ifdef VM_SAVABLE
