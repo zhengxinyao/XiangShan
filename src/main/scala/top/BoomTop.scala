@@ -5,6 +5,7 @@ import chipsalliance.rocketchip.config._
 import chisel3._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import chisel3.util._
+import utils._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.interrupts._
 import freechips.rocketchip.rocket.PgLevels
@@ -80,7 +81,17 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
   bankedNode :*= l3cache.node :*= TLWidthWidget(8) :*= TLBuffer() :*= l3_xbar
 
   lazy val module = new BaseXSSocImp(this){
+    childClock := io.clock.asClock()
 
+    withClockAndReset(childClock, io.reset) {
+      val core_reset_gen = Module(new ResetGen(1, !debugOpts.FPGAPlatform))
+      core_reset_gen.suggestName(s"core_reset_gen")
+      core.module.reset := core_reset_gen.io.out
+
+      val resetGen = Module(new ResetGen(1, !debugOpts.FPGAPlatform))
+      resetGen.suggestName("top_reset_gen")
+      childReset := resetGen.io.out
+    }
   }
 }
 
