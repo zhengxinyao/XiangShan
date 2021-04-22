@@ -37,8 +37,11 @@ class BoomWrapper(implicit p: Parameters) extends LazyModule with BindingScope w
   val hart = BundleBridgeSource(() => 0.U)
   boom.hartIdNode := hart
 
-  val resetVec = BundleBridgeSource(() => 0x10000000L.U(soc.PAddrBits.W))
+  val resetVec = BundleBridgeSource[UInt]()
   boom.resetVectorNode := resetVec
+  InModuleBody {
+    resetVec.bundle := 0x80000000L.U(soc.PAddrBits.W)
+  }
 
   val nmi = BundleBridgeSource(() => new NMI(soc.PAddrBits))
   boom.nmiNode := nmi
