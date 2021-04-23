@@ -24,17 +24,6 @@ class BoomWrapper(implicit p: Parameters) extends LazyModule with BindingScope w
     boomTileParams.crossingParams,
     boomTileParams.lookup
   ))
-  class FakeIntrSource(implicit p: Parameters) extends LazyModule {
-    val intSrcNode = IntSourceNode(Seq(IntSourcePortParameters(Seq(IntSourceParameters(
-      IntRange(10)
-    )))))
-    lazy val module = new LazyModuleImp(this) {
-      intSrcNode.out.head._1 := 0.U.asTypeOf(intSrcNode.out.head._1)
-    }
-  }
-
-  val intr = LazyModule(new FakeIntrSource())
-  boom.intInwardNode := intr.intSrcNode
 
   val hart = BundleBridgeSource(() => 0.U)
   boom.hartIdNode := hart
@@ -80,6 +69,18 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
   plic.node := AXI4IdentityNode() := AXI4UserYanker() := TLToAXI4() :=
     TLFragmenter(8, 64, holdFirstDeny = true) := boomMasterXbar
 
+  val intSrcNode = IntSourceNode(Seq(IntSourcePortParameters(Seq(IntSourceParameters(
+      IntRange(5)
+    )))))
+  core.boom.intInwardNode := intSrcNode
+  InModuleBody {
+    intSrcNode.out.head._1(0) := false.B // debug interrupt
+    intSrcNode.out.head._1(1) := clint.module.io.msip(0)
+    intSrcNode.out.head._1(2) := clint.module.io.mtip(0)
+    intSrcNode.out.head._1(3) := plic.module.io.extra.get.meip(0)
+    intSrcNode.out.head._1(4) := plic.module.io.extra.get.meip(0)
+  }
+
   val l3cache = LazyModule(new InclusiveCache(
     CacheParameters(
       level = 3,
@@ -104,7 +105,7 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
     childClock := io.clock.asClock()
 
     withClockAndReset(childClock, io.reset) {
-      plic.module.io.extra.get.intrVec <> io.extIntrs // TODO: Is this right?
+      plic.module.io.extra.get.intrVec <> io.extIntrs
 
       val core_reset_gen = Module(new ResetGen(1, !debugOpts.FPGAPlatform))
       core_reset_gen.suggestName(s"core_reset_gen")

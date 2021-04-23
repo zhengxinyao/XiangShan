@@ -3,6 +3,7 @@ package top
 import chipsalliance.rocketchip.config.{Config, Field, Parameters}
 import chisel3.stage.ChiselGeneratorAnnotation
 import chisel3._
+import chisel3.dontTouch
 import device.{AXI4RAMWrapper, UARTIO}
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp}
 import system.SoCParamsKey
@@ -36,6 +37,7 @@ class SimTop(implicit p: Parameters) extends Module {
   soc.io.clock := clock.asBool()
   soc.io.reset := reset.asBool()
   soc.io.extIntrs := 0.U
+  dontTouch(soc.io.extIntrs)
 
   val io = IO(new Bundle(){
     val logCtrl = new LogCtrlIO
