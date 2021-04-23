@@ -81,25 +81,31 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
     intSrcNode.out.head._1(4) := plic.module.io.extra.get.meip(0)
   }
 
-  val l3cache = LazyModule(new InclusiveCache(
-    CacheParameters(
-      level = 3,
-      ways = L3NWays,
-      sets = L3NSets,
-      blockBytes = L3BlockSize,
-      beatBytes = L3InnerBusWidth / 8,
-      cacheName = "L3",
-      uncachedGet = false,
-      enablePerf = false
-    ),
-    InclusiveCacheMicroParameters(
-      memCycles = 25,
-      writeBytes = 32
-    ),
-    fpga = debugOpts.FPGAPlatform
-  ))
+  val hasL3 = false
 
-  bankedNode :*= l3cache.node :*= TLWidthWidget(8) :*= TLBuffer() :*= l3_xbar
+  if (hasL3) {
+    val l3cache = LazyModule(new InclusiveCache(
+      CacheParameters(
+        level = 3,
+        ways = L3NWays,
+        sets = L3NSets,
+        blockBytes = L3BlockSize,
+        beatBytes = L3InnerBusWidth / 8,
+        cacheName = "L3",
+        uncachedGet = false,
+        enablePerf = false
+      ),
+      InclusiveCacheMicroParameters(
+        memCycles = 25,
+        writeBytes = 32
+      ),
+      fpga = debugOpts.FPGAPlatform
+    ))
+    mem_xbar :=* TLBuffer() :=* TLCacheCork() :=* BankBinder(L3NBanks, L3BlockSize) :*=
+      l3cache.node :*= TLWidthWidget(8) :*= TLBuffer() :*= l3_xbar
+  } else {
+    mem_xbar :*= TLBroadcast(64) :*= TLWidthWidget(8) :*= l3_xbar
+  }
 
   lazy val module = new BaseXSSocImp(this){
     childClock := io.clock.asClock()

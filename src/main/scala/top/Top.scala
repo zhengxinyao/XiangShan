@@ -98,7 +98,6 @@ class XSCoreWithL2()(implicit p: Parameters) extends LazyModule
 }
 
 abstract class BaseXSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
-  val bankedNode = BankBinder(L3NBanks, L3BlockSize)
   val peripheralXbar = TLXbar()
   val l3_xbar = TLXbar()
   def module: BaseXSSocImp
@@ -177,7 +176,6 @@ trait HaveAXI4MemPort {
   ))
 
   val mem_xbar = TLXbar()
-  mem_xbar :=* TLBuffer() :=* TLCacheCork() :=* bankedNode
   memAXI4SlaveNode :=
     AXI4UserYanker() :=
     AXI4Deinterleaver(L3BlockSize) :=
@@ -287,10 +285,12 @@ class XSTopWithoutDMA()(implicit p: Parameters) extends BaseXSSoc()
   val l3Ignore = if (useFakeL3Cache) TLIgnoreNode() else null
 
   if (useFakeL3Cache) {
-    bankedNode :*= l3Ignore :*= l3_xbar
+    mem_xbar :=* TLBuffer() :=* TLCacheCork() :=* BankBinder(L3NBanks, L3BlockSize) :*=
+      l3Ignore :*= l3_xbar
   }
   else {
-    bankedNode :*= l3cache.node :*= TLBuffer() :*= l3_xbar
+    mem_xbar :=* TLBuffer() :=* TLCacheCork() :=* BankBinder(L3NBanks, L3BlockSize) :*=
+      l3cache.node :*= TLBuffer() :*= l3_xbar
   }
 
   lazy val module = new BaseXSSocImp(this){
