@@ -5,6 +5,8 @@ import chipsalliance.rocketchip.config._
 import chisel3._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 import chisel3.util._
+import device.{AXI4Plic, TLTimer}
+import freechips.rocketchip.amba.axi4._
 import utils._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.interrupts._
@@ -61,7 +63,22 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
 
   boomMasterXbar := core.boom.masterNode
   l3_xbar := boomMasterXbar
+
   peripheralXbar := TLFragmenter(8, 64, holdFirstDeny = true) := boomMasterXbar
+
+  val clint = LazyModule(new TLTimer(
+    Seq(AddressSet(0x38000000L, 0x0000ffffL)),
+    sim = !debugOpts.FPGAPlatform, NumCores
+  ))
+  clint.node := TLFragmenter(8, 64, holdFirstDeny = true) := boomMasterXbar
+
+  val plic = LazyModule(new AXI4Plic(
+    Seq(AddressSet(0x3c000000L, 0x03ffffffL)),
+    NumCores, NrExtIntr,
+    !debugOpts.FPGAPlatform,
+  ))
+  plic.node := AXI4IdentityNode() := AXI4UserYanker() := TLToAXI4() :=
+    TLFragmenter(8, 64, holdFirstDeny = true) := boomMasterXbar
 
   val l3cache = LazyModule(new InclusiveCache(
     CacheParameters(
@@ -87,6 +104,8 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
     childClock := io.clock.asClock()
 
     withClockAndReset(childClock, io.reset) {
+      plic.module.io.extra.get.intrVec <> io.extIntrs // TODO: Is this right?
+
       val core_reset_gen = Module(new ResetGen(1, !debugOpts.FPGAPlatform))
       core_reset_gen.suggestName(s"core_reset_gen")
       core.module.reset := core_reset_gen.io.out

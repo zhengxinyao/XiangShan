@@ -11,7 +11,7 @@ import utils.{HasTLDump, XSDebug}
 class TLTimer(address: Seq[AddressSet], sim: Boolean, numCores: Int)(implicit p: Parameters) extends LazyModule {
 
   val device = new SimpleDevice("clint", Seq("XiangShan", "clint"))
-  val node = TLRegisterNode(address, device, beatBytes = 8)
+  val node = TLRegisterNode(address, device, beatBytes = 8, concurrency = numCores)
 
   lazy val module = new LazyModuleImp(this) with HasTLDump {
     val io = IO(new Bundle() {
