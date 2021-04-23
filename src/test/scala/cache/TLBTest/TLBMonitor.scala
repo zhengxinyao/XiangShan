@@ -37,13 +37,21 @@ trait pageParam extends LitTlbCmd with LitRVMode {
     }
   }
 
-  def passPermCheck(req: LitTlbReq, perms: LitPtePermBundle, csr: LitTlbCsrBundle): Boolean = {
-    //TODO: AD is set by software and TLB will omit check of AD bit ,add AD check in future work
-    val mode = if (isTlbExec(req.cmd)) csr.privImode else csr.privDmode
+  def passTlbPermCheck(req: LitTlbReq, perms: LitPtePermBundle, csr: LitTlbCsrBundle, mode: BigInt): Boolean = {
+    assert(perms.r || perms.w || perms.x, "call perm check of a non-leaf pte perm bundle")
+    val cmd = req.cmd
+    //TODO: AD is set by software and TLB will omit check of AD bit. Need add AD check in future work
+    val umodeCheck = if (mode == umode) {
+      perms.u
+    } else {
+      csr.privSum && !isTlbExec(cmd)
+    }
 
+    val execCheck = (!isTlbExec(cmd)) || perms.x
+    val loadCheck = (!isTlbRead(cmd)) || perms.r || (csr.privMxr && perms.x)
+    val storeCheck = (!isTlbWrite(cmd)) || perms.w
 
-
-    true
+    umodeCheck && execCheck && loadCheck && storeCheck
   }
 }
 
@@ -78,7 +86,9 @@ trait sv39Param extends pageParam {
   }
 }
 
-class PTEData extends sv39Param {
+trait usesvParam extends sv39Param
+
+class PTEData extends usesvParam {
   var pteAddr: BigInt = 0
   var level: BigInt = 0
   var ppn: BigInt = 0
@@ -96,7 +106,6 @@ class PTEData extends sv39Param {
   }
 }
 
-trait usesvParam extends sv39Param
 
 trait PageLevelWalker extends usesvParam {
   def findVPLevel(vaddr: BigInt, ptsb: mutable.Map[BigInt, PTEData], level: Int = 2): Option[Int] = {
@@ -148,26 +157,27 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
   }
 
   def handleTlbResp(resp: LitTlbResp, idx: Int, csr: LitTlbCsrBundle): Unit = {
+    val req = tlbReq(idx).get
+    val vaddr = req.addr
+    val cmd = req.cmd
+    val effectMode = if (isTlbExec(cmd)) csr.privImode else csr.privDmode
     if (resp.miss) {
       tlbReq(idx) = None
     }
-    else if (csr.satpMode == 0) {
+    else if (csr.satpMode == 0 || effectMode == mmode) { //no translation
       val req = tlbReq(idx).get
       val vaddr = req.addr
       //TODO:add access fault check(PMA PMP)
       assert(vaddr == resp.paddr, "addr change when satp in bare mode!\n")
     }
-    else{
-      val req = tlbReq(idx).get
-      val vaddr = req.addr
-      val cmd = req.cmd
+    else {
       val lvOption = findVPLevel(vaddr, tlbScoreBoard)
       if (lvOption.isDefined) {
         val lv = lvOption.get
         val paddr = resp.paddr
         val vpn = getPageTag(vaddr, lv)
         val pte = tlbScoreBoard(vpn)
-        if (passPermCheck(req, pte.perm, csr)) {
+        if (passTlbPermCheck(req, pte.perm, csr, effectMode)) {
           assert(!resp.pf.isFault(), f"addr:${req.addr}%x should not fault!\n")
           //TODO:add access fault check(PMA PMP)
           assert(getPageOffset(vaddr, lv) == getPageOffset(paddr, lv),
