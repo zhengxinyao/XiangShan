@@ -302,7 +302,8 @@ class BPUStage3(implicit p: Parameters) extends BPUStage {
 
   val brPred = (if(EnableBPD) tageTakens else bimTakens).asUInt
   val loopRes = (if (EnableLoop) loopResp else VecInit(Fill(PredictWidth, 0.U(1.W)))).asUInt
-  val brTakens = ((brs & brPred) & ~loopRes)
+  val brTakens = WireInit(0.U.asTypeOf(UInt(16.W)))
+  brTakens := ((brs & brPred) & ~loopRes)
   // we should provide btb resp as well
   btbHits := btbResp.hits.asUInt
 
@@ -404,11 +405,12 @@ class BPUStage3(implicit p: Parameters) extends BPUStage {
   }
 }
 
-class OracleBPUStage extends BPUStage3 {
+class OracleBPUStage(implicit p: Parameters) extends BPUStage3 {
   val bphelper = Module(new BranchPredictionHelper()).io
   val brIdx = RegInit(0.U(64.W))
   bphelper.rIdx := brIdx
   // branches before jmpIdx
+  val jmpIdx = PriorityEncoder(takens)
   val validBrs = VecInit((0 until PredictWidth).map(i => brs(i) && i.U <= jmpIdx))
   val brCount = PopCount(validBrs)
   
@@ -420,11 +422,11 @@ class OracleBPUStage extends BPUStage3 {
   val branchRecordUsed = WireInit(false.B)
   for (i <- 0 until PredictWidth) {
     val brNumInPacket = if (i == 0) 0.U else { PopCount(brs(i-1,0)) }
-    io.out.bits.brInfo(i).brIdx := brIdx + brNumInPacket // save brInfo in each inst
+    //io.out.bits.brInfo(i).brIdx := brIdx + brNumInPacket // save brInfo in each inst
     when (brs(i)) {
       val brPC = pcs(brNumInPacket)
       val currentPC = inLatch.pc + (i.U << 1.U)
-      when (outFire) {
+      when (io.outFire) {
         when (currentPC === brPC) {
           // XSDebug("branch record pc 0x%x correspond with current pc\n", brPC)
           brTakensTemp(i) := ts(brNumInPacket)
@@ -437,13 +439,14 @@ class OracleBPUStage extends BPUStage3 {
 
   brTakens := brTakensTemp.asUInt
 
-  when (outFire && branchRecordUsed) { brIdx := brIdx + brCount }
+  when (io.outFire && branchRecordUsed) { brIdx := brIdx + brCount }
 
-  val ui = io.recover.bits
-  when (io.recover.valid) {
-    when (ui.isMisPred) {
+  val recoverMeta = s3IO.redirect.bits
+  val cifUpdate = recoverMeta.cfiUpdate
+  when (s3IO.redirect.valid) {
+    when (recoverMeta.level === 0.U) {
       // XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", ui.pc, ui.brInfo.brIdx)
-      brIdx := ui.brInfo.brIdx + Mux(ui.pd.isBr, 1.U, 0.U)
+      brIdx := cifUpdate.brIdx + Mux(cifUpdate.pd.isBr, 1.U, 0.U)
     }
   }
 
@@ -511,6 +514,8 @@ abstract class BaseBPU(implicit p: Parameters) extends XSModule with BranchPredi
   })
   
   io.in_ready := preds.map(p => p.in_ready).reduce(_&&_)
+
+  val UseOracleBP = true
 
   val s1 = Module(new BPUStage1)
   val s2 = Module(new BPUStage2)

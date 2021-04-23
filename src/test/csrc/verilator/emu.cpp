@@ -24,6 +24,7 @@ static inline void print_help(const char *file) {
   printf("      --load-snapshot=PATH   load snapshot from PATH\n");
   printf("      --no-snapshot          disable saving snapshots\n");
   printf("      --dump-wave            dump waveform when log is enabled\n");
+  printf("  -r, --branch-record=PATH   load branch record from PATH\n");
   printf("  -h, --help                 print program help info\n");
   printf("\n");
 }
@@ -43,13 +44,15 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
     { "image",          1, NULL, 'i' },
     { "log-begin",      1, NULL, 'b' },
     { "log-end",        1, NULL, 'e' },
+    { "branch_record",  1, NULL, 'r' },
+    { "branch_miss_rate",  1, NULL, 'a' },
     { "help",           0, NULL, 'h' },
     { 0,                0, NULL,  0  }
   };
 
   int o;
   while ( (o = getopt_long(argc, const_cast<char *const*>(argv),
-          "-s:C:I:W:hi:m:b:e:", long_options, &long_index)) != -1) {
+          "-s:C:I:W:hi:m:b:e:r:a:", long_options, &long_index)) != -1) {
     switch (o) {
       case 0:
         switch (long_index) {
@@ -74,6 +77,8 @@ inline EmuArgs parse_args(int argc, const char *argv[]) {
       case 'i': args.image = optarg; break;
       case 'b': args.log_begin = atoll(optarg);  break;
       case 'e': args.log_end = atoll(optarg); break;
+      case 'r': args.branch_record = optarg; break;
+      case 'a': args.branch_miss_rate = atoll(optarg); break;
     }
   }
 
@@ -96,6 +101,10 @@ Emulator::Emulator(int argc, const char *argv[]):
 
   // init core
   reset_ncycles(10);
+
+  // init branch record (for oracle bp)
+  extern void init_branch_record(const char *br, const uint64_t rate);
+  init_branch_record(args.branch_record, args.branch_miss_rate);
 
   // init ram
   init_ram(args.image);
@@ -263,7 +272,7 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
     single_cycle();
 
     max_cycle --;
-    dut_ptr->io_perfInfo_clean = 0;
+    dut_ptr->io_peEmuArgsrfInfo_clean = 0;
     dut_ptr->io_perfInfo_dump = 0;
 
     // Naive instr cnt, dual core is not supported

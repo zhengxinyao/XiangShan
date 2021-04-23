@@ -119,6 +119,9 @@ class BpuMeta(implicit p: Parameters) extends XSBundle with HasBPUParameter {
   val tageMeta = new TageMeta
   // for global history
 
+  //for oracle bp
+  val brIdx = UInt(64.W)
+
   val debug_ubtb_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
   val debug_btb_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
   val debug_tage_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
@@ -168,6 +171,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val target = UInt(VAddrBits.W)
   val taken = Bool()
   val isMisPred = Bool()
+  val brIdx = UInt(64.W)
 }
 
 // Dequeue DecodeWidth insts from Ibuffer
