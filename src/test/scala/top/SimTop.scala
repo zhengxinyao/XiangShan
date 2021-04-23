@@ -76,7 +76,7 @@ object SimTop extends App {
   override def main(args: Array[String]): Unit = {
     val (config, firrtlOpts) = ArgParser.parse(args, fpga = false)
     val boomSimConfig = new Config(
-      new BoomTopConfig ++ config
+      config ++ new BoomTopConfig
     ).alterPartial({
       case DutNameKey => "boom"
     })
