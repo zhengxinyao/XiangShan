@@ -272,7 +272,7 @@ uint64_t Emulator::execute(uint64_t max_cycle, uint64_t max_instr) {
     single_cycle();
 
     max_cycle --;
-    dut_ptr->io_peEmuArgsrfInfo_clean = 0;
+    dut_ptr->io_perfInfo_clean = 0;
     dut_ptr->io_perfInfo_dump = 0;
 
     // Naive instr cnt, dual core is not supported

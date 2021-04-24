@@ -445,18 +445,24 @@ class OracleBPUStage(implicit p: Parameters) extends BPUStage3 {
   val cifUpdate = recoverMeta.cfiUpdate
   when (s3IO.redirect.valid) {
     when (recoverMeta.level === 0.U) {
-      // XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", ui.pc, ui.brInfo.brIdx)
+      XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", ui.pc, cifUpdate.brIdx)
       brIdx := cifUpdate.brIdx + Mux(cifUpdate.pd.isBr, 1.U, 0.U)
     }
   }
-
-  if (BPUDebug) {
-    XSDebug("brIdx: %d\n", brIdx)
-    XSDebug("brs: %b, takens: %b\n", brs, brTakens)
-    for (i <- 0 until PredictWidth) {
-      XSDebug("brecord[%d]: pc 0x%x, taken %d\n", i.U, bphelper.pc((i+1)*64-1, i*64), bphelper.taken(i))
-    }
+  XSDebug("brIdx: %d brTakensTemp:%b branchRecordUsed:%d io.outFire:%d\n", brIdx,brTakensTemp,branchRecordUsed,io.outFire)
+  XSDebug("brs: %b, takens: %b\n", brs, brTakens)
+  for (i <- 0 until PredictWidth) {
+    XSDebug("brecord[%d]: pc 0x%x, taken %d\n", i.U, bphelper.pc((i+1)*64-1, i*64), bphelper.taken(i))
   }
+
+
+  // if (BPUDebug) {
+  //   XSDebug("brIdx: %d\n", brIdx)
+  //   XSDebug("brs: %b, takens: %b\n", brs, brTakens)
+  //   for (i <- 0 until PredictWidth) {
+  //     XSDebug("brecord[%d]: pc 0x%x, taken %d\n", i.U, bphelper.pc((i+1)*64-1, i*64), bphelper.taken(i))
+  //   }
+  // }
 }
 
 trait BranchPredictorComponents extends HasXSParameter {

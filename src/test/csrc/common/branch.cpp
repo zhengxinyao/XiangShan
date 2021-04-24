@@ -10,6 +10,7 @@
 #define MAX_BR_NUM 10000000
 
 using namespace std;
+int reset =1;
 
 typedef struct branch_record {
   uint64_t pc;
@@ -71,21 +72,22 @@ void init_branch_record(const char *branch, const uint64_t rate) {
     idx++;
 	}
 
-  int miss_rate = rate;
-  // default set to zero
-  if (miss_rate < 0) miss_rate = 0;
-  int num_reverted = 0;
-  if (miss_rate > 0) {
-    srand( (unsigned)time( NULL ) );
-    for (int i = 0; i < idx; i++) {
-      // revert as a rate of miss_rate
-      if (rand() % 100 < miss_rate) {
-        record[i].taken = ~record[i].taken;
-        num_reverted++;
-      }
-    }
-  }
-  printf("Branch miss rate is set to %d%%, totally %d predictions are reverted\n", miss_rate, num_reverted);
+  // int miss_rate = rate;
+  // // default set to zero
+  // if (miss_rate < 0) miss_rate = 0;
+  // int num_reverted = 0;
+  // if (miss_rate > 0) {
+  //   srand( (unsigned)time( NULL ) );
+  //   for (int i = 0; i < idx; i++) {
+  //     // revert as a rate of miss_rate
+  //     if (rand() % 100 < miss_rate) {
+  //       record[i].taken = ~record[i].taken;
+  //       num_reverted++;
+  //     }
+  //   }
+  // }
+  // printf("Branch miss rate is set to %d%%, totally %d predictions are reverted\n", miss_rate, num_reverted);
+  reset = 0;
 }
 
 // int main() {
@@ -111,10 +113,13 @@ extern "C" void branch_prediction_helper(
     uint8_t *taken5,  uint8_t *taken6,  uint8_t *taken7,  uint8_t *taken8,
     uint8_t *taken9,  uint8_t *taken10, uint8_t *taken11, uint8_t *taken12,
     uint8_t *taken13, uint8_t *taken14, uint8_t *taken15, uint8_t *taken16) {
+  if(reset) return;
+
   if (rIdx >= MAX_BR_NUM) {
     printf("ERROR: branch record idx = %ld out of bound!\n", rIdx);
     return;
   }
+  printf("-- rIdx :%ld pc: %lx taken:%d\n",rIdx,record[rIdx].pc,record[rIdx].taken);
   *taken1 = record[rIdx].taken;
   *taken2 = record[rIdx+1].taken;
   *taken3 = record[rIdx+2].taken;

@@ -24,6 +24,7 @@ int main(int argc, const char** argv) {
     printf("\ncan't catch SIGINT\n");
   }
 
+  printf("creat a emu\n");
   auto emu = new Emulator(argc, argv);
   difftest_init();
 
