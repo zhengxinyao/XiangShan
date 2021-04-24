@@ -1,6 +1,6 @@
 package top
 
-import boom.common.{BoomTile, BoomTileParams, WithNSmallBooms}
+import boom.common._
 import chipsalliance.rocketchip.config._
 import chisel3._
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
@@ -21,6 +21,8 @@ class BoomWrapper(implicit p: Parameters) extends LazyModule with BindingScope w
   val boomTileParams = p(TilesLocated(InSubsystem)).head
   val boom = LazyModule(new BoomTile(
     boomTileParams.tileParams.asInstanceOf[BoomTileParams],
+  //val boom = LazyModule(new RocketTile(
+  //  boomTileParams.tileParams.asInstanceOf[RocketTileParams],
     boomTileParams.crossingParams,
     boomTileParams.lookup
   ))
@@ -46,6 +48,7 @@ class BoomWrapper(implicit p: Parameters) extends LazyModule with BindingScope w
 
 class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort with HaveAXI4PeripheralPort {
   val core = LazyModule(new BoomWrapper())
+  val cacheBeatBytes = p(SystemBusKey).beatBytes
 
   // boom send all requests in one node
   val boomMasterXbar = TLXbar()
@@ -53,13 +56,14 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
   boomMasterXbar := core.boom.masterNode
   l3_xbar := boomMasterXbar
 
-  peripheralXbar := TLFragmenter(8, 64, holdFirstDeny = true) := boomMasterXbar
+  peripheralXbar := TLFragmenter(8, 64, holdFirstDeny = true) := TLWidthWidget(cacheBeatBytes) := boomMasterXbar
+
 
   val clint = LazyModule(new TLTimer(
     Seq(AddressSet(0x38000000L, 0x0000ffffL)),
     sim = !debugOpts.FPGAPlatform, NumCores
   ))
-  clint.node := TLFragmenter(8, 64, holdFirstDeny = true) := boomMasterXbar
+  clint.node := TLFragmenter(8, 64, holdFirstDeny = true) := TLWidthWidget(cacheBeatBytes) := boomMasterXbar
 
   val plic = LazyModule(new AXI4Plic(
     Seq(AddressSet(0x3c000000L, 0x03ffffffL)),
@@ -67,7 +71,7 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
     !debugOpts.FPGAPlatform,
   ))
   plic.node := AXI4IdentityNode() := AXI4UserYanker() := TLToAXI4() :=
-    TLFragmenter(8, 64, holdFirstDeny = true) := boomMasterXbar
+    TLFragmenter(8, 64, holdFirstDeny = true) := TLWidthWidget(cacheBeatBytes) := boomMasterXbar
 
   val intSrcNode = IntSourceNode(Seq(IntSourcePortParameters(Seq(IntSourceParameters(
       IntRange(5)
@@ -102,9 +106,9 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
       fpga = debugOpts.FPGAPlatform
     ))
     mem_xbar :=* TLBuffer() :=* TLCacheCork() :=* BankBinder(L3NBanks, L3BlockSize) :*=
-      l3cache.node :*= TLWidthWidget(8) :*= TLBuffer() :*= l3_xbar
+      l3cache.node :*= TLWidthWidget(cacheBeatBytes) :*= TLBuffer() :*= l3_xbar
   } else {
-    mem_xbar :*= TLBroadcast(64) :*= TLWidthWidget(8) :*= l3_xbar
+    mem_xbar :*= TLBroadcast(64) :*= TLWidthWidget(cacheBeatBytes) :*= l3_xbar
   }
 
   lazy val module = new BaseXSSocImp(this){
@@ -131,7 +135,10 @@ class BoomSoCConfig extends Config((site, here, up) => {
 class BoomTopConfig extends Config(
     new BoomSoCConfig ++
     new DefaultConfig(1) ++
+    //new WithNBigCores(1) ++
     new WithNSmallBooms() ++
+    //new WithNLargeBooms() ++
+    //new WithNMegaBooms() ++
     new BaseSubsystemConfig
 )
 
