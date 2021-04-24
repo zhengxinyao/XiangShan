@@ -124,11 +124,12 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
   }
 }
 
+class BoomSoCConfig extends Config((site, here, up) => {
+  case SoCParamsKey => up(SoCParamsKey).copy(extIntrs = 1)
+})
+
 class BoomTopConfig extends Config(
-  new Config((site, here, up) => {
-    case SoCParamsKey =>  // BaseTile require VaddrBits > PaddrBits
-      up(SoCParamsKey).copy(PAddrBits = 38)
-  }) ++
+    new BoomSoCConfig ++
     new DefaultConfig(1) ++
     new WithNSmallBooms() ++
     new BaseSubsystemConfig
