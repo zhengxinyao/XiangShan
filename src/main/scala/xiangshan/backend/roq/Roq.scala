@@ -825,6 +825,11 @@ class Roq(numWbPorts: Int) extends XSModule with HasCircularQueuePtrHelper {
   XSPerfAccumulate("waitStoreCycleAcc", deqNotWritebacked && deqUopCommitType === CommitType.STORE)
   XSPerfAccumulate("roqHeadPC", io.commits.info(0).pc)
 
+  // TODO: calculate penalty for bad speculation
+ 
+  XSPerfAccumulate("TMA_speculation_bpWrong", io.redirect.valid && io.redirect.bits.level === 0.U)
+  XSPerfAccumulate("TMA_speculation_loadReplay", io.redirect.valid && io.redirect.bits.level === 1.U)
+
   val instrCnt = RegInit(0.U(64.W))
   val retireCounter = Mux(state === s_idle, commitCnt, 0.U)
   instrCnt := instrCnt + retireCounter

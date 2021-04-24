@@ -301,6 +301,8 @@ class Ftq extends XSModule with HasCircularQueuePtrHelper {
   XSPerfAccumulate("stall", io.enq.valid && !io.enq.ready)
   XSPerfAccumulate("mispredictRedirect", io.redirect.valid && RedirectLevel.flushAfter === io.redirect.bits.level)
   XSPerfAccumulate("replayRedirect", io.redirect.valid && RedirectLevel.flushItself(io.redirect.bits.level))
+  XSPerfAccumulate("TMA_speculation_bpWrong", io.redirect.valid && RedirectLevel.flushAfter === io.redirect.bits.level)
+  XSPerfAccumulate("TMA_speculation_loadReplay", io.redirect.valid && RedirectLevel.flushItself(io.redirect.bits.level))
 
   val predRights = (0 until PredictWidth).map{i => !commitEntry.mispred(i) && !commitEntry.pd(i).notCFI && commitEntry.valids(i)}
   val predWrongs = (0 until PredictWidth).map{i => commitEntry.mispred(i) && !commitEntry.pd(i).notCFI && commitEntry.valids(i)}
