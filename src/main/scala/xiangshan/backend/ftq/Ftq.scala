@@ -77,6 +77,7 @@ class Ftq_2R_SRAMEntry(implicit p: Parameters) extends XSBundle {
   val rasEntry = new RASEntry
   val predHist = new GlobalHistory
   val specCnt = Vec(PredictWidth, UInt(10.W))
+  val brIdx = Vec(PredictWidth, UInt(64.W))
 }
 
 class Ftq_1R_Commit_SRAMEntry(implicit p: Parameters) extends XSBundle {
@@ -145,6 +146,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   ftq_2r_sram.io.wdata.rasEntry := io.enq.bits.rasTop
   ftq_2r_sram.io.wdata.predHist := io.enq.bits.predHist
   ftq_2r_sram.io.wdata.specCnt := io.enq.bits.specCnt
+  ftq_2r_sram.io.wdata.brIdx := io.enq.bits.brIdx
   val pred_target_sram = Module(new FtqNRSRAM(UInt(VAddrBits.W), 1))
   pred_target_sram.io.wen := real_fire
   pred_target_sram.io.waddr := tailPtr.value
@@ -247,6 +249,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   commitEntry.rasTop := RegNext(ftq_2r_sram.io.rdata(0).rasEntry)
   commitEntry.predHist := RegNext(ftq_2r_sram.io.rdata(0).predHist)
   commitEntry.specCnt := RegNext(ftq_2r_sram.io.rdata(0).specCnt)
+  commitEntry.brIdx := RegNext(ftq_2r_sram.io.rdata(0).brIdx)
   // from 1r sram
   commitEntry.metas := RegNext(ftq_1r_sram.io.rdata(0).metas)
   commitEntry.rvc_mask := RegNext(ftq_1r_sram.io.rdata(0).rvc_mask)
@@ -285,6 +288,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   io.cfiRead.entry.rasSp := ftq_2r_sram.io.rdata(1).rasSp
   io.cfiRead.entry.predHist := ftq_2r_sram.io.rdata(1).predHist
   io.cfiRead.entry.specCnt := ftq_2r_sram.io.rdata(1).specCnt
+  io.cfiRead.entry.brIdx := ftq_2r_sram.io.rdata(1).brIdx
   // redirect, reset ptr
   when(io.flush || io.redirect.valid){
     val idx = Mux(io.flush, io.flushIdx, io.redirect.bits.ftqIdx)

@@ -171,6 +171,7 @@ class RedirectGenerator(implicit p: Parameters) extends XSModule
   stage3CfiUpdate.rasEntry := s2_ftqRead.rasTop
   stage3CfiUpdate.predHist := s2_ftqRead.predHist
   stage3CfiUpdate.specCnt := s2_ftqRead.specCnt
+  stage3CfiUpdate.brIdx := s2_ftqRead.brIdx(s2_cfiUpdata_pc(4,3))
   stage3CfiUpdate.hist := s2_hist
   stage3CfiUpdate.predTaken := s2_redirect_bits_reg.cfiUpdate.predTaken
   stage3CfiUpdate.sawNotTakenBranch := s2_sawNotTakenBranch

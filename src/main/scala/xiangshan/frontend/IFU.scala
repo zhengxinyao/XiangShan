@@ -414,6 +414,7 @@ class IFU(implicit p: Parameters) extends XSModule with HasIFUConst with HasCirc
   toFtqBuf.rasSp    := bpu.io.brInfo.rasSp
   toFtqBuf.rasTop   := bpu.io.brInfo.rasTop
   toFtqBuf.specCnt  := bpu.io.brInfo.specCnt
+  toFtqBuf.brIdx    := bpu.io.brInfo.brIdx
   toFtqBuf.metas    := bpu.io.brInfo.metas
 
   // For perf counters

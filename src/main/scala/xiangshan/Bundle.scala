@@ -119,9 +119,6 @@ class BpuMeta(implicit p: Parameters) extends XSBundle with HasBPUParameter {
   val tageMeta = new TageMeta
   // for global history
 
-  //for oracle bp
-  val brIdx = UInt(64.W)
-
   val debug_ubtb_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
   val debug_btb_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
   val debug_tage_cycle = if (EnableBPUTimeRecord) UInt(64.W) else UInt(0.W)
@@ -199,6 +196,7 @@ class FtqEntry(implicit p: Parameters) extends XSBundle {
   val rasSp = UInt(log2Ceil(RasSize).W)
   val rasTop = new RASEntry()
   val specCnt = Vec(PredictWidth, UInt(10.W))
+  val brIdx = Vec(PredictWidth, UInt(64.W))
   val metas = Vec(PredictWidth, new BpuMeta)
 
   val cfiIsCall, cfiIsRet, cfiIsJalr, cfiIsRVC = Bool()

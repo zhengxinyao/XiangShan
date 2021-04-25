@@ -141,6 +141,7 @@ class BrInfo(implicit p: Parameters) extends XSBundle {
   val rasSp = UInt(log2Ceil(RasSize).W)
   val rasTop = new RASEntry
   val specCnt = Vec(PredictWidth, UInt(10.W))
+  val brIdx   = Vec(PredictWidth, UInt(64.W))
 }
 class BPUStageIO(implicit p: Parameters) extends XSBundle {
   val pc = UInt(VAddrBits.W)
@@ -410,7 +411,7 @@ class OracleBPUStage(implicit p: Parameters) extends BPUStage3 {
   val brIdx = RegInit(0.U(64.W))
   bphelper.rIdx := brIdx
   // branches before jmpIdx
-  val jmpIdx = PriorityEncoder(takens)
+  val jmpIdx = Mux(!takens.asUInt.orR,16.U, PriorityEncoder(takens))
   val validBrs = VecInit((0 until PredictWidth).map(i => brs(i) && i.U <= jmpIdx))
   val brCount = PopCount(validBrs)
   
@@ -423,17 +424,19 @@ class OracleBPUStage(implicit p: Parameters) extends BPUStage3 {
   for (i <- 0 until PredictWidth) {
     val brNumInPacket = if (i == 0) 0.U else { PopCount(brs(i-1,0)) }
     //io.out.bits.brInfo(i).brIdx := brIdx + brNumInPacket // save brInfo in each inst
+    io.out.brInfo.brIdx(i) := brIdx + brNumInPacket
     when (brs(i)) {
       val brPC = pcs(brNumInPacket)
-      val currentPC = inLatch.pc + (i.U << 1.U)
+      val br_is_last_half = s3IO.predecode.hasLastHalfRVI
+      val currentPC = Mux(br_is_last_half,packetAligned(inLatch.pc) - 2.U ,packetAligned(inLatch.pc) + (i.U << 1.U))
       when (io.outFire) {
         when (currentPC === brPC) {
-          // XSDebug("branch record pc 0x%x correspond with current pc\n", brPC)
+           XSDebug("branch record pc 0x%x correspond with current pc\n", brPC)
           brTakensTemp(i) := ts(brNumInPacket)
           branchRecordUsed := true.B
         }
       }
-      // XSDebug("pc: 0x%x is %dth inst, %dth br in packet\n", currentPC, i.U, brNumInPacket)
+      XSDebug("pc: 0x%x is %dth inst, %dth br in packet\n", currentPC, i.U, brNumInPacket)
     }
   }
 
@@ -445,12 +448,12 @@ class OracleBPUStage(implicit p: Parameters) extends BPUStage3 {
   val cifUpdate = recoverMeta.cfiUpdate
   when (s3IO.redirect.valid) {
     when (recoverMeta.level === 0.U) {
-      XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", ui.pc, cifUpdate.brIdx)
+      XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", cifUpdate.pc, cifUpdate.brIdx)
       brIdx := cifUpdate.brIdx + Mux(cifUpdate.pd.isBr, 1.U, 0.U)
     }
   }
-  XSDebug("brIdx: %d brTakensTemp:%b branchRecordUsed:%d io.outFire:%d\n", brIdx,brTakensTemp,branchRecordUsed,io.outFire)
-  XSDebug("brs: %b, takens: %b\n", brs, brTakens)
+  XSDebug("brIdx: %d brTakensTemp:%b branchRecordUsed:%d io.outFire:%d\n", brIdx,brTakensTemp.asUInt,branchRecordUsed.asUInt,io.outFire)
+  XSDebug("brs: %b, takens: %b jumpIdx :%d\n", brs, brTakens,jmpIdx)
   for (i <- 0 until PredictWidth) {
     XSDebug("brecord[%d]: pc 0x%x, taken %d\n", i.U, bphelper.pc((i+1)*64-1, i*64), bphelper.taken(i))
   }
