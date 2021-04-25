@@ -428,7 +428,7 @@ class OracleBPUStage(implicit p: Parameters) extends BPUStage3 {
     when (brs(i)) {
       val brPC = pcs(brNumInPacket)
       val br_is_last_half = s3IO.predecode.hasLastHalfRVI
-      val currentPC = Mux(br_is_last_half,packetAligned(inLatch.pc) - 2.U ,packetAligned(inLatch.pc) + (i.U << 1.U))
+      val currentPC = Mux(br_is_last_half && i.U === 0.U,packetAligned(inLatch.pc) - 2.U ,packetAligned(inLatch.pc) + (i.U << 1.U))
       when (io.outFire) {
         when (currentPC === brPC) {
            XSDebug("branch record pc 0x%x correspond with current pc\n", brPC)
