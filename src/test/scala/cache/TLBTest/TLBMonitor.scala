@@ -130,12 +130,23 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
 
   val tlbScoreBoard: mutable.Map[BigInt, PTEData] = mutable.Map[BigInt, PTEData]()
   val tlbReq: ArrayBuffer[Option[LitTlbReq]] = ArrayBuffer.fill(tlbWidth)(None)
+  val tlbNextReq: ArrayBuffer[Option[LitTlbReq]] = ArrayBuffer.fill(tlbWidth)(None)
   var ptwQueryingVPN: mutable.Map[BigInt, LitPtwReq] = mutable.Map[BigInt, LitPtwReq]()
 
-  def snoop(bus: TLBInterfaceBase): Unit = {
-    if (bus.sfence.isDefined) {
-      handleSfence(bus.sfence.get)
+  override def transStep(): Unit = {
+    //assume there is no time out in TLB
+  }
+
+  override def step(): Unit = {
+    if (isDtlb) {
+      for (i <- 0 until tlbWidth) {
+        tlbNextReq(i) = tlbReq(i)
+      }
     }
+    super.step()
+  }
+
+  def snoop(bus: TLBInterfaceBase): Unit = {
     if (bus.ptwReq.isDefined) {
       handlePtwReq(bus.ptwReq.get)
     }
@@ -146,9 +157,16 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
       if (bus.tlbReq(i).isDefined) {
         handleTlbReq(bus.tlbReq(i).get, i)
       }
+      else {
+        tlbReq(i) = None
+      }
       if (bus.tlbResp(i).isDefined) {
         handleTlbResp(bus.tlbResp(i).get, i, bus.csr)
       }
+    }
+    //handle sfence at last to override results above
+    if (bus.sfence.isDefined) {
+      handleSfence(bus.sfence.get)
     }
   }
 
@@ -157,15 +175,14 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
   }
 
   def handleTlbResp(resp: LitTlbResp, idx: Int, csr: LitTlbCsrBundle): Unit = {
-    val req = tlbReq(idx).get
+    val req = if (isDtlb) tlbNextReq(idx).get else tlbReq(idx).get
     val vaddr = req.addr
     val cmd = req.cmd
     val effectMode = if (isTlbExec(cmd)) csr.privImode else csr.privDmode
     if (resp.miss) {
-      tlbReq(idx) = None
+      Unit
     }
     else if (csr.satpMode == 0 || effectMode == mmode) { //no translation
-      val req = tlbReq(idx).get
       val vaddr = req.addr
       //TODO:add access fault check(PMA PMP)
       assert(vaddr == resp.paddr, "addr change when satp in bare mode!\n")
@@ -196,9 +213,9 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
         cmdFaultTypeCheck(req, resp.pf)
       }
     }
-
   }
 
+  //TODO: PTW now doesn't support outstanding
   def handlePtwReq(req: LitPtwReq): Unit = {
     val id = 0
     ptwQueryingVPN(id) = req
@@ -222,8 +239,9 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
 
   def handleSfence(sf: LitSfenceBundle): Unit = {
     tlbScoreBoard.clear()
-    for (i <- 0 until tlbWidth) {
-      tlbReq(i) = None
+    if (isDtlb) {
+      assert(tlbReq.forall(_.isEmpty) && tlbNextReq.forall(_.isEmpty),
+        "some req in dtlb when sfence")
     }
   }
 }
