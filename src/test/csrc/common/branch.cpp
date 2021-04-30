@@ -72,21 +72,21 @@ void init_branch_record(const char *branch, const uint64_t rate) {
     idx++;
 	}
 
-  // int miss_rate = rate;
-  // // default set to zero
-  // if (miss_rate < 0) miss_rate = 0;
-  // int num_reverted = 0;
-  // if (miss_rate > 0) {
-  //   srand( (unsigned)time( NULL ) );
-  //   for (int i = 0; i < idx; i++) {
-  //     // revert as a rate of miss_rate
-  //     if (rand() % 100 < miss_rate) {
-  //       record[i].taken = ~record[i].taken;
-  //       num_reverted++;
-  //     }
-  //   }
-  // }
-  // printf("Branch miss rate is set to %d%%, totally %d predictions are reverted\n", miss_rate, num_reverted);
+  int miss_rate = rate;
+  // default set to zero
+  if (miss_rate < 0) miss_rate = 0;
+  int num_reverted = 0;
+  if (miss_rate > 0) {
+    srand( (unsigned)time( NULL ) );
+    for (int i = 0; i < idx; i++) {
+      // revert as a rate of miss_rate
+      if (rand() % 100 < miss_rate) {
+        record[i].taken = ~record[i].taken;
+        num_reverted++;
+      }
+    }
+  }
+  printf("Branch miss rate is set to %d%%, totally %d predictions are reverted\n", miss_rate, num_reverted);
   reset = 0;
 }
 
@@ -119,7 +119,7 @@ extern "C" void branch_prediction_helper(
     printf("ERROR: branch record idx = %ld out of bound!\n", rIdx);
     return;
   }
-  printf("-- rIdx :%ld pc: %lx taken:%d\n",rIdx,record[rIdx].pc,record[rIdx].taken);
+  //printf("-- rIdx :%ld pc: %lx taken:%d\n",rIdx,record[rIdx].pc,record[rIdx].taken);
   *taken1 = record[rIdx].taken;
   *taken2 = record[rIdx+1].taken;
   *taken3 = record[rIdx+2].taken;
