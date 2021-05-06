@@ -6,6 +6,7 @@ import chisel3.util._
 import utils._
 import xiangshan._
 import xiangshan.backend._
+import xiangshan.cache._
 import xiangshan.frontend.BPUCtrl
 import xiangshan.backend.fu.util._
 import difftest._
@@ -366,6 +367,11 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   val srnctl = RegInit(UInt(XLEN.W), "h1".U)
   csrio.customCtrl.move_elim_enable := srnctl(0)
 
+  //scctrol: cache control instructions
+  val sccmap = CCOperation.generateRegMap  
+  val iccontroller = Module(new CacheController)
+  iccontroller.io <> DontCare
+
   val tlbBundle = Wire(new TlbCsrBundle)
   tlbBundle.satp := satp.asTypeOf(new SatpStruct)
   csrio.tlb := tlbBundle
@@ -519,6 +525,22 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     MaskedRegMap(Slvpredctl, slvpredctl),
     MaskedRegMap(Smblockctl, smblockctl),
     MaskedRegMap(Srnctl, srnctl),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("MetaCheckErrorAddr")._1, sccmap("MetaCheckErrorAddr")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataCheckErrorAddr")._1, sccmap("DataCheckErrorAddr")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("MetaLoad")._1, sccmap("MetaLoad")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad0")._1, sccmap("DataLoad0")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad1")._1, sccmap("DataLoad1")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad2")._1, sccmap("DataLoad2")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad3")._1, sccmap("DataLoad3")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad4")._1, sccmap("DataLoad4")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad5")._1, sccmap("DataLoad5")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad6")._1, sccmap("DataLoad6")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataLoad7")._1, sccmap("DataLoad7")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("FlushTarget")._1, sccmap("FlushTarget")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("WayMask")._1, sccmap("WayMask")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("MetaCheckErrorCounter")._1, sccmap("MetaCheckErrorCounter")),
+    MaskedRegMap(Sccregbase + CCOperation.getRegInfo("DataCheckErrorCounter")._1, sccmap("DataCheckErrorCounter")),
+
 
     //--- Machine Information Registers ---
     MaskedRegMap(Mvendorid, mvendorid, 0.U, MaskedRegMap.Unwritable),
@@ -543,6 +565,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     MaskedRegMap(Mip, mip.asUInt, 0.U, MaskedRegMap.Unwritable),
   )
 
+  
   // PMP is unimplemented yet
   val pmpMapping = Map(
     MaskedRegMap(Pmpcfg0, pmpcfg0),
