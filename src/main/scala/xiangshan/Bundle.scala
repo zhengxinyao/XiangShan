@@ -15,6 +15,7 @@ import xiangshan.frontend.HasIFUConst
 import xiangshan.frontend.GlobalHistory
 import xiangshan.frontend.RASEntry
 import xiangshan.frontend.BPUCtrl
+import xiangshan.cache.{HasICacheParameters}
 import utils._
 
 import scala.math.max
@@ -494,4 +495,36 @@ class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
   val sbuffer_threshold = Output(UInt(4.W))
   // Rename
   val move_elim_enable = Output(Bool())
+}
+
+class CSRInfo(implicit p: Parameters) extends XSBundle with HasICacheParameters{
+  val wayMask     = UInt(XLEN.W)
+  val flushTarget = UInt(XLEN.W)
+}
+
+class CSRWrite(implicit p: Parameters) extends XSBundle with HasICacheParameters{
+  val resp_meta = UInt(XLEN.W)
+  val resp_data = Vec(blockRows,UInt(XLEN.W))
+  val meta_error_addr = UInt(XLEN.W)
+  val data_error_addr = UInt(XLEN.W)
+  val meta_error_cnt = UInt(XLEN.W)
+  val data_error_cnt = UInt(XLEN.W)
+}
+
+class CacheControlOp(implicit p: Parameters) extends XSBundle with HasICacheParameters{
+  val operation = UInt(5.W)
+  val waymask   = UInt(nWays.W)
+  val flush_way = UInt(log2Ceil(nWays).W)
+  val flush_set = UInt(log2Ceil(nSets).W)
+}
+
+class CacheControlResp(implicit p: Parameters) extends XSBundle with HasICacheParameters{
+  val resp_meta = UInt(tagBits.W)
+  val resp_data = Vec(blockRows,UInt(wordBits.W))
+  require(tagBits <= XLEN, s"tagBits($tagBits) must <= ($XLEN)")
+  require(wordBits <= XLEN,s"wordBits($wordBits) must <= ($XLEN)")
+  val meta_error_addr = UInt(XLEN.W)
+  val data_error_addr = UInt(XLEN.W)
+  val meta_error_cnt = UInt(XLEN.W)
+  val data_error_cnt = UInt(XLEN.W)
 }
