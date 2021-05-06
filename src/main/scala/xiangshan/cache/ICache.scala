@@ -122,6 +122,10 @@ class ICacheIO(implicit p: Parameters) extends ICacheBundle
   val prev_ipf = Input(Bool())
   val pd_out = Output(new PreDecodeResp)
   val error = new L1CacheErrorInfo
+  val cache_ctr_io = new ICacheBundle{
+    val cc_operation = Flipped(ValidIO(new CacheControlOp))
+    val cc_resp      = ValidIO(new CacheControlResp)
+  }
 }
 
 class ICacheMetaReadBundle(implicit p: Parameters) extends ICacheBundle
@@ -451,6 +455,8 @@ class ICache(implicit p: Parameters) extends ICacheModule
   .elsewhen(s2_fire && !s2_flush) { s3_valid := true.B }
   .elsewhen(io.resp.fire())       { s3_valid := false.B }
 
+  val cc_idle :: cc_load :: cc_flush :: cc_check :: cc_waymask :: cc_finish :: Nil = Enum(6)
+  val ccstate = RegInit(cc_idle)
 
   /* icache hit
    * simply cut the cacheline into: a fetchpacket according to the req_pc
@@ -587,12 +593,18 @@ class ICache(implicit p: Parameters) extends ICacheModule
   io.pd_out := Mux1H(s3_wayMask, pds.map(_.io.out))
   val s3_noHit = s3_wayMask === 0.U
 
+  //----------------------------
+  //    Cache Control
+  //----------------------------
+
+  
+
 
   //----------------------------
   //    Out Put
   //----------------------------
   //icache request
-  io.req.ready := s2_ready && metaArray.io.read.ready && dataArray.io.read.ready
+  io.req.ready := s2_ready && metaArray.io.read.ready && dataArray.io.read.ready && ccstate === cc_idle
 
   //icache response: to pre-decoder
   io.resp.valid := s3_passdown || icacheMissQueue.io.resp.valid || io.mmio_grant.valid

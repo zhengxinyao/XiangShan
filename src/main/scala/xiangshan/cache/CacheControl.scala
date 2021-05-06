@@ -107,9 +107,9 @@ class CacheController(implicit p: Parameters) extends XSModule with HasICachePar
 {
     val io = IO(new Bundle() {
         val fromCSR = Input(new CSRInfo)
-        val toCSR   = DecoupledIO(new CSRWrite)
-        val CacheControlOp   = DecoupledIO(new CacheControlOp)
-        val CacheControlResp = Flipped(DecoupledIO(new CacheControlResp))
+        val toCSR   = ValidIO(new CSRWrite)
+        val CacheControlOp   = ValidIO(new CacheControlOp)
+        val CacheControlResp = Flipped(ValidIO(new CacheControlResp))
     })
 
     /* way mask register
@@ -141,7 +141,6 @@ class CacheController(implicit p: Parameters) extends XSModule with HasICachePar
     .elsewhen(waiting && io.CacheControlResp.valid) { waiting := false.B }
 
 
-    io.CacheControlResp.ready := false.B
     io.toCSR.valid           := io.CacheControlResp.valid && waiting
     io.toCSR.bits.resp_meta       := Cat(0.U, io.CacheControlResp.bits.resp_meta)
     for(i <- (0 until blockRows)) {io.toCSR.bits.resp_data(i) := Cat(0.U, io.CacheControlResp.bits.resp_data(i))}
