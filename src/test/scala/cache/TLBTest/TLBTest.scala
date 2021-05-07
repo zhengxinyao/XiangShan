@@ -112,12 +112,15 @@ class TLBTest extends AnyFlatSpec with ChiselScalatestTester with Matchers with 
 
         val tlbDriver = new TLBDriver(isDtlb, tlbWidth)
         val tlbMonitor = new TLBMonitor(isDtlb, tlbWidth)
-        val tlbMonitorIf = new TLBInterfaceBase(tlbWidth)
-        val tlbDriverIf = new TLBDriverInterface(tlbWidth)
+        val tlbSequencer = new TLBSequencer(isDtlb, tlbWidth)
+        val tlbMonitorIf = tlbMonitor.tlbMonitorIf
+        val tlbDriverIf = tlbDriver.tlbDriverIf
+
 
         for (cl <- 0 until total_clock) {
           //prepare poke
           //poke
+          tlbDriver.driverPoke(tlbSequencer)
           for (i <- 0 until tlbWidth) {
             //req
             if (tlbDriverIf.tlbReq(i).isDefined) {
@@ -236,7 +239,7 @@ class TLBTest extends AnyFlatSpec with ChiselScalatestTester with Matchers with 
           }
           //ptw
           val ptwReqValid = peekBoolean(tlbModulePtwReq.valid)
-          if (ptwReqValid && tlbDriverIf.ptwReqReady){
+          if (ptwReqValid && tlbDriverIf.ptwReqReady) {
             tlbDriverIf.ptwReqFire = true
             tlbDriverIf.ptwReq = Some(new LitPtwReq(
               vpn = peekBigInt(tlbModulePtwReq.bits.vpn)
@@ -249,7 +252,7 @@ class TLBTest extends AnyFlatSpec with ChiselScalatestTester with Matchers with 
             tlbMonitorIf.ptwReq = None
           }
           val ptwRespReady = peekBoolean(tlbModulePtwResp.ready)
-          if (tlbDriverIf.ptwResp.isDefined && ptwRespReady){
+          if (tlbDriverIf.ptwResp.isDefined && ptwRespReady) {
             tlbDriverIf.ptwRespFire = true
             tlbMonitorIf.ptwResp = tlbDriverIf.ptwResp
           }
@@ -258,6 +261,10 @@ class TLBTest extends AnyFlatSpec with ChiselScalatestTester with Matchers with 
             tlbMonitorIf.ptwResp = None
           }
 
+          tlbDriver.driverPeek(tlbSequencer)
+          tlbDriver.step()
+          tlbMonitor.snoop(tlbMonitorIf)
+          tlbMonitor.step()
           c.clock.step()
         }
         c.io.requestor.foreach { l =>

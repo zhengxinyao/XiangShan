@@ -128,6 +128,8 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
   extends TestAgentBase(ID, name, start_clock) with
     usesvParam with PageLevelWalker {
 
+  val tlbMonitorIf = new TLBInterfaceBase(tlbWidth)
+
   val tlbScoreBoard: mutable.Map[BigInt, PTEData] = mutable.Map[BigInt, PTEData]()
   val tlbReq: ArrayBuffer[Option[LitTlbReq]] = ArrayBuffer.fill(tlbWidth)(None)
   val tlbNextReq: ArrayBuffer[Option[LitTlbReq]] = ArrayBuffer.fill(tlbWidth)(None)
