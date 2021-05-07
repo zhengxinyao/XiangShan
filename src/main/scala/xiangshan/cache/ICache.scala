@@ -354,6 +354,14 @@ class ICache(implicit p: Parameters) extends ICacheModule
   // XSDebug("[Stage 1] r : f  (%d  %d)  request pc: 0x%x  mask: %b\n",s2_ready,s1_fire,s1_req_pc,s1_req_mask)
   // XSDebug("[Stage 1] index: %d\n",s1_idx)
 
+  //control register in icache
+  val cc_meta_error       = RegInit(Bool(), false.B)
+  val cc_data_error       = RegInit(Bool(), false.B)
+  val cc_error_magic_num  = 0x68382493
+  val cc_error_addr       = RegInit(UInt(PAddrBits.W), 0.U)
+  val cc_error_cnt        = RegInit(UInt(PAddrBits.W), 0.U)
+  val cc_way_mask         = RegInit(UInt(nWays.W), "b1111".U)
+
 
   //----------------------------
   //    Stage 2
@@ -418,12 +426,17 @@ class ICache(implicit p: Parameters) extends ICacheModule
   //Parity/ECC error output
 
   val errorArbiter = Module(new ICacheErrorAbiter)
-  errorArbiter.io.meta_ways_error.valid := RegNext(s2_hit)
-  errorArbiter.io.meta_ways_error.bits  := RegNext(metaArray.io.readResp.errors)
-  errorArbiter.io.data_ways_error.valid := RegNext(s2_hit)
-  errorArbiter.io.data_ways_error.bits  := RegNext(dataArray.io.readResp.errors)
-  errorArbiter.io.way_enable            := RegNext(hitVec.asUInt)
-  errorArbiter.io.paddr                 := RegNext(s2_tlb_resp.paddr)
+  errorArbiter.io.meta_ways_error.valid := RegNext(s2_hit) || cc_meta_error
+  errorArbiter.io.meta_ways_error.bits  := Mux(cc_meta_error,"b0001".U.asTypeOf(Vec(nWays,Bool())),RegNext(metaArray.io.readResp.errors))
+  errorArbiter.io.data_ways_error.valid := RegNext(s2_hit) || cc_data_error
+  errorArbiter.io.data_ways_error.bits  := Mux(cc_data_error,"b0001".U.asTypeOf(Vec(nWays,Bool())),RegNext(metaArray.io.readResp.errors))
+  errorArbiter.io.way_enable            := Mux(cc_meta_error || cc_data_error,"hf".U,RegNext(hitVec.asUInt))
+  errorArbiter.io.paddr                 := Mux(cc_meta_error || cc_data_error,cc_error_magic_num.U,RegNext(s2_tlb_resp.paddr))
+
+  when(errorArbiter.io.meta_ways_error.valid || errorArbiter.io.data_ways_error.valid){
+    cc_error_cnt  := cc_error_cnt + 1.U
+    cc_error_addr := errorArbiter.io.paddr
+  }
 
   io.error <> errorArbiter.io.output
 
@@ -455,7 +468,7 @@ class ICache(implicit p: Parameters) extends ICacheModule
   .elsewhen(s2_fire && !s2_flush) { s3_valid := true.B }
   .elsewhen(io.resp.fire())       { s3_valid := false.B }
 
-  val cc_idle :: cc_load :: cc_flush :: cc_check :: cc_waymask :: cc_finish :: Nil = Enum(6)
+  val cc_idle :: cc_load :: cc_flush :: cc_check :: cc_waymask :: cc_readfinish :: Nil = Enum(6)
   val ccstate = RegInit(cc_idle)
 
   /* icache hit
@@ -596,8 +609,73 @@ class ICache(implicit p: Parameters) extends ICacheModule
   //----------------------------
   //    Cache Control
   //----------------------------
+  val cc_operation    = io.cache_ctr_io.cc_operation.bits.operation
+  val cc_valid        = io.cache_ctr_io.cc_operation.valid
+  val cc_type         = CCOperation.getOpType(cc_operation)
+  val cc_flush_way    = io.cache_ctr_io.cc_operation.bits.flush_way
+  val cc_flush_set    = io.cache_ctr_io.cc_operation.bits.flush_set
+  val cc_data_read    = io.cache_ctr_io.cc_resp.bits.resp_data
+  val cc_tag_read     = io.cache_ctr_io.cc_resp.bits.resp_meta
 
   
+  def genNextState(cc_type: UInt): UInt = {
+    LookupTree(cc_type, List(
+      0.U     ->   cc_check,
+      1.U     ->   cc_load,
+      2.U     ->   cc_waymask,
+      3.U     ->   cc_flush
+    ))
+  }
+
+  switch(ccstate){
+    is(cc_idle){ when(cc_valid) { ccstate := genNextState(cc_type) } }
+
+    is(cc_check){
+      when(CCOperation.isMetaInject(cc_operation)){ cc_meta_error := true.B }
+      .elsewhen(CCOperation.isDataInject(cc_operation)){ cc_data_error := true.B }
+      .elsewhen(CCOperation.isMetaErrAddr(cc_operation)){ 
+        io.cache_ctr_io.cc_resp.bits.meta_error_cnt := cc_error_addr
+      }
+      .elsewhen(CCOperation.isMetaErrCnt(cc_operation)){ 
+         io.cache_ctr_io.cc_resp.bits.meta_error_cnt := cc_error_cnt
+      }
+      .elsewhen(CCOperation.isMetaErrCancle(cc_operation)){ cc_meta_error := false.B }
+      .elsewhen(CCOperation.isDataErrCancle(cc_operation)){ cc_data_error := false.B }
+
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
+    }
+
+    is(cc_load){
+       when(CCOperation.isMetaLoad(cc_operation)){  
+         metaArray.io.read.valid := true.B
+         metaArray.io.read.bits  := cc_flush_set
+       }
+       .elsewhen(CCOperation.isDataLoad(cc_operation)){
+         dataArray.io.read.valid := true.B
+         dataArray.io.read.bits  := cc_flush_set
+       }
+       ccstate := cc_readfinish
+    }
+
+    is(cc_readfinish){
+      (0 until blockRows).map{i => cc_data_read(i) := dataArray.io.readResp.datas(cc_flush_way)(i)}
+      cc_tag_read := metaArray.io.readResp.tags(cc_flush_way)
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
+    }
+
+    is(cc_flush){
+      validArray.bitSet(Cat(cc_flush_set,cc_flush_way), false.B )
+    }
+
+    is(cc_waymask){
+      cc_way_mask := io.cache_ctr_io.cc_operation.bits.waymask
+    }
+
+  }
+  
+
 
 
   //----------------------------

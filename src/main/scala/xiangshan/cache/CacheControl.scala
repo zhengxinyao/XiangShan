@@ -32,12 +32,18 @@ object CCRegMap{
 object CCOperation{
     def CCOperationList = List(
         //     opcode   type     name
-        CCOpMap("b00000", "CHECK", "META_CHECK_INJECTION"),
-        CCOpMap("b00001", "CHECK", "DATA_CHECK_INJECTION"),
-        CCOpMap("b00002", "LOAD",  "META_SPECIFIED_LOAD"),
-        CCOpMap("b00003", "LOAD",  "DATA_SPECIFIED_LOAD"),
-        CCOpMap("b00005", "FLUSH", "SPECIFIED_FLUSH"),
-        CCOpMap("b00004", "WAY",   "WAY_MASK"),
+        CCOpMap("b00000", "CHECK", "META_ERROR_INJECTION"),
+        CCOpMap("b00001", "CHECK", "DATA_ERROR_INJECTION"),
+        CCOpMap("b00010", "LOAD",  "META_SPECIFIED_LOAD"),
+        CCOpMap("b00011", "LOAD",  "DATA_SPECIFIED_LOAD"),
+        CCOpMap("b00100", "WAY",   "WAY_MASK"),
+        CCOpMap("b00101", "FLUSH", "SPECIFIED_FLUSH"),
+        CCOpMap("b00110", "CHECK", "META_CHECK_ADDR"),
+        CCOpMap("b00111", "CHECK", "DATA_CHECK_ADDR"),
+        CCOpMap("b01000", "CHECK", "META_CHECK_CNT"),
+        CCOpMap("b01001", "CHECK", "DATA_CHECK_CNT"),
+        CCOpMap("b01010", "CHECK", "META_ERROR_CANCEL"),
+        CCOpMap("b01011", "CHECK", "DATA_ERROR_CANCEL"),
     )
 
     def CCRegisterInfoList = List(
@@ -61,6 +67,12 @@ object CCOperation{
 
     val opList = CCOperationList
     val regInfoList = CCRegisterInfoList
+    val typeMap = Map(
+        "CHECK" -> 0.U,
+        "LOAD"  -> 1.U,
+        "WAY"   -> 2.U,
+        "FLUSH" -> 3.U,
+    )
 
     def getOpCode(operation: String): UInt = {
         var opcode :UInt = 0.U
@@ -72,14 +84,9 @@ object CCOperation{
         opcode
     }
 
-    def getOpType(operation: String): String = {
-        var optype :String = "CHECK"
-        opList.map{ entry =>
-            if(entry("name") == operation){
-                entry("type")
-            }
-        }
-        optype
+    def getOpType(operation: UInt): UInt = {
+        val mapping = opList.map(p => p("opcode").U -> typeMap(p("type")) )
+        LookupTree(operation, mapping)
     }
 
     def getRegInfo(reg: String): (Int , Int ) = {
@@ -101,6 +108,19 @@ object CCOperation{
         )
         mapping
     }
+
+
+    def isMetaInject(cc_operation: UInt) = cc_operation === "b00000".U
+    def isDataInject(cc_operation: UInt) = cc_operation === "b00001".U
+    def isMetaLoad(cc_operation: UInt)   = cc_operation === "b00010".U
+    def isDataLoad(cc_operation: UInt)   = cc_operation === "b00011".U
+    def isWayMask(cc_operation: UInt)    = cc_operation === "b00100".U
+    def isFlush(cc_operation: UInt)      = cc_operation === "b00101".U
+    def isMetaErrAddr(cc_operation: UInt)      = cc_operation === "b00110".U
+    def isMetaErrCnt(cc_operation: UInt)       = cc_operation === "b01000".U
+    def isMetaErrCancle(cc_operation: UInt)       = cc_operation === "b01010".U
+    def isDataErrCancle(cc_operation: UInt)       = cc_operation === "b01011".U
+
 }
 
 class CacheController(implicit p: Parameters) extends XSModule with HasICacheParameters
