@@ -85,7 +85,7 @@ object CCOperation{
     }
 
     def getOpType(operation: UInt): UInt = {
-        val mapping = opList.map(p => p("opcode").U -> typeMap(p("type")) )
+        val mapping = opList.map(p => p("opcode").U -> typeMap(p("optype")) )
         LookupTree(operation, mapping)
     }
 
@@ -110,16 +110,16 @@ object CCOperation{
     }
 
 
-    def isMetaInject(cc_operation: UInt) = cc_operation === "b00000".U
-    def isDataInject(cc_operation: UInt) = cc_operation === "b00001".U
-    def isMetaLoad(cc_operation: UInt)   = cc_operation === "b00010".U
-    def isDataLoad(cc_operation: UInt)   = cc_operation === "b00011".U
-    def isWayMask(cc_operation: UInt)    = cc_operation === "b00100".U
-    def isFlush(cc_operation: UInt)      = cc_operation === "b00101".U
-    def isMetaErrAddr(cc_operation: UInt)      = cc_operation === "b00110".U
-    def isMetaErrCnt(cc_operation: UInt)       = cc_operation === "b01000".U
-    def isMetaErrCancle(cc_operation: UInt)       = cc_operation === "b01010".U
-    def isDataErrCancle(cc_operation: UInt)       = cc_operation === "b01011".U
+    def isMetaInject(cc_operation: UInt)            = cc_operation === "b00000".U
+    def isDataInject(cc_operation: UInt)            = cc_operation === "b00001".U
+    def isMetaLoad(cc_operation: UInt)              = cc_operation === "b00010".U
+    def isDataLoad(cc_operation: UInt)              = cc_operation === "b00011".U
+    def isWayMask(cc_operation: UInt)               = cc_operation === "b00100".U
+    def isFlush(cc_operation: UInt)                 = cc_operation === "b00101".U
+    def isMetaErrAddr(cc_operation: UInt)           = cc_operation === "b00110".U
+    def isDataErrCnt(cc_operation: UInt)            = cc_operation === "b01000".U
+    def isMetaErrCancle(cc_operation: UInt)         = cc_operation === "b01010".U
+    def isDataErrCancle(cc_operation: UInt)         = cc_operation === "b01011".U
 
 }
 
@@ -151,23 +151,21 @@ class CacheController(implicit p: Parameters) extends XSModule with HasICachePar
         wayMaskReg(0))
 
     io.CacheControlOp.valid          := ccvalid
-    io.CacheControlOp.bits.operation := ccop
-    io.CacheControlOp.bits.waymask   := waymask
-    io.CacheControlOp.bits.flush_way := flush_way
-    io.CacheControlOp.bits.flush_set := flush_set
+    io.CacheControlOp.bits.operation := RegNext(ccop)
+    io.CacheControlOp.bits.waymask   := RegNext(waymask)
+    io.CacheControlOp.bits.flush_way := RegNext(flush_way)
+    io.CacheControlOp.bits.flush_set := RegNext(flush_set)
 
     val waiting = RegInit(false.B)
     when(ccvalid && !waiting) { waiting := true.B }
     .elsewhen(waiting && io.CacheControlResp.valid) { waiting := false.B }
 
 
-    io.toCSR.valid           := io.CacheControlResp.valid && waiting
+    io.toCSR.valid                := io.CacheControlResp.valid && waiting
     io.toCSR.bits.resp_meta       := Cat(0.U, io.CacheControlResp.bits.resp_meta)
     for(i <- (0 until blockRows)) {io.toCSR.bits.resp_data(i) := Cat(0.U, io.CacheControlResp.bits.resp_data(i))}
     io.toCSR.bits.meta_error_addr := io.CacheControlResp.bits.meta_error_addr
-    io.toCSR.bits.data_error_addr := io.CacheControlResp.bits.data_error_addr
     io.toCSR.bits.meta_error_cnt  := io.CacheControlResp.bits.meta_error_cnt
-    io.toCSR.bits.data_error_cnt  := io.CacheControlResp.bits.data_error_cnt
 
 
 }

@@ -163,6 +163,7 @@ class CSRFileIO(implicit p: Parameters) extends XSBundle {
   val tlb = Output(new TlbCsrBundle)
   // Custom microarchiture ctrl signal
   val customCtrl = Output(new CustomCSRCtrlIO)
+  val customCCtrlResp = Flipped(ValidIO(new CacheControlResp))
 }
 
 class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
@@ -370,7 +371,21 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   //scctrol: cache control instructions
   val sccmap = CCOperation.generateRegMap  
   val iccontroller = Module(new CacheController)
-  iccontroller.io <> DontCare
+  iccontroller.io.fromCSR.wayMask := sccmap("WayMask")
+  iccontroller.io.fromCSR.flushTarget := sccmap("FlushTarget")
+
+  when(iccontroller.io.toCSR.valid){
+    sccmap("MetaLoad") := iccontroller.io.toCSR.bits.resp_meta
+    for(i <- (0 until 8)){
+      val name ="DataLoad" + i.toString
+      sccmap(name) :=  iccontroller.io.toCSR.bits.resp_data(i)
+    }
+    sccmap("MetaCheckErrorAddr") := iccontroller.io.toCSR.bits.meta_error_addr
+    sccmap("MetaCheckErrorCounter")  := iccontroller.io.toCSR.bits.meta_error_cnt
+  }
+
+  iccontroller.io.CacheControlResp <> csrio.customCCtrlResp
+  iccontroller.io.CacheControlOp   <> csrio.customCtrl.cc_control_op
 
   val tlbBundle = Wire(new TlbCsrBundle)
   tlbBundle.satp := satp.asTypeOf(new SatpStruct)

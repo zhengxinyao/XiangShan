@@ -627,6 +627,8 @@ class ICache(implicit p: Parameters) extends ICacheModule
     ))
   }
 
+  io.cache_ctr_io.cc_resp.valid := false.B
+  io.cache_ctr_io.cc_resp.bits  <> DontCare
   switch(ccstate){
     is(cc_idle){ when(cc_valid) { ccstate := genNextState(cc_type) } }
 
@@ -667,16 +669,17 @@ class ICache(implicit p: Parameters) extends ICacheModule
 
     is(cc_flush){
       validArray.bitSet(Cat(cc_flush_set,cc_flush_way), false.B )
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
     }
 
     is(cc_waymask){
       cc_way_mask := io.cache_ctr_io.cc_operation.bits.waymask
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
     }
 
   }
-  
-
-
 
   //----------------------------
   //    Out Put

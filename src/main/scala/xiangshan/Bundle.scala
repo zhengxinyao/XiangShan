@@ -495,6 +495,8 @@ class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
   val sbuffer_threshold = Output(UInt(4.W))
   // Rename
   val move_elim_enable = Output(Bool())
+  // Cache control
+  val cc_control_op  = ValidIO(new CacheControlOp)
 }
 
 class CSRInfo(implicit p: Parameters) extends XSBundle with HasICacheParameters{
@@ -506,9 +508,7 @@ class CSRWrite(implicit p: Parameters) extends XSBundle with HasICacheParameters
   val resp_meta = UInt(XLEN.W)
   val resp_data = Vec(blockRows,UInt(XLEN.W))
   val meta_error_addr = UInt(XLEN.W)
-  val data_error_addr = UInt(XLEN.W)
   val meta_error_cnt = UInt(XLEN.W)
-  val data_error_cnt = UInt(XLEN.W)
 }
 
 class CacheControlOp(implicit p: Parameters) extends XSBundle with HasICacheParameters{
@@ -524,7 +524,5 @@ class CacheControlResp(implicit p: Parameters) extends XSBundle with HasICachePa
   require(tagBits <= XLEN, s"tagBits($tagBits) must <= ($XLEN)")
   require(wordBits <= XLEN,s"wordBits($wordBits) must <= ($XLEN)")
   val meta_error_addr = UInt(XLEN.W)
-  val data_error_addr = UInt(XLEN.W)
   val meta_error_cnt = UInt(XLEN.W)
-  val data_error_cnt = UInt(XLEN.W)
 }

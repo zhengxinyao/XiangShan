@@ -220,6 +220,7 @@ class IntegerBlock
   jmpExeUnit.csrio.perf <> RegNext(io.csrio.perf)
   // RegNext customCtrl for better timing
   io.csrio.customCtrl := RegNext(jmpExeUnit.csrio.customCtrl)
+  jmpExeUnit.csrio.customCCtrlResp := RegNext(io.csrio.customCCtrlResp)
   jmpExeUnit.fenceio <> io.fenceio
 
   // read int rf from ctrl block

@@ -119,6 +119,7 @@ class XSCoreImp(outer: XSCore) extends LazyModuleImp(outer)
   frontend.io.sfence <> integerBlock.io.fenceio.sfence
   frontend.io.tlbCsr <> integerBlock.io.csrio.tlb
   frontend.io.csrCtrl <> integerBlock.io.csrio.customCtrl
+  frontend.io.customCCtrlResp <> integerBlock.io.csrio.customCCtrlResp
 
   frontend.io.icacheMemAcq <> l1pluscache.io.req
   l1pluscache.io.resp <> frontend.io.icacheMemGrant

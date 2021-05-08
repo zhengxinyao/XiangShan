@@ -34,6 +34,7 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
     val sfence = Input(new SfenceBundle)
     val tlbCsr = Input(new TlbCsrBundle)
     val csrCtrl = Input(new CustomCSRCtrlIO)
+    val customCCtrlResp = ValidIO(new CacheControlResp)
     val error  = new L1CacheErrorInfo
     val frontendInfo = new Bundle {
       val ibufFull  = Output(Bool())
@@ -50,6 +51,8 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   // from backend
   ifu.io.redirect <> io.backend.redirect_cfiUpdate
   ifu.io.bp_ctrl <> RegNext(io.csrCtrl.bp_ctrl)
+  ifu.io.cc_ctrl_op <> RegNext(io.csrCtrl.cc_control_op)
+  io.customCCtrlResp <> RegNext(ifu.io.cc_ctrl_resp)
   ifu.io.commitUpdate <> io.backend.commit_cfiUpdate
   ifu.io.ftqEnqPtr <> io.backend.ftqEnqPtr
   ifu.io.ftqLeftOne <> io.backend.ftqLeftOne

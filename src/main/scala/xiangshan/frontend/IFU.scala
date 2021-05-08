@@ -89,6 +89,9 @@ class IFUIO(implicit p: Parameters) extends XSBundle
   val mmio_acquire = DecoupledIO(new InsUncacheReq)
   val mmio_grant  = Flipped(DecoupledIO(new InsUncacheResp))
   val mmio_flush = Output(Bool())
+  // cache control
+  val cc_ctrl_op  = Flipped(ValidIO(new CacheControlOp))
+  val cc_ctrl_resp = ValidIO(new CacheControlResp)
 }
 
 class PrevHalfInstr(implicit p: Parameters) extends XSBundle {
@@ -478,6 +481,8 @@ class IFU(implicit p: Parameters) extends XSModule with HasIFUConst with HasCirc
   icache.io.mmio_acquire <> io.mmio_acquire
   icache.io.mmio_grant <> io.mmio_grant
   icache.io.mmio_flush <> io.mmio_flush
+  icache.io.cache_ctr_io.cc_operation <> RegNext(io.cc_ctrl_op)
+  io.cc_ctrl_resp <> RegNext(icache.io.cache_ctr_io.cc_resp) 
   io.icacheMemAcq <> icache.io.mem_acquire
   io.l1plusFlush := icache.io.l1plusflush
   io.prefetchTrainReq := icache.io.prefetchTrainReq
