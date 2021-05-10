@@ -14,7 +14,7 @@ case class SoCParameters
   EnableILA: Boolean = false,
   extIntrs: Int = 150,
   useFakeL3Cache: Boolean = false,
-  PAddrBits: Int = 40
+  PAddrBits: Int = 32
 ){
   // L3 configurations
   val L3InnerBusWidth = 256
