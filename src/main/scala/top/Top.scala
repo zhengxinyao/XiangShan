@@ -80,7 +80,7 @@ class XSCoreWithL2()(implicit p: Parameters) extends LazyModule
       l2prefetcher.module.io.in := DontCare
     }
     else {
-      l2prefetcher.module.io.in <> l2cache.module.io
+      //l2prefetcher.module.io.in <> l2cache.module.io
     }
     io.l1plus_error <> core.module.io.l1plus_error
     io.icache_error <> core.module.io.icache_error

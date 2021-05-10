@@ -15,7 +15,28 @@ import freechips.rocketchip.tilelink.{TLClientNode, TLClientParameters,
   TLEdgeOut, TLBundleA, TLBundleD,
   ClientStates, ClientMetadata, TLHints
 }
-import sifive.blocks.inclusivecache.PrefetcherIO
+//import sifive.blocks.inclusivecache.PrefetcherIO
+
+class PrefetcherAcquire(addressBits: Int) extends Bundle
+{
+  val address = UInt(width = addressBits.W)
+  val write   = Bool() // read or write
+  val hit     = Bool()
+  override def cloneType = (new PrefetcherAcquire(addressBits)).asInstanceOf[this.type]
+}
+
+class PrefetcherRelease(addressBits: Int) extends Bundle
+{
+  val address = UInt(width = addressBits.W)
+  override def cloneType = (new PrefetcherRelease(addressBits)).asInstanceOf[this.type]
+}
+
+class PrefetcherIO(addressBits: Int) extends Bundle
+{
+  val acquire = Valid(new PrefetcherAcquire(addressBits))
+  val release = Valid(new PrefetcherRelease(addressBits))
+  override def cloneType = (new PrefetcherIO(addressBits)).asInstanceOf[this.type]
+}
 
 case class L2PrefetcherParameters(
   enable: Boolean,
