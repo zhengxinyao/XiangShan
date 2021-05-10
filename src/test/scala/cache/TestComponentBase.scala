@@ -3,7 +3,7 @@ package cache
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
 
-class TestAgentBase(ID: Int, name: String = "", start_clock: Int = 0) {
+class TestComponentBase(ID: Int, name: String = "", start_clock: Int = 0) {
   val rand = new Random(0xdeadbeef+ID)
 
   var clock = start_clock
@@ -20,7 +20,7 @@ class TestAgentBase(ID: Int, name: String = "", start_clock: Int = 0) {
   }
 
   def debugPrefix(): String = {
-    f"[DEBUG][time= $clock%19d] TLAgent$ID-$name: "
+    f"[DEBUG][time= $clock%19d] TestComponent:$ID-$name: "
   }
 
   def debugPrintln(ins: String): Unit = {
@@ -36,7 +36,7 @@ class TestAgentBase(ID: Int, name: String = "", start_clock: Int = 0) {
   def checkAssert(): Unit = {
     if (!error_list.isEmpty) {
       error_list.foreach(debugPrintln(_))
-      assert(false, "agent assert!\n")
+      assert(false, "TestComponent assert!\n")
     }
   }
 }

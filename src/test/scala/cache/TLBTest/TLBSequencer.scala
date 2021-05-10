@@ -1,12 +1,13 @@
 package cache.TLBTest
 
-import cache.TestAgentBase
+import cache.TestComponentBase
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 class TLBSequencer(isDtlb: Boolean, tlbWidth: Int, ID: Int = 2, name: String = "TLBSequencer", start_clock: Int = 0)
-  extends TestAgentBase(ID, name, start_clock) {
+  extends TestComponentBase(ID, name, start_clock) with TlbCsrConst
+{
 
   val tlbTransList: ListBuffer[TLBCallerTransaction] = ListBuffer()
   val ptwTransList: ListBuffer[(BigInt, PTWCalleeTransaction)] = ListBuffer()

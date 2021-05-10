@@ -1,6 +1,6 @@
 package cache.TLBTest
 
-import cache.TestAgentBase
+import cache.TestComponentBase
 import xiangshan.cache.TlbPermBundle
 
 import scala.collection.mutable
@@ -125,7 +125,7 @@ trait PageLevelWalker extends usesvParam {
 }
 
 class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TLBMonitor", start_clock: Int = 0)
-  extends TestAgentBase(ID, name, start_clock) with
+  extends TestComponentBase(ID, name, start_clock) with
     usesvParam with PageLevelWalker {
 
   val tlbMonitorIf = new TLBInterfaceBase(tlbWidth)

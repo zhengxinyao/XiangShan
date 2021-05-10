@@ -1,6 +1,6 @@
 package cache.TLCTest
 
-import cache.TestAgentBase
+import cache.TestComponentBase
 
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -149,7 +149,7 @@ class FireQueue[T <: TLCScalaMessage]() {
 class TLCAgent(ID: Int, name: String = "", addrStateMap: mutable.Map[BigInt, AddrState], serialList: ArrayBuffer[(Int, TLCTrans)],
                scoreboard: mutable.Map[BigInt, ScoreboardData], start_clock: Int = 0)
               (implicit p: Parameters)
-  extends TestAgentBase(ID, name, start_clock) with TLCOp with BigIntExtract with PermissionTransition {
+  extends TestComponentBase(ID, name, start_clock) with TLCOp with BigIntExtract with PermissionTransition {
   val l2params = p(TLCCacheTestKey)
   val beatNum = l2params.blockBytes / l2params.beatBytes
   val beatBits = l2params.beatBytes * 8

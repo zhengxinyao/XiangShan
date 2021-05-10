@@ -1,6 +1,6 @@
 package cache.TLBTest
 
-import cache.TestAgentBase
+import cache.TestComponentBase
 
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -17,7 +17,7 @@ class TLBDriverInterface(width: Int = 4) extends TLBInterfaceBase(width = width)
   var ptwRespFire: Boolean = false
 }
 
-class TLBDriver(isDtlb: Boolean, tlbWidth: Int) extends TestAgentBase(ID = 1, name = "TLBDriver", start_clock = 0) {
+class TLBDriver(isDtlb: Boolean, tlbWidth: Int) extends TestComponentBase(ID = 1, name = "TLBDriver", start_clock = 0) {
   //driver and sequencer has no duty for recording tlb result
   val tlbDriverIf = new TLBDriverInterface(tlbWidth)
 
