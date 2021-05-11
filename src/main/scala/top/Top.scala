@@ -15,6 +15,7 @@ import freechips.rocketchip.devices.tilelink.{DevNullParams, TLError}
 import freechips.rocketchip.diplomaticobjectmodel.logicaltree.GenericLogicalTreeNode
 import freechips.rocketchip.interrupts.{IntSinkNode, IntSinkPortSimple}
 import freechips.rocketchip.tile.{BusErrorUnit, BusErrorUnitParams, XLen}
+import freechips.rocketchip.subsystem.{SystemBusKey}
 import sifive.blocks.inclusivecache.{InclusiveCache, InclusiveCacheMicroParameters, CacheParameters}
 import xiangshan.cache.prefetch.L2Prefetcher
 
@@ -120,7 +121,7 @@ abstract class BaseXSSocImp(outer: BaseXSSoc)(implicit p: Parameters)
 trait HaveSlaveAXI4Port {
   this: BaseXSSoc =>
 
-  val idBits = 16
+  val idBits = 8
 
   val l3FrontendAXI4Node = AXI4MasterNode(Seq(AXI4MasterPortParameters(
     Seq(AXI4MasterParameters(
@@ -143,13 +144,17 @@ trait HaveSlaveAXI4Port {
     AXI4Fragmenter() :=
     AXI4IdIndexer(1) :=
     l3FrontendAXI4Node
-  errorDevice.node := error_xbar
+  errorDevice.node := TLWidthWidget(p(SystemBusKey).beatBytes) := error_xbar
   l3_xbar :=
     TLBuffer() :=
     error_xbar
 
   val dma = InModuleBody {
     l3FrontendAXI4Node.makeIOs()
+  }
+
+  def hangDMA() = {
+    dma := DontCare
   }
 }
 

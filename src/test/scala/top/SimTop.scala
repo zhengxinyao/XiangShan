@@ -34,6 +34,8 @@ class SimTop(implicit p: Parameters) extends Module {
     l_simAXIMem.connectToSoC(l_soc)
   }
 
+  l_soc.asInstanceOf[HaveSlaveAXI4Port].hangDMA()
+
   soc.io.clock := clock.asBool()
   soc.io.reset := reset.asBool()
   soc.io.extIntrs := 0.U

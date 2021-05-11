@@ -47,7 +47,8 @@ class BoomWrapper(implicit p: Parameters) extends LazyModule with BindingScope w
   }
 }
 
-class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort with HaveAXI4PeripheralPort {
+class BoomTop(implicit p: Parameters) extends BaseXSSoc
+  with HaveAXI4MemPort with HaveAXI4PeripheralPort with HaveSlaveAXI4Port {
   val core = LazyModule(new BoomWrapper())
   val cacheBeatBytes = p(SystemBusKey).beatBytes
 
