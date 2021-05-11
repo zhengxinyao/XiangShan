@@ -16,6 +16,7 @@ import freechips.rocketchip.tile._
 import freechips.rocketchip.tilelink._
 import sifive.blocks.inclusivecache.{CacheParameters, InclusiveCache, InclusiveCacheMicroParameters}
 import system.{HasSoCParameter, SoCParamsKey}
+import xiangshan.{DebugOptionsKey}
 
 class BoomWrapper(implicit p: Parameters) extends LazyModule with BindingScope with HasSoCParameter {
   val boomTileParams = p(TilesLocated(InSubsystem)).head
@@ -101,7 +102,7 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
       ),
       InclusiveCacheMicroParameters(
         memCycles = 25,
-        writeBytes = 32
+        writeBytes = if (debugOpts.FPGAPlatform) 8 else 32
       ),
       fpga = debugOpts.FPGAPlatform
     ))
@@ -129,7 +130,13 @@ class BoomTop(implicit p: Parameters) extends BaseXSSoc with HaveAXI4MemPort wit
 }
 
 class BoomSoCConfig extends Config((site, here, up) => {
-  case SoCParamsKey => up(SoCParamsKey).copy(extIntrs = 1)
+  case SoCParamsKey => up(SoCParamsKey).copy(
+    extIntrs = 1,
+    L3InnerBusWidth = if (site(DebugOptionsKey).FPGAPlatform) 64 else 256,
+    L3OuterBusWidth = if (site(DebugOptionsKey).FPGAPlatform) 64 else 256,
+    L3Size = if (site(DebugOptionsKey).FPGAPlatform) 2 * 1024 * 1024 else 256 * 1024,
+  )
+  case DebugOptionsKey => up(DebugOptionsKey).copy(FPGAPlatform = false)
 })
 
 class BoomTopConfig extends Config(

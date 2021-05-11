@@ -14,18 +14,16 @@ case class SoCParameters
   EnableILA: Boolean = false,
   extIntrs: Int = 150,
   useFakeL3Cache: Boolean = false,
-  PAddrBits: Int = 32
+  PAddrBits: Int = 32,
+  L3InnerBusWidth: Int = 256,
+  L3Size: Int = 4 * 1024 * 1024, // 4MB
+  // on chip network configurations
+  L3OuterBusWidth: Int = 256
 ){
   // L3 configurations
-  val L3InnerBusWidth = 256
-  val L3Size = 4 * 1024 * 1024 // 4MB
   val L3BlockSize = 64
   val L3NBanks = 4
   val L3NWays = 8
-
-  // on chip network configurations
-  val L3OuterBusWidth = 256
-
 }
 
 trait HasSoCParameter {
