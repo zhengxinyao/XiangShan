@@ -122,7 +122,7 @@ class ICacheIO(implicit p: Parameters) extends ICacheBundle
   val prev_ipf = Input(Bool())
   val pd_out = Output(new PreDecodeResp)
   val error = new L1CacheErrorInfo
-  val cache_ctr_io = new ICacheBundle{
+  val cache_ctr_io = new Bundle{
     val cc_operation = Flipped(ValidIO(new CacheControlOp))
     val cc_resp      = ValidIO(new CacheControlResp)
   }
@@ -433,7 +433,8 @@ class ICache(implicit p: Parameters) extends ICacheModule
   errorArbiter.io.way_enable            := Mux(cc_meta_error || cc_data_error,"hf".U,RegNext(hitVec.asUInt))
   errorArbiter.io.paddr                 := Mux(cc_meta_error || cc_data_error,cc_error_magic_num.U,RegNext(s2_tlb_resp.paddr))
 
-  when(errorArbiter.io.meta_ways_error.valid || errorArbiter.io.data_ways_error.valid){
+  when((errorArbiter.io.meta_ways_error.valid && errorArbiter.io.meta_ways_error.bits.asUInt =/= 0.U) 
+        || (errorArbiter.io.data_ways_error.valid && errorArbiter.io.data_ways_error.bits.asUInt =/= 0.U)){
     cc_error_cnt  := cc_error_cnt + 1.U
     cc_error_addr := errorArbiter.io.paddr
   }

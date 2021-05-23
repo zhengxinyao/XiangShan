@@ -117,13 +117,22 @@ object CCOperation{
     def isWayMask(cc_operation: UInt)               = cc_operation === "b00100".U
     def isFlush(cc_operation: UInt)                 = cc_operation === "b00101".U
     def isMetaErrAddr(cc_operation: UInt)           = cc_operation === "b00110".U
-    def isDataErrCnt(cc_operation: UInt)            = cc_operation === "b01000".U
+    def isMetaErrCnt(cc_operation: UInt)            = cc_operation === "b01000".U
+    def isDataErrCnt(cc_operation: UInt)            = cc_operation === "b01001".U
     def isMetaErrCancle(cc_operation: UInt)         = cc_operation === "b01010".U
     def isDataErrCancle(cc_operation: UInt)         = cc_operation === "b01011".U
 
 }
 
-class CacheController(implicit p: Parameters) extends XSModule with HasICacheParameters
+trait CCConst {
+    val maxWays = 16
+    val maxSets = 256
+    val maxTagBits = 32
+    val blockRows = 8
+    val wordBits = 64
+}
+
+class CacheController(implicit p: Parameters) extends XSModule with CCConst
 {
     val io = IO(new Bundle() {
         val fromCSR = Input(new CSRInfo)
@@ -134,19 +143,20 @@ class CacheController(implicit p: Parameters) extends XSModule with HasICachePar
 
     /* way mask register
      *        Bits                                                              Field
-     *        >log(nWays) + log(nSets)+ nWays + 7                             Reserved
-     *        log(nWays) + log(nSets)+ nWays + 6 - log(nSets)+7  + nWays    Specified way
-     *        log(nSets)+ nWays + 6 - 7 + nWays                              Specified set
-     *        nWays + 6 -  7                                                    waymask
+     *        log(maxWays) + log(maxSets)+ maxWays + 7                              Reserved
+     *
+     *        log(maxWays) + log(maxSets)+ maxWays + 6 - log(maxSets)+7  + maxWays    Specified way
+     *        log(maxSets)+ maxWays + 6 - 7 + maxWays                              Specified set
+     *        maxWays + 6 -  7                                                    waymask
      *        6 - 1                                                            operation
      *        0                                                            cache control valid
     */
     val wayMaskReg      = io.fromCSR.wayMask
     val flushTargetReg  = io.fromCSR.flushTarget
     val (flush_way, flush_set ,waymask ,ccop, ccvalid) = (
-        flushTargetReg(log2Ceil(nWays) + log2Ceil(nSets) - 1, log2Ceil(nSets)),
-        flushTargetReg(log2Ceil(nSets) -1 ,0),
-        wayMaskReg(nWays + 6 ,7 ),
+        flushTargetReg(log2Ceil(maxWays) + log2Ceil(maxSets) - 1, log2Ceil(maxSets)),
+        flushTargetReg(log2Ceil(maxSets) -1 ,0),
+        wayMaskReg(maxWays + 6 ,7 ),
         wayMaskReg(6,1),
         wayMaskReg(0))
 

@@ -230,6 +230,7 @@ class L1plusCacheMetadataArray(implicit p: Parameters) extends L1plusCacheModule
     val write = Flipped(Decoupled(new L1plusCacheMetaWriteReq))
     val resp = Output(Vec(nWays, new L1plusCacheMetadata))
     val flush = Input(Bool())
+    val ccflush = Flipped(ValidIO(UInt((log2Ceil(nSets) + log2Ceil(nWays)).W)))
   })
   val waddr = io.write.bits.tagIdx
   val wvalid = io.write.bits.data.valid
@@ -245,6 +246,12 @@ class L1plusCacheMetadataArray(implicit p: Parameters) extends L1plusCacheModule
     for (i <- 0 until nSets) {
       valid_array(i) := 0.U
     }
+  }
+
+  val wayPtr = io.ccflush.bits(log2Ceil(nWays)-1,0)
+  val setPtr = io.ccflush.bits((log2Ceil(nSets) + log2Ceil(nWays)) - 1 , log2Ceil(nWays))
+  when(io.ccflush.valid){
+    valid_array(setPtr).bitSet(wayPtr, false.B)
   }
   XSDebug("valid_array:%x   flush:%d\n",valid_array.asUInt,io.flush)
 
@@ -340,6 +347,12 @@ class L1plusCacheIO(implicit p: Parameters) extends L1plusCacheBundle
   val flush = Output(Bool())
   val empty = Input(Bool())
   val error = Flipped(new L1CacheErrorInfo)
+  val cache_ctr_io = new Bundle{
+    val cc_operation = Flipped(ValidIO(new CacheControlOp))
+    val cc_resp      = ValidIO(new CacheControlResp)
+  }
+
+
 
   override def toPrintable: Printable = {
     p"req: v=${req.valid} r=${req.ready} ${req.bits} " +
@@ -399,7 +412,9 @@ class L1plusCacheImp(outer: L1plusCache) extends LazyModuleImp(outer) with HasL1
   bus.a <> missQueue.io.mem_acquire
   missQueue.io.mem_grant <> bus.d
   metaArray.io.write <> missQueue.io.meta_write
+  metaArray.io.ccflush <> pipe.io.validArray
   dataArray.io.write <> missQueue.io.refill
+  pipe.io.cache_ctr_io <> io.cache_ctr_io
 
   // response
   io.resp           <> resp_arb.io.out
@@ -494,6 +509,11 @@ class L1plusCachePipe(implicit p: Parameters) extends L1plusCacheModule
     val inflight_req_idxes = Output(Vec(2, Valid(UInt())))
     val empty = Output(Bool())
     val error = new L1CacheErrorInfo
+    val validArray = ValidIO(UInt((log2Ceil(nSets) + log2Ceil(nWays)).W))
+    val cache_ctr_io = new Bundle{
+      val cc_operation = Flipped(ValidIO(new CacheControlOp))
+      val cc_resp      = ValidIO(new CacheControlResp)
+    }
   })
 
   val s0_passdown = Wire(Bool())
@@ -503,6 +523,14 @@ class L1plusCachePipe(implicit p: Parameters) extends L1plusCacheModule
   val s0_valid = Wire(Bool())
   val s1_valid = Wire(Bool())
   val s2_valid = Wire(Bool())
+
+  //control register in l1plus
+  val cc_meta_error       = RegInit(Bool(), false.B)
+  val cc_data_error       = RegInit(Bool(), false.B)
+  val cc_error_magic_num  = 0x68382493
+  val cc_error_addr       = RegInit(UInt(PAddrBits.W), 0.U)
+  val cc_error_cnt        = RegInit(UInt(PAddrBits.W), 0.U)
+  val cc_way_mask         = RegInit(UInt(nWays.W), "b11111111".U)
 
   // requests
   val can_accept_req = !s1_valid || s1_passdown
@@ -606,10 +634,15 @@ class L1plusCachePipe(implicit p: Parameters) extends L1plusCacheModule
   val data_error = s2_data_wrong.asUInt.orR
   val pipe_enable = s2_valid && s2_hit
 
-  io.error.ecc_error.valid := (meta_error || data_error) && pipe_enable
-  io.error.ecc_error.bits := true.B
-  io.error.paddr.valid := io.error.ecc_error.valid
-  io.error.paddr.bits := s2_req.addr
+  io.error.ecc_error.valid := ((meta_error || data_error) && pipe_enable) || cc_meta_error
+  io.error.ecc_error.bits := Mux(cc_meta_error, cc_meta_error ,true.B)
+  io.error.paddr.valid := io.error.ecc_error.valid || cc_meta_error
+  io.error.paddr.bits := Mux(cc_meta_error, cc_error_magic_num.asUInt,s2_req.addr)
+
+  when(io.error.ecc_error.valid){
+    cc_error_cnt  := cc_error_cnt + 1.U
+    cc_error_addr := io.error.paddr.bits
+  }
 
   // replacement policy
   val replaced_way_en = UIntToOH(replacer.way(get_idx(s2_req.addr)))
@@ -644,6 +677,97 @@ class L1plusCachePipe(implicit p: Parameters) extends L1plusCacheModule
   io.inflight_req_idxes(1).bits := get_idx(s2_req.addr)
 
   io.empty := !s0_valid && !s1_valid && !s2_valid
+
+  //----------------------------
+  //    Cache Control
+  //----------------------------
+  val cc_idle :: cc_load :: cc_flush :: cc_check :: dataLoadFinish :: cc_waymask :: cc_readfinish :: Nil = Enum(6)
+  val ccstate = RegInit(cc_idle)
+
+  val cc_operation    = io.cache_ctr_io.cc_operation.bits.operation
+  val cc_valid        = io.cache_ctr_io.cc_operation.valid
+  val cc_type         = CCOperation.getOpType(cc_operation)
+  val cc_flush_way    = io.cache_ctr_io.cc_operation.bits.flush_way
+  val cc_flush_set    = io.cache_ctr_io.cc_operation.bits.flush_set
+  val cc_data_read    = io.cache_ctr_io.cc_resp.bits.resp_data
+  val cc_tag_read     = io.cache_ctr_io.cc_resp.bits.resp_meta
+
+  
+  def genNextState(cc_type: UInt): UInt = {
+    LookupTree(cc_type, List(
+      0.U     ->   cc_check,
+      1.U     ->   cc_load,
+      2.U     ->   cc_waymask,
+      3.U     ->   cc_flush
+    ))
+  }
+
+  io.cache_ctr_io.cc_resp.valid := false.B
+  io.cache_ctr_io.cc_resp.bits  <> DontCare
+  switch(ccstate){
+    is(cc_idle){ when(cc_valid) { ccstate := genNextState(cc_type) } }
+
+    is(cc_check){
+      when(CCOperation.isMetaInject(cc_operation)){ cc_meta_error := true.B }
+      .elsewhen(CCOperation.isDataInject(cc_operation)){ cc_data_error := true.B }
+      .elsewhen(CCOperation.isMetaErrAddr(cc_operation)){ 
+        io.cache_ctr_io.cc_resp.bits.meta_error_addr := cc_error_addr
+      }
+      .elsewhen(CCOperation.isMetaErrCnt(cc_operation)){ 
+         io.cache_ctr_io.cc_resp.bits.meta_error_cnt := cc_error_cnt
+      }
+      .elsewhen(CCOperation.isMetaErrCancle(cc_operation)){ cc_meta_error := false.B }
+      .elsewhen(CCOperation.isDataErrCancle(cc_operation)){ cc_data_error := false.B }
+
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
+    }
+
+    is(cc_load){
+       when(CCOperation.isMetaLoad(cc_operation)){  
+         //metaArray.io.read.valid := true.B
+         io.meta_read.valid := true.B
+         io.meta_read.bits.tagIdx   := cc_flush_set
+         io.meta_read.bits.validIdx := cc_flush_set
+         io.meta_read.bits.way_en   := ~0.U(nWays.W)
+         io.meta_read.bits.tag      := DontCare
+         ccstate := cc_readfinish
+       }
+       .elsewhen(CCOperation.isDataLoad(cc_operation)){
+         io.data_read.valid       := true.B
+         io.data_read.bits.addr   := (cc_flush_set << blockOffBits).asUInt()
+         io.data_read.bits.rmask  := ~0.U(blockRows.W)
+         io.data_read.bits.way_en := ~0.U(nWays.W)
+         ccstate := dataLoadFinish
+       }
+    }
+
+    is(dataLoadFinish){
+      ccstate :=  cc_readfinish
+    }
+
+    is(cc_readfinish){
+      (0 until blockRows).map{i => cc_data_read(i) := (data_resp(cc_flush_way).asTypeOf(Vec(blockRows, UInt(rowBits.W))))(i)}
+      cc_tag_read := meta_resp(cc_flush_way)
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
+    }
+
+    is(cc_flush){
+      io.validArray.valid := true.B 
+      io.validArray.bits :=  Cat(cc_flush_way, cc_flush_way)
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
+    }
+
+    is(cc_waymask){
+      cc_way_mask := io.cache_ctr_io.cc_operation.bits.waymask
+      ccstate := cc_idle
+      io.cache_ctr_io.cc_resp.valid := true.B
+    }
+
+  }
+
 
   // -------
   // Debug logging functions
