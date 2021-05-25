@@ -144,7 +144,7 @@ class XSSimSoC(axiSim: Boolean)(implicit p: config.Parameters) extends LazyModul
 
     io.uart <> axiMMIO.module.io.uart
     val NumCores = top.Parameters.get.socParameters.NumCores
-    soc.module.io.extIntrs := 0.U
+    soc.module.io.extIntrs := axiMMIO.module.io.interrupt.intrVec
 
     val difftest = Seq(WireInit(0.U.asTypeOf(new DiffTestIO)), WireInit(0.U.asTypeOf(new DiffTestIO)))
     val trap = Seq(WireInit(0.U.asTypeOf(new TrapIO)), WireInit(0.U.asTypeOf(new TrapIO)))

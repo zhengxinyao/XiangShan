@@ -190,7 +190,7 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
     val trapIO1 = IO(new xiangshan.TrapIO())
     val trapIO = Seq(trapIO0, trapIO1)
 
-    plic.module.io.extra.get.intrVec <> RegNext(beuSink.module.interrupt)
+    plic.module.io.extra.get.intrVec <> Cat(RegNext(beuSink.module.interrupt), io.extIntrs)
 
     for (i <- 0 until NumCores) {
       xs_core(i).module.io.hartId := i.U
