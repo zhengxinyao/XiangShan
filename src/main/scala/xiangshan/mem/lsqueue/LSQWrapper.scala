@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.mem
 
 import chipsalliance.rocketchip.config.Parameters
@@ -42,12 +57,13 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
     val flush = Input(Bool())
     val loadIn = Vec(LoadPipelineWidth, Flipped(Valid(new LsPipelineBundle)))
     val storeIn = Vec(StorePipelineWidth, Flipped(Valid(new LsPipelineBundle)))
+    val storeDataIn = Vec(StorePipelineWidth, Flipped(Valid(new StoreDataBundle))) // store data, send to sq from rs
     val loadDataForwarded = Vec(LoadPipelineWidth, Input(Bool()))
     val needReplayFromRS = Vec(LoadPipelineWidth, Input(Bool()))
     val sbuffer = Vec(StorePipelineWidth, Decoupled(new DCacheWordReq))
     val ldout = Vec(2, DecoupledIO(new ExuOutput)) // writeback int load
     val mmioStout = DecoupledIO(new ExuOutput) // writeback uncached store
-    val forward = Vec(LoadPipelineWidth, Flipped(new MaskedLoadForwardQueryIO))
+    val forward = Vec(LoadPipelineWidth, Flipped(new PipeLoadForwardQueryIO))
     val roq = Flipped(new RoqLsqIO)
     val rollback = Output(Valid(new Redirect))
     val dcache = Flipped(ValidIO(new Refill))
@@ -101,6 +117,7 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
   storeQueue.io.brqRedirect <> io.brqRedirect
   storeQueue.io.flush <> io.flush
   storeQueue.io.storeIn <> io.storeIn
+  storeQueue.io.storeDataIn <> io.storeDataIn
   storeQueue.io.sbuffer <> io.sbuffer
   storeQueue.io.mmioStout <> io.mmioStout
   storeQueue.io.roq <> io.roq

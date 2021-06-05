@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.mem
 
 import chipsalliance.rocketchip.config.Parameters
@@ -263,7 +278,7 @@ class NewSbuffer(implicit p: Parameters) extends XSModule with HasSbufferConst {
   val empty = Cat(invalidMask).andR() && !Cat(io.in.map(_.valid)).orR()
   val threshold = RegNext(io.csrCtrl.sbuffer_threshold +& 1.U)
   val validCount = PopCount(validMask)
-  val do_eviction = RegNext(validCount >= threshold, init = false.B)
+  val do_eviction = RegNext(validCount >= threshold || validCount === StoreBufferSize.U, init = false.B)
 
   XSDebug(p"validCount[$validCount]\n")
 
@@ -356,7 +371,7 @@ class NewSbuffer(implicit p: Parameters) extends XSModule with HasSbufferConst {
   if (!env.FPGAPlatform) {
     val difftest = Module(new DifftestSbufferEvent)
     difftest.io.clock := clock
-    difftest.io.coreid := 0.U
+    difftest.io.coreid := hardId.U
     difftest.io.sbufferResp := io.dcache.resp.fire()
     difftest.io.sbufferAddr := getAddr(tag(respId))
     difftest.io.sbufferData := data(respId).asTypeOf(Vec(CacheLineBytes, UInt(8.W)))
@@ -387,6 +402,7 @@ class NewSbuffer(implicit p: Parameters) extends XSModule with HasSbufferConst {
     val selectedInflightMask = Mux1H(line_offset_reg, Mux1H(inflight_tag_match_reg, mask).asTypeOf(Vec(CacheLineWords, Vec(DataBytes, Bool()))))
     val selectedInflightData = Mux1H(line_offset_reg, Mux1H(inflight_tag_match_reg, data).asTypeOf(Vec(CacheLineWords, Vec(DataBytes, UInt(8.W)))))
 
+    forward.dataInvalid := false.B // data in store line merge buffer is always ready
     for (j <- 0 until DataBytes) {
       forward.forwardMask(j) := false.B
       forward.forwardData(j) := DontCare

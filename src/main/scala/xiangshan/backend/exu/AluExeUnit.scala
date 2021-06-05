@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
   
 package xiangshan.backend.exu
 
@@ -22,8 +37,8 @@ class AluExeUnit(implicit p: Parameters) extends Exu(AluExeUnitCfg)
       p"Redirect:(${io.redirect.valid}) roqIdx:${io.redirect.bits.roqIdx}\n",
   )
   XSDebug(io.fromInt.valid,
-    p"src1:${Hexadecimal(io.fromInt.bits.src1)} src2:${Hexadecimal(io.fromInt.bits.src2)} " +
-      p"src3:${Hexadecimal(io.fromInt.bits.src3)} func:${Binary(io.fromInt.bits.uop.ctrl.fuOpType)} " +
+    p"src1:${Hexadecimal(io.fromInt.bits.src(0))} src2:${Hexadecimal(io.fromInt.bits.src(1))} " +
+      p"src3:${Hexadecimal(io.fromInt.bits.src(2))} func:${Binary(io.fromInt.bits.uop.ctrl.fuOpType)} " +
       p"pc:${Hexadecimal(io.fromInt.bits.uop.cf.pc)} roqIdx:${io.fromInt.bits.uop.roqIdx}\n"
   )
   XSDebug(io.out.valid,

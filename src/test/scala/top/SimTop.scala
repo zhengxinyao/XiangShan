@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package top
 
 import chipsalliance.rocketchip.config.{Config, Parameters}
@@ -34,7 +49,7 @@ class SimTop(implicit p: Parameters) extends Module {
 
   soc.io.clock := clock.asBool()
   soc.io.reset := reset.asBool()
-  soc.io.extIntrs := 0.U
+  soc.io.extIntrs := simMMIO.io.interrupt.intrVec
 
   val io = IO(new Bundle(){
     val logCtrl = new LogCtrlIO
@@ -71,31 +86,10 @@ class SimTop(implicit p: Parameters) extends Module {
 object SimTop extends App {
 
   override def main(args: Array[String]): Unit = {
-    val useDRAMSim = args.contains("--with-dramsim3")
-    val numCores = if(args.contains("--dual-core")) 2 else 1
-    val disableLog = args.contains("--disable-log")
-    val disablePerf = args.contains("--disable-perf")
-
-    val firrtlArgs = args.
-      filterNot(_ == "--with-dramsim3").
-      filterNot(_ == "--dual-core").
-      filterNot(_ == "--disable-log").
-      filterNot(_ == "--disable-perf")
-
-    val config = new DefaultConfig(numCores).alter((site, here, up) => {
-      case DebugOptionsKey =>
-        val default = up(DebugOptionsKey)
-        DebugOptions(
-          FPGAPlatform = false,
-          EnableDebug = if(disableLog) false else default.EnableDebug,
-          EnablePerfDebug = if(disablePerf) false else default.EnablePerfDebug,
-          UseDRAMSim = if(useDRAMSim) true else default.UseDRAMSim
-        )
-    })
-
+    val (config, firrtlOpts) = ArgParser.parse(args, fpga = false)
     // generate verilog
     XiangShanStage.execute(
-      firrtlArgs,
+      firrtlOpts,
       Seq(
         ChiselGeneratorAnnotation(() => new SimTop()(config))
       )

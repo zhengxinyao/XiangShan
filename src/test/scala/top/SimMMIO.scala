@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package top
 
 import chisel3._
@@ -18,6 +33,7 @@ class SimMMIO(edge: AXI4EdgeParameters)(implicit p: config.Parameters) extends L
     ctrlAddress = Seq(AddressSet(0x40001000L, 0x7L))
   ))
   val sd = LazyModule(new AXI4DummySD(Seq(AddressSet(0x40002000L, 0xfff))))
+  val intrGen = LazyModule(new AXI4IntrGenerator(Seq(AddressSet(0x40070000L, 0x0000ffffL))))
 
   val axiBus = AXI4Xbar()
 
@@ -25,6 +41,7 @@ class SimMMIO(edge: AXI4EdgeParameters)(implicit p: config.Parameters) extends L
   vga.node :*= axiBus
   flash.node := axiBus
   sd.node := axiBus
+  intrGen.node := axiBus
 
   axiBus := node
 
@@ -39,8 +56,10 @@ class SimMMIO(edge: AXI4EdgeParameters)(implicit p: config.Parameters) extends L
   lazy val module = new LazyModuleImp(this){
     val io = IO(new Bundle() {
       val uart = new UARTIO
+      val interrupt = new IntrGenIO
     })
     io.uart <> uart.module.io.extra.get
+    io.interrupt <> intrGen.module.io.extra.get
   }
 
 }

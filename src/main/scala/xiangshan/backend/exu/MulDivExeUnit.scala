@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.backend.exu
 
 import chipsalliance.rocketchip.config.Parameters
@@ -11,8 +26,8 @@ class MulDivExeUnit(implicit p: Parameters) extends Exu(MulDivExeUnitCfg) {
 
   val func = io.fromInt.bits.uop.ctrl.fuOpType
   val (src1, src2) = (
-    io.fromInt.bits.src1(XLEN - 1, 0),
-    io.fromInt.bits.src2(XLEN - 1, 0)
+    io.fromInt.bits.src(0)(XLEN - 1, 0),
+    io.fromInt.bits.src(1)(XLEN - 1, 0)
   )
 
   val mul = supportedFunctionUnits.collectFirst {

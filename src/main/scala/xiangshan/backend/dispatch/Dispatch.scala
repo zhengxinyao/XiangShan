@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.backend.dispatch
 
 import chipsalliance.rocketchip.config.Parameters
@@ -50,6 +65,9 @@ class Dispatch(implicit p: Parameters) extends XSModule {
       val fpIndex = Vec(exuParameters.FpExuCnt, Output(UInt(log2Ceil((NRFpReadPorts - exuParameters.StuCnt) / 3).W)))
       // ls: hardwired to (0, 1, 2, 4)
     }
+    val csrCtrl = Input(new CustomCSRCtrlIO)
+    // LFST state sync
+    val storeIssue = Vec(StorePipelineWidth, Flipped(Valid(new ExuInput)))
     val ctrlInfo = new Bundle {
       val roqFull   = Output(Bool())
       val intdqFull = Output(Bool())
@@ -80,6 +98,10 @@ class Dispatch(implicit p: Parameters) extends XSModule {
   dispatch1.io.toFpDq <> fpDq.io.enq
   dispatch1.io.toLsDq <> lsDq.io.enq
   dispatch1.io.allocPregs <> io.allocPregs
+  dispatch1.io.csrCtrl <> io.csrCtrl
+  dispatch1.io.storeIssue <> io.storeIssue
+  dispatch1.io.redirect <> io.redirect
+  dispatch1.io.flush <> io.flush
 
   // dispatch queue: queue uops and dispatch them to different reservation stations or issue queues
   // it may cancel the uops
@@ -126,6 +148,7 @@ class Dispatch(implicit p: Parameters) extends XSModule {
   io.ctrlInfo.fpdqFull := fpDq.io.dqFull
   io.ctrlInfo.lsdqFull := lsDq.io.dqFull
 
+  val enableDetailedRegfilePortsPerf = true
   val intPortsNeeded = intDispatch.io.enqIQCtrl.map(enq => PopCount((0 until 2).map(i => enq.bits.needRfRPort(i, 0))))
   val fpPortsNeeded = fpDispatch.io.enqIQCtrl.map(enq => PopCount((0 until 3).map(i => enq.bits.needRfRPort(i, 1))))
   val lsPortsNeededInt = lsDispatch.io.enqIQCtrl.map(enq => PopCount((0 until 2).map(i => enq.bits.needRfRPort(i, 0))))
@@ -145,6 +168,12 @@ class Dispatch(implicit p: Parameters) extends XSModule {
   XSPerfAccumulate("fp_rf_active_ports_fp", fpActivePorts)
   XSPerfAccumulate("fp_rf_active_ports_ls", lsActivePortsFp)
   XSPerfAccumulate("fp_rf_active_ports_all", activePortsFpAll)
-  XSPerfHistogram("int_rf_active_ports_all", activePortsIntAll, true.B, 0, 14, 1)
-  XSPerfHistogram("fp_rf_active_ports_all", activePortsFpAll, true.B, 0, 14, 1)
+  if (enableDetailedRegfilePortsPerf) {
+    XSPerfHistogram("int_rf_active_ports_all", activePortsIntAll, true.B, 0, 14+1, 1)
+    XSPerfHistogram("fp_rf_active_ports_all", activePortsFpAll, true.B, 0, 14+1, 1)
+    XSPerfHistogram("int_rf_active_ports_int", intActivePorts, true.B, 0, 8+1, 1)
+    XSPerfHistogram("int_rf_active_ports_ls", lsActivePortsInt, true.B, 0, 6+1, 1)
+    XSPerfHistogram("fp_rf_active_ports_fp", fpActivePorts, true.B, 0, 12+1, 1)
+    XSPerfHistogram("fp_rf_active_ports_ls", lsActivePortsFp, true.B, 0, 2+1, 1)
+  }
 }

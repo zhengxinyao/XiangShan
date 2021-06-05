@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package system
 
 import chipsalliance.rocketchip.config.{Field, Parameters}
@@ -12,12 +27,13 @@ case class SoCParameters
 (
   cores: List[XSCoreParameters],
   EnableILA: Boolean = false,
-  extIntrs: Int = 150
+  extIntrs: Int = 150,
+  useFakeL3Cache: Boolean = false,
+  L3Size: Int = 4 * 1024 * 1024 // 4MB
 ){
   val PAddrBits = cores.map(_.PAddrBits).reduce((x, y) => if(x > y) x else y)
   // L3 configurations
   val L3InnerBusWidth = 256
-  val L3Size = 4 * 1024 * 1024 // 4MB
   val L3BlockSize = 64
   val L3NBanks = 4
   val L3NWays = 8
@@ -36,6 +52,7 @@ trait HasSoCParameter {
   val EnableILA = soc.EnableILA
 
   // L3 configurations
+  val useFakeL3Cache = soc.useFakeL3Cache
   val L3InnerBusWidth = soc.L3InnerBusWidth
   val L3Size = soc.L3Size
   val L3BlockSize = soc.L3BlockSize

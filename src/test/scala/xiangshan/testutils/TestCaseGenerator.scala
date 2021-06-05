@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.testutils
 
 import chisel3._
@@ -35,8 +50,8 @@ object TestCaseGenerator {
 
   def genAluInput(fuOpType: UInt)(x: => ExuInput, src1: Long, src2: Long, imm: Long): ExuInput = {
     chiselTypeOf(x).Lit(
-      _.src1 -> src1.U,
-      _.src2 -> src2.U,
+      _.src(0) -> src1.U,
+      _.src(1) -> src2.U,
       _.uop.ctrl.imm -> imm.U,
       _.uop.ctrl.fuOpType -> fuOpType
     )
@@ -52,8 +67,8 @@ object TestCaseGenerator {
    */
   def genLsuInput(fuOpType: UInt)(x: => ExuInput, base: Long, offset: Long, stData: Long): ExuInput ={
     chiselTypeOf(x).Lit(
-      _.src1 -> base.U,
-      _.src2 -> stData.U,
+      _.src(0) -> base.U,
+      _.src(1) -> stData.U,
       _.uop.ctrl.imm -> offset.U,
       _.uop.ctrl.fuOpType -> fuOpType
     )

@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.backend.exu
 
 import chipsalliance.rocketchip.config.Parameters
@@ -56,6 +71,7 @@ class Wb(cfgs: Seq[ExuConfig], numOut: Int, isFp: Boolean)(implicit p: Parameter
   val directConnect = io.in.zip(priorities).filter(x => x._2 == 0).map(_._1)
   val mulReq = io.in.zip(priorities).filter(x => x._2 == 1).map(_._1)
   val otherReq = io.in.zip(priorities).filter(x => x._2 > 1).map(_._1)
+  // NOTE: 0 for direct connect; 1 for shared connect but non-blocked; other for shared and may blocked
 
   val portUsed = directConnect.size + mulReq.size
   require(portUsed <= numOut)

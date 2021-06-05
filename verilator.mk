@@ -1,3 +1,18 @@
+#***************************************************************************************
+# Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+#
+# XiangShan is licensed under Mulan PSL v2.
+# You can use this software according to the terms and conditions of the Mulan PSL v2.
+# You may obtain a copy of Mulan PSL v2 at:
+#          http://license.coscl.org.cn/MulanPSL2
+#
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+# EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+# MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+#
+# See the Mulan PSL v2 for more details.
+#***************************************************************************************
+
 EMU_TOP      = SimTop
 
 EMU_CSRC_DIR = $(abspath ./src/test/csrc/verilator)
@@ -8,6 +23,11 @@ EMU_LDFLAGS  += -lpthread -lSDL2 -ldl -lz
 
 EMU_VFILES    = $(SIM_VSRC)
 
+CCACHE := $(if $(shell which ccache),ccache,)
+ifneq ($(CCACHE),)
+export OBJCACHE = ccache
+endif
+
 VEXTRA_FLAGS  = -I$(abspath $(BUILD_DIR)) --x-assign unique -O3 -CFLAGS "$(EMU_CXXFLAGS)" -LDFLAGS "$(EMU_LDFLAGS)"
 
 # Verilator trace support
@@ -17,8 +37,8 @@ VEXTRA_FLAGS += --trace
 endif
 
 # Verilator multi-thread support
-EMU_THREADS  ?= 1
-ifneq ($(EMU_THREADS),1)
+EMU_THREADS  ?= 0
+ifneq ($(EMU_THREADS),0)
 VEXTRA_FLAGS += --threads $(EMU_THREADS) --threads-dpi all
 endif
 
@@ -60,6 +80,7 @@ VERILATOR_FLAGS =                   \
   +define+RANDOMIZE_MEM_INIT        \
   +define+RANDOMIZE_GARBAGE_ASSIGN  \
   +define+RANDOMIZE_DELAY=0         \
+  -Wno-STMTDLY -Wno-WIDTH           \
   $(VEXTRA_FLAGS)                   \
   --assert                          \
   --stats-vars                      \
@@ -68,7 +89,9 @@ VERILATOR_FLAGS =                   \
 
 EMU_MK := $(BUILD_DIR)/emu-compile/V$(EMU_TOP).mk
 EMU_DEPS := $(EMU_VFILES) $(EMU_CXXFILES)
-EMU_HEADERS := $(shell find $(EMU_CSRC_DIR) -name "*.h")
+EMU_HEADERS := $(shell find $(EMU_CSRC_DIR) -name "*.h")     \
+               $(shell find $(SIM_CSRC_DIR) -name "*.h")     \
+               $(shell find $(DIFFTEST_CSRC_DIR) -name "*.h")
 EMU := $(BUILD_DIR)/emu
 
 $(EMU_MK): $(SIM_TOP_V) | $(EMU_DEPS)
@@ -80,20 +103,25 @@ $(EMU_MK): $(SIM_TOP_V) | $(EMU_DEPS)
 
 LOCK = /var/emu/emu.lock
 LOCK_BIN = $(abspath $(BUILD_DIR)/lock-emu)
+EMU_COMPILE_FILTER =
+# 2> $(BUILD_DIR)/g++.err.log | tee $(BUILD_DIR)/g++.out.log | grep 'g++' | awk '{print "Compiling/Generating", $$NF}'
+
+build_emu_local: $(EMU_MK)
+	@echo "\n[g++] Compiling C++ files..." >> $(TIMELOG)
+	@date -R | tee -a $(TIMELOG)
+	$(TIME_CMD) $(MAKE) VM_PARALLEL_BUILDS=1 OPT_FAST="-O3" -C $(<D) -f $(<F) $(EMU_COMPILE_FILTER)
 
 $(LOCK_BIN): ./scripts/utils/lock-emu.c
 	gcc $^ -o $@
 
 $(EMU): $(EMU_MK) $(EMU_DEPS) $(EMU_HEADERS) $(REF_SO) $(LOCK_BIN)
-	@echo "\n[g++] Compiling C++ files..." >> $(TIMELOG)
-	@date -R | tee -a $(TIMELOG)
 ifeq ($(REMOTE),localhost)
-	CPPFLAGS=-DREF_SO=\\\"$(REF_SO)\\\" $(TIME_CMD) $(MAKE) VM_PARALLEL_BUILDS=1 OPT_FAST="-O3" -C $(abspath $(dir $(EMU_MK))) -f $(abspath $(EMU_MK)) 2> $(BUILD_DIR)/g++.log
+	$(MAKE) build_emu_local
 else
 	@echo "try to get emu.lock ..."
 	ssh -tt $(REMOTE) '$(LOCK_BIN) $(LOCK)'
 	@echo "get lock"
-	$(TIME_CMD) ssh -tt $(REMOTE) 'CPPFLAGS=-DREF_SO=\\\"$(REF_SO)\\\" $(MAKE) -j230 VM_PARALLEL_BUILDS=1 OPT_FAST="-O3" -C $(abspath $(dir $(EMU_MK))) -f $(abspath $(EMU_MK))'
+	ssh -tt $(REMOTE) 'export NOOP_HOME=$(NOOP_HOME); export NEMU_HOME=$(NEMU_HOME); $(MAKE) -C $(NOOP_HOME) -j230 build_emu_local'
 	@echo "release lock ..."
 	ssh -tt $(REMOTE) 'rm -f $(LOCK)'
 endif
@@ -109,11 +137,16 @@ endif
 EMU_FLAGS = -s $(SEED) -b $(B) -e $(E) $(SNAPSHOT_OPTION) $(WAVEFORM) $(EMU_ARGS)
 
 emu: $(EMU)
+
+emu-run: emu
+ifneq ($(REMOTE),localhost)
 	ls build
-	$(EMU) -i $(IMAGE) $(EMU_FLAGS)
+endif
+	$(EMU) -i $(IMAGE) --diff=$(REF_SO) $(EMU_FLAGS)
 
 coverage:
 	verilator_coverage --annotate build/logs/annotated --annotate-min 1 build/logs/coverage.dat
 	python3 scripts/coverage/coverage.py build/logs/annotated/XSSimTop.v build/XSSimTop_annotated.v
 	python3 scripts/coverage/statistics.py build/XSSimTop_annotated.v >build/coverage.log
 
+.PHONY: build_emu_local

@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan
 
 import chisel3._
@@ -78,11 +93,11 @@ object AddressSpace {
   def MemMapList = SimpleMemMapList
 
   def printMemmap(){
-    println("-------------------- memory map --------------------")
+    println("\nMemory map:")
     for(i <- MemMapList){
       println("[" + i._1._1 + " -> " + i._1._2 + "] Width:" + (if(i._2.get("width").get == "h0") "unlimited" else i._2.get("width").get) + " Description:" + i._2.get("description").get + " [" + i._2.get("mode").get + "]")
     }
-    println("----------------------------------------------------")
+    println("")
   }
 
   def checkMemmap(){

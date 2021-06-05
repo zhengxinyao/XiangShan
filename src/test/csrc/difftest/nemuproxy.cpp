@@ -1,17 +1,44 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 #include "nemuproxy.h"
 #include <unistd.h>
 #include <dlfcn.h>
 
 uint8_t* goldenMem;
-
-#ifndef REF_SO
-# error Please define REF_SO to the path of NEMU shared object file
-#endif
+const char *difftest_ref_so = NULL;
 
 NemuProxy::NemuProxy(int coreid) {
-  puts("Using " REF_SO " for difftest");
+  if (difftest_ref_so == NULL) {
+    printf("--diff is not given, "
+        "try to use $(NEMU_HOME)/build/riscv64-nemu-interpreter-so by default\n");
+    const char *nemu_home = getenv("NEMU_HOME");
+    if (nemu_home == NULL) {
+      printf("FATAL: $(NEMU_HOME) is not defined!\n");
+      exit(1);
+    }
+    const char *so = "/build/riscv64-nemu-interpreter-so";
+    char *buf = (char *)malloc(strlen(nemu_home) + strlen(so) + 1);
+    strcpy(buf, nemu_home);
+    strcat(buf, so);
+    difftest_ref_so = buf;
+  }
 
-  void *handle = dlmopen(LM_ID_NEWLM, REF_SO, RTLD_LAZY | RTLD_DEEPBIND);
+  printf("Using %s for difftest\n", difftest_ref_so);
+
+  void *handle = dlmopen(LM_ID_NEWLM, difftest_ref_so, RTLD_LAZY | RTLD_DEEPBIND);
   assert(handle);
 
   memcpy_from_dut = (void (*)(paddr_t, void *, size_t))dlsym(handle, "difftest_memcpy_from_dut");
@@ -54,11 +81,12 @@ NemuProxy::NemuProxy(int coreid) {
   assert(isa_reg_display);
 
   auto nemu_difftest_set_mhartid = (void (*)(int))dlsym(handle, "difftest_set_mhartid");
-  // assert(nemu_difftest_set_mhartid);
   auto nemu_misc_put_gmaddr = (void (*)(void*))dlsym(handle, "misc_put_gmaddr");
-  // assert(nemu_misc_put_gmaddr);
-  auto nemu_init = (void (*)(void))dlsym(handle, "difftest_init");
-  assert(nemu_init);
+
+  if (EMU_CORES > 1) {
+    assert(nemu_difftest_set_mhartid);
+    assert(nemu_misc_put_gmaddr);
+  }
 
   if (nemu_difftest_set_mhartid) {
     nemu_difftest_set_mhartid(coreid);
@@ -66,6 +94,10 @@ NemuProxy::NemuProxy(int coreid) {
   if (nemu_misc_put_gmaddr) {
     nemu_misc_put_gmaddr(goldenMem);
   }
+
+  auto nemu_init = (void (*)(void))dlsym(handle, "difftest_init");
+  assert(nemu_init);
+
   nemu_init();
 }
 

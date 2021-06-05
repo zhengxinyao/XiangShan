@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.backend.fu
 
 import chipsalliance.rocketchip.config.Parameters
@@ -14,7 +29,7 @@ import xiangshan.backend.fu.util.CSA3_2
   */
 class SRT4DividerDataModule(len: Int) extends Module {
   val io = IO(new Bundle() {
-    val src1, src2 = Input(UInt(len.W))
+    val src = Vec(2, Input(UInt(len.W)))
     val valid, sign, kill_w, kill_r, isHi, isW = Input(Bool())
     val in_ready = Output(Bool())
     val out_valid = Output(Bool())
@@ -23,7 +38,7 @@ class SRT4DividerDataModule(len: Int) extends Module {
   })
 
   val (a, b, sign, valid, kill_w, kill_r, isHi, isW) =
-    (io.src1, io.src2, io.sign, io.valid, io.kill_w, io.kill_r, io.isHi, io.isW)
+    (io.src(0), io.src(1), io.sign, io.valid, io.kill_w, io.kill_r, io.isHi, io.isW)
   val in_fire = valid && io.in_ready
   val out_fire = io.out_ready && io.out_valid
 
@@ -267,8 +282,8 @@ class SRT4Divider(len: Int)(implicit p: Parameters) extends AbstractDivider(len)
   val kill_w = uop.roqIdx.needFlush(io.redirectIn, io.flushIn)
   val kill_r = !divDataModule.io.in_ready && uopReg.roqIdx.needFlush(io.redirectIn, io.flushIn)
 
-  divDataModule.io.src1 := io.in.bits.src(0)
-  divDataModule.io.src2 := io.in.bits.src(1)
+  divDataModule.io.src(0) := io.in.bits.src(0)
+  divDataModule.io.src(1) := io.in.bits.src(1)
   divDataModule.io.valid := io.in.valid
   divDataModule.io.sign := sign
   divDataModule.io.kill_w := kill_w

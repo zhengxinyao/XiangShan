@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 #ifndef __DIFFTEST_H__
 #define __DIFFTEST_H__
 
@@ -21,8 +36,8 @@ typedef struct {
   uint8_t  valid = 0;
   uint8_t  code;
   uint64_t pc;
-  uint64_t cycleCnt;
-  uint64_t instrCnt;
+  uint64_t cycleCnt = 0;
+  uint64_t instrCnt = 0;
 } trap_event_t;
 
 // architectural events: interrupts and exceptions
@@ -137,7 +152,7 @@ public:
     retire_group_cnt_queue[retire_group_pointer] = count;
     retire_group_pointer = (retire_group_pointer + 1) % DEBUG_GROUP_TRACE_SIZE;
   };
-  void record_inst(uint64_t pc, uint32_t inst, uint8_t en, uint8_t dest, uint8_t data) {
+  void record_inst(uint64_t pc, uint32_t inst, uint8_t en, uint8_t dest, uint64_t data) {
     retire_inst_pc_queue   [retire_inst_pointer] = pc;
     retire_inst_inst_queue [retire_inst_pointer] = inst;
     retire_inst_wen_queue  [retire_inst_pointer] = en;
@@ -153,7 +168,7 @@ public:
     retire_inst_type_queue[retire_inst_pointer] = abnormal_type;
     retire_inst_pointer = (retire_inst_pointer + 1) % DEBUG_INST_TRACE_SIZE;
   };
-  void display();
+  void display(int coreid);
 
 private:
   const static size_t DEBUG_GROUP_TRACE_SIZE = 16;
@@ -178,6 +193,7 @@ public:
   // Its backend should be cross-platform (NEMU, Spike, ...)
   // Initialize difftest environments
   Difftest(int coreid);
+  DIFF_PROXY *proxy;
   uint32_t num_commit = 0; // # of commits if made progress
   // Trigger a difftest checking procdure
   int step();
@@ -229,7 +245,6 @@ private:
   int id;
   difftest_core_state_t dut;
   difftest_core_state_t ref;
-  DIFF_PROXY *proxy;
   uint64_t *ref_regs_ptr = (uint64_t*)&ref.regs;
   uint64_t *dut_regs_ptr = (uint64_t*)&dut.regs;
 
@@ -248,7 +263,7 @@ private:
   void do_exception();
   void do_instr_commit(int index);
   int do_store_check();
-  int do_golden_memory_check();
+  int do_golden_memory_update();
   // inline uint64_t *ref_regs_ptr() { return (uint64_t*)&ref.regs; }
   // inline uint64_t *dut_regs_ptr() { return (uint64_t*)&dut.regs; }
 

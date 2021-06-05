@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.backend
 
 import chipsalliance.rocketchip.config.Parameters
@@ -5,7 +20,7 @@ import chisel3._
 import chisel3.util._
 import utils._
 import xiangshan._
-import xiangshan.backend.decode.{DecodeStage, ImmUnion, WaitTableParameters}
+import xiangshan.backend.decode.{DecodeStage, ImmUnion}
 import xiangshan.backend.rename.{BusyTable, Rename}
 import xiangshan.backend.dispatch.Dispatch
 import xiangshan.backend.exu._
@@ -38,13 +53,13 @@ class CtrlToFpBlockIO(implicit p: Parameters) extends XSBundle {
 class CtrlToLsBlockIO(implicit p: Parameters) extends XSBundle {
   val enqIqCtrl = Vec(exuParameters.LsExuCnt, DecoupledIO(new MicroOp))
   val enqLsq = Flipped(new LsqEnqIO)
-  val waitTableUpdate = Vec(StorePipelineWidth, Input(new WaitTableUpdateReq))
+  val memPredUpdate = Vec(StorePipelineWidth, Input(new MemPredUpdateReq))
   val redirect = ValidIO(new Redirect)
   val flush = Output(Bool())
 }
 
 class RedirectGenerator(implicit p: Parameters) extends XSModule
-  with HasCircularQueuePtrHelper with WaitTableParameters with HasFtqHelper {
+  with HasCircularQueuePtrHelper with HasFtqHelper {
   val numRedirect = exuParameters.JmpCnt + exuParameters.AluCnt
   val io = IO(new Bundle() {
     val exuMispredict = Vec(numRedirect, Flipped(ValidIO(new ExuOutput)))
@@ -54,7 +69,8 @@ class RedirectGenerator(implicit p: Parameters) extends XSModule
     val stage2FtqRead = new FtqRead
     val stage2Redirect = ValidIO(new Redirect)
     val stage3Redirect = ValidIO(new Redirect)
-    val waitTableUpdate = Output(new WaitTableUpdateReq)
+    val memPredUpdate = Output(new MemPredUpdateReq)
+    val memPredFtqRead = new FtqRead // read req send form stage 2
   })
   /*
         LoadQueue  Jump  ALU0  ALU1  ALU2  ALU3   exception    Stage1
@@ -143,12 +159,26 @@ class RedirectGenerator(implicit p: Parameters) extends XSModule
     )
   )
 
-  // update waittable if load violation redirect triggered
-  io.waitTableUpdate.valid := RegNext(s1_isReplay && s1_redirect_valid_reg, init = false.B)
-  io.waitTableUpdate.waddr := RegNext(XORFold(real_pc(VAddrBits-1, 1), WaitTableAddrWidth))
-  io.waitTableUpdate.wdata := true.B
+  // get pc from ftq
+  io.memPredFtqRead.ptr := s1_redirect_bits_reg.stFtqIdx
+  // valid only if redirect is caused by load violation
+  // store_pc is used to update store set
+  val memPredFtqRead = io.memPredFtqRead.entry
+  val store_pc = GetPcByFtq(memPredFtqRead.ftqPC, RegNext(s1_redirect_bits_reg).stFtqOffset,
+    memPredFtqRead.lastPacketPC.valid,
+    memPredFtqRead.lastPacketPC.bits
+  )
 
-  io.stage2FtqRead.ptr := s1_redirect_bits_reg.ftqIdx
+  // update load violation predictor if load violation redirect triggered
+  io.memPredUpdate.valid := RegNext(s1_isReplay && s1_redirect_valid_reg, init = false.B)
+  // update wait table
+  io.memPredUpdate.waddr := RegNext(XORFold(real_pc(VAddrBits-1, 1), MemPredPCWidth))
+  io.memPredUpdate.wdata := true.B
+  // update store set
+  io.memPredUpdate.ldpc := RegNext(XORFold(real_pc(VAddrBits-1, 1), MemPredPCWidth))
+  // store pc is ready 1 cycle after s1_isReplay is judged
+  io.memPredUpdate.stpc := XORFold(store_pc(VAddrBits-1, 1), MemPredPCWidth)
+
 
   val s2_br_mask = RegEnable(ftqRead.br_mask, enable = s1_redirect_valid_reg)
   val s2_sawNotTakenBranch = RegEnable(VecInit((0 until PredictWidth).map{ i =>
@@ -243,7 +273,8 @@ class CtrlBlock(implicit p: Parameters) extends XSModule
     init = false.B
   )
   loadReplay.bits := RegEnable(io.fromLsBlock.replay.bits, io.fromLsBlock.replay.valid)
-  VecInit(ftq.io.ftqRead.tail.dropRight(1)) <> redirectGen.io.stage1FtqRead
+  VecInit(ftq.io.ftqRead.tail.dropRight(2)) <> redirectGen.io.stage1FtqRead
+  ftq.io.ftqRead.dropRight(1).last <> redirectGen.io.memPredFtqRead
   ftq.io.cfiRead <> redirectGen.io.stage2FtqRead
   redirectGen.io.exuMispredict <> exuRedirect
   redirectGen.io.loadReplay <> loadReplay
@@ -289,10 +320,10 @@ class CtrlBlock(implicit p: Parameters) extends XSModule
 
   decode.io.in <> io.frontend.cfVec
   // currently, we only update wait table when isReplay
-  decode.io.waitTableUpdate(0) <> RegNext(redirectGen.io.waitTableUpdate)
-  decode.io.waitTableUpdate(1) := DontCare
-  decode.io.waitTableUpdate(1).valid := false.B
-  // decode.io.waitTableUpdate <> io.toLsBlock.waitTableUpdate
+  decode.io.memPredUpdate(0) <> RegNext(redirectGen.io.memPredUpdate)
+  decode.io.memPredUpdate(1) := DontCare
+  decode.io.memPredUpdate(1).valid := false.B
+  // decode.io.memPredUpdate <> io.toLsBlock.memPredUpdate
   decode.io.csrCtrl := RegNext(io.csrCtrl)
 
 
@@ -336,6 +367,8 @@ class CtrlBlock(implicit p: Parameters) extends XSModule
   dispatch.io.numExist <> io.fromIntBlock.numExist ++ io.fromFpBlock.numExist ++ io.fromLsBlock.numExist
   dispatch.io.enqIQCtrl <> io.toIntBlock.enqIqCtrl ++ io.toFpBlock.enqIqCtrl ++ io.toLsBlock.enqIqCtrl
 //  dispatch.io.enqIQData <> io.toIntBlock.enqIqData ++ io.toFpBlock.enqIqData ++ io.toLsBlock.enqIqData
+  dispatch.io.csrCtrl <> io.csrCtrl
+  dispatch.io.storeIssue <> io.fromLsBlock.stIn
 
 
   fpBusyTable.io.flush := flushReg

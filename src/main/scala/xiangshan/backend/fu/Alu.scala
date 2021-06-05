@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.backend.fu
 
 import chipsalliance.rocketchip.config.Parameters
@@ -8,18 +23,18 @@ import xiangshan._
 
 class AddModule(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
-    val src1, src2 = Input(UInt(XLEN.W))
+    val src = Vec(2, Input(UInt(XLEN.W)))
     val out = Output(UInt((XLEN+1).W))
   })
-  io.out := io.src1 +& io.src2
+  io.out := io.src(0) +& io.src(1)
 }
 
 class SubModule(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
-    val src1, src2 = Input(UInt(XLEN.W))
+    val src = Vec(2, Input(UInt(XLEN.W)))
     val out = Output(UInt((XLEN+1).W))
   })
-  io.out := (io.src1 +& (~io.src2).asUInt()) + 1.U
+  io.out := (io.src(0) +& (~io.src(1)).asUInt()) + 1.U
 }
 
 class LeftShiftModule(implicit p: Parameters) extends XSModule {
@@ -80,21 +95,21 @@ class AluResSel(implicit p: Parameters) extends XSModule {
 
 class AluDataModule(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
-    val src1, src2 = Input(UInt(XLEN.W))
+    val src = Vec(2, Input(UInt(XLEN.W)))
     val func = Input(FuOpType())
     val pred_taken, isBranch = Input(Bool())
     val result = Output(UInt(XLEN.W))
     val taken, mispredict = Output(Bool())
   })
-  val (src1, src2, func) = (io.src1, io.src2, io.func)
+  val (src1, src2, func) = (io.src(0), io.src(1), io.func)
 
   val isAdderSub = (func =/= ALUOpType.add) && (func =/= ALUOpType.addw)
   val addModule = Module(new AddModule)
-  addModule.io.src1 := src1
-  addModule.io.src2 := src2
+  addModule.io.src(0) := src1
+  addModule.io.src(1) := src2
   val subModule = Module(new SubModule)
-  subModule.io.src1 := src1
-  subModule.io.src2 := src2
+  subModule.io.src(0) := src1
+  subModule.io.src(1) := src2
   val addRes = addModule.io.out
   val subRes = subModule.io.out
   val xorRes = src1 ^ src2
@@ -164,8 +179,8 @@ class Alu(implicit p: Parameters) extends FunctionUnit with HasRedirectOut {
   val isBranch = ALUOpType.isBranch(func)
   val dataModule = Module(new AluDataModule)
 
-  dataModule.io.src1 := src1
-  dataModule.io.src2 := src2
+  dataModule.io.src(0) := src1
+  dataModule.io.src(1) := src2
   dataModule.io.func := func
   dataModule.io.pred_taken := uop.cf.pred_taken
   dataModule.io.isBranch := isBranch

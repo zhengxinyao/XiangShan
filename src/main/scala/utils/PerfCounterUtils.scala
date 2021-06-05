@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package utils
 
 import chipsalliance.rocketchip.config.Parameters
@@ -20,7 +35,7 @@ object XSPerfAccumulate {
       counter := Mux(perfClean, 0.U, next_counter)
 
       when (perfDump) {
-        XSLog(XSLogLevel.PERF)(true, true.B, p"$perfName, $next_counter\n")
+        XSPerfPrint(p"$perfName, $next_counter\n")
       }
     }
   }
@@ -66,7 +81,7 @@ object XSPerfHistogram {
         }
 
         when (perfDump) {
-          XSLog(XSLogLevel.PERF)(true, true.B, p"${perfName}_${binRangeStart}_${binRangeStop}, $counter\n")
+          XSPerfPrint(p"${perfName}_${binRangeStart}_${binRangeStop}, $counter\n")
         }
       }
     }
@@ -88,7 +103,7 @@ object XSPerfMax {
       max := Mux(perfClean, 0.U, next_max)
 
       when (perfDump) {
-        XSLog(XSLogLevel.PERF)(true, true.B, p"${perfName}_max, $next_max\n")
+        XSPerfPrint(p"${perfName}_max, $next_max\n")
       }
     }
   }
@@ -116,5 +131,11 @@ object TransactionLatencyCounter
     val next_counter = counter + 1.U
     counter := Mux(start || stop, 0.U, next_counter)
     (stop, next_counter)
+  }
+}
+
+object XSPerfPrint {
+  def apply(pable: Printable)(implicit p: Parameters): Any = {
+    XSLog(XSLogLevel.PERF)(true, true.B, pable)
   }
 }

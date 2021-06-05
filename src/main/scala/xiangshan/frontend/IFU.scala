@@ -1,3 +1,18 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
 package xiangshan.frontend
 
 import chipsalliance.rocketchip.config.Parameters
@@ -9,7 +24,6 @@ import xiangshan.cache._
 import chisel3.experimental.chiselName
 import freechips.rocketchip.tile.HasLazyRoCC
 import xiangshan.backend.ftq.FtqPtr
-import xiangshan.backend.decode.WaitTableParameters
 import system.L1CacheErrorInfo
 
 trait HasInstrMMIOConst extends HasXSParameter with HasIFUConst{
@@ -99,7 +113,7 @@ class PrevHalfInstr(implicit p: Parameters) extends XSBundle {
 }
 
 @chiselName
-class IFU(implicit p: Parameters) extends XSModule with HasIFUConst with HasCircularQueuePtrHelper with WaitTableParameters
+class IFU(implicit p: Parameters) extends XSModule with HasIFUConst with HasCircularQueuePtrHelper
 {
   val io = IO(new IFUIO)
   val bpu = BPU(EnableBPU)
@@ -454,7 +468,7 @@ class IFU(implicit p: Parameters) extends XSModule with HasIFUConst with HasCirc
     val sawNTBr = b.sawNotTakenBranch
     val isBr = b.pd.isBr
     val taken = Mux(isMisPred, b.taken, b.predTaken)
-    val updatedGh = oldGh.update(sawNTBr, isBr && taken)
+    val updatedGh = oldGh.update(sawNTBr || isBr, isBr && taken)
     final_gh := updatedGh
     if1_gh := updatedGh
   }
@@ -519,7 +533,7 @@ class IFU(implicit p: Parameters) extends XSModule with HasIFUConst with HasCirc
   fetchPacketWire.instrs := expandedInstrs
 
   fetchPacketWire.pc := if4_pd.pc
-  fetchPacketWire.foldpc := if4_pd.pc.map(i => XORFold(i(VAddrBits-1,1), WaitTableAddrWidth))
+  fetchPacketWire.foldpc := if4_pd.pc.map(i => XORFold(i(VAddrBits-1,1), MemPredPCWidth))
 
   fetchPacketWire.pdmask := if4_pd.mask
   fetchPacketWire.pd := if4_pd.pd
