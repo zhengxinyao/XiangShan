@@ -8,5 +8,5 @@ class TLBInterfaceBase(width: Int) {
   var ptwReq: Option[LitPtwReq] = None
   var ptwResp: Option[LitPtwResp] = None
   var sfence: Option[LitSfenceBundle] = None
-  val csr: LitTlbCsrBundle = new LitTlbCsrBundle()
+  var csr: LitTlbCsrBundle = new LitTlbCsrBundle()
 }

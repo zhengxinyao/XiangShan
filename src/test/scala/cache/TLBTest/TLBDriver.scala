@@ -26,12 +26,14 @@ class TLBDriver(isDtlb: Boolean, tlbWidth: Int) extends TestComponentBase(ID = 1
   var ptwRespPort: Option[(BigInt, PTWCalleeTransaction)] = None
 
   def pokeCsr(sequencer: TLBSequencer): Unit = {
-    //TODO
+    val optCsr = sequencer.changeCsr()
+    if (optCsr.isDefined)
+      tlbDriverIf.csr = optCsr.get
   }
 
   //let seq to decide whether flush tlb and the reqs in sfence cycles (if is DTLB)
   def pokeSfence(sequencer: TLBSequencer): Unit = {
-    //TODO
+    tlbDriverIf.sfence = sequencer.decideSfence()
   }
 
   def pokeTlbReq(sequencer: TLBSequencer): Unit = {
@@ -63,7 +65,7 @@ class TLBDriver(isDtlb: Boolean, tlbWidth: Int) extends TestComponentBase(ID = 1
     //call sequencer to issue, put PTW resp on the output port
     if (ptwRespPort.isEmpty) {
       val idPtwT = sequencer.issuePtwRespTrans()
-      if (idPtwT.isDefined){
+      if (idPtwT.isDefined) {
         tlbDriverIf.ptwResp = idPtwT.get._2.resp
         ptwRespPort = idPtwT
       }

@@ -99,6 +99,14 @@ class LitTlbCsrBundle(
                        var privDmode: BigInt = 0,
                      )
 
+trait LitRVMode {
+  val mmode = BigInt(3)
+  val smode = BigInt(1)
+  val umode = BigInt(0)
+}
+trait TlbCsrConst extends LitRVMode {
+}
+
 /*
   level 0  /* vpnn2 */
   level 1  /* vpnn2 * vpnn1 */

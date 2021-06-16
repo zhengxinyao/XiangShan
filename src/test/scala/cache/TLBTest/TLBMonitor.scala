@@ -6,11 +6,6 @@ import xiangshan.cache.TlbPermBundle
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-trait LitRVMode {
-  val mmode = BigInt(2)
-  val smode = BigInt(1)
-  val umode = BigInt(0)
-}
 
 trait pageParam extends LitTlbCmd with LitRVMode {
   val ptePermOffset = 0
@@ -236,6 +231,7 @@ class TLBMonitor(isDtlb: Boolean, tlbWidth: Int, ID: Int = 0, name: String = "TL
       pte.ppn = resp.entry.ppn
       pte.perm.copyVals(resp.entry.perm)
       tlbScoreBoard(req.vpn) = pte
+      ptwQueryingVPN.remove(id)
     }
   }
 

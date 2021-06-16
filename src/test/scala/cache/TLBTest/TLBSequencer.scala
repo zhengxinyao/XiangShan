@@ -12,6 +12,24 @@ class TLBSequencer(isDtlb: Boolean, tlbWidth: Int, ID: Int = 2, name: String = "
   val tlbTransList: ListBuffer[TLBCallerTransaction] = ListBuffer()
   val ptwTransList: ListBuffer[(BigInt, PTWCalleeTransaction)] = ListBuffer()
 
+  def changeCsr(): Option[LitTlbCsrBundle] = {
+    //TODO
+    val csr = new LitTlbCsrBundle()
+    csr.privDmode = umode
+    csr.privImode = umode
+    csr.privSum = false
+    csr.privMxr = false
+    csr.satpPpn = 0
+    csr.satpAsid = 0
+    csr.satpMode = 0
+    None
+  }
+
+  def decideSfence(): Option[LitSfenceBundle] = {
+    //TODO
+    None
+  }
+
   def issueTlbReqTrans(): Option[TLBCallerTransaction] = {
     val newTrans = new TLBCallerTransaction()
 
