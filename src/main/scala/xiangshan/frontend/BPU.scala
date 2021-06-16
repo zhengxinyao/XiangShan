@@ -461,7 +461,7 @@ class OracleBPUStage(implicit p: Parameters) extends BPUStage3 {
 
   val recoverMeta = s3IO.redirect.bits
   val cifUpdate = recoverMeta.cfiUpdate
-  when (s3IO.redirect.valid) {
+  when (s3IO.redirect.valid && cifUpdate.pc =/= 0.U) {
     //when (recoverMeta.level === 0.U) {
       XSDebug("mispred detected, pc = 0x%x, the brIdx sent back is %d\n", cifUpdate.pc, cifUpdate.brIdx)
       brIdx := cifUpdate.brIdx + Mux(cifUpdate.pd.isBr, 1.U, 0.U)

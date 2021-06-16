@@ -7,7 +7,7 @@
 
 #define RAMSIZE (128 * 1024 * 1024)
 #define PRED_WIDTH 16
-#define MAX_BR_NUM 10000000
+#define MAX_BR_NUM 20000000
 
 using namespace std;
 int reset =1;
@@ -19,7 +19,7 @@ typedef struct branch_record {
   uint8_t taken;
 } BR;
 
-static BR record[MAX_BR_NUM];
+BR *record;
 
 inline void output_branch_record(BR rec, int idx) {
   printf("br[%d]: pc(0x%lx), target(0x%lx), type(%d), taken(%d)\n", idx, rec.pc, rec.target, rec.type, rec.taken);
@@ -46,11 +46,12 @@ string Trim(string& str)
 // reads branch records into global arrays
 void init_branch_record(const char *branch, const uint64_t rate) {
   assert(branch != NULL);
+  record = (BR *)(malloc(MAX_BR_NUM * sizeof(BR)));
   // initiate the whole buffer to zero
   memset((void *) record, 0, MAX_BR_NUM * sizeof(BR));
 
-  const char branch_record_path[100] = "/home/glr/scalaTage/branch_record/test.csv";
   ifstream fin(branch);
+  printf("Use %s as the branch golden trace\n",branch);
 	string line;
   int idx = 0;
 	while (getline(fin, line))
@@ -72,6 +73,7 @@ void init_branch_record(const char *branch, const uint64_t rate) {
     idx++;
 	}
 
+
   int miss_rate = rate;
   // default set to zero
   if (miss_rate < 0) miss_rate = 0;
@@ -88,6 +90,10 @@ void init_branch_record(const char *branch, const uint64_t rate) {
   }
   printf("Branch miss rate is set to %d%%, totally %d predictions are reverted\n", miss_rate, num_reverted);
   reset = 0;
+}
+
+void free_branch_record(){
+  free(record);
 }
 
 // int main() {

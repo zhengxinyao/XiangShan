@@ -161,6 +161,9 @@ Emulator::~Emulator() {
   ram_finish();
   assert_finish();
 
+  extern void free_branch_record();
+  free_branch_record();
+
 #ifdef VM_SAVABLE
   if (args.enable_snapshot && trapCode != STATE_GOODTRAP && trapCode != STATE_LIMIT_EXCEEDED) {
     printf("Saving snapshots to file system. Please wait.\n");
