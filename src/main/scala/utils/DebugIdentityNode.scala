@@ -2,11 +2,11 @@ package utils
 
 import chisel3._
 import chipsalliance.rocketchip.config.Parameters
-import chisel3.util.DecoupledIO
+import chisel3.util._
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp}
 import freechips.rocketchip.tilelink.{TLBundle, TLClientNode, TLIdentityNode, TLMasterParameters, TLMasterPortParameters}
 
-class DebugIdentityNode()(implicit p: Parameters) extends LazyModule  {
+class DebugIdentityNode(prefix: String = "")(implicit p: Parameters) extends LazyModule  {
 
   val node = TLIdentityNode()
 
@@ -21,11 +21,12 @@ class DebugIdentityNode()(implicit p: Parameters) extends LazyModule  {
     val (in, _) = node.in(0)
 
     def debug(t: TLBundle, valid: Boolean = false): Unit ={
+      println("hello")
       def fire[T <: Data](x: DecoupledIO[T]) = if(valid) x.valid else x.fire()
       val channels = Seq(t.a, t.b, t.c, t.d, t.e)
       channels.foreach(c =>
         when(fire(c)){
-          XSDebug(" isFire:%d ",c.fire())
+          printf(s"${prefix} %d isFire:%d", GTimer(), c.fire())
           c.bits.dump
         }
       )
@@ -35,8 +36,8 @@ class DebugIdentityNode()(implicit p: Parameters) extends LazyModule  {
 }
 
 object DebugIdentityNode {
-  def apply()(implicit p: Parameters): TLIdentityNode = {
-    val identityNode = LazyModule(new DebugIdentityNode())
+  def apply(prefix: String = "")(implicit p: Parameters): TLIdentityNode = {
+    val identityNode = LazyModule(new DebugIdentityNode(prefix))
     identityNode.node
   }
 }

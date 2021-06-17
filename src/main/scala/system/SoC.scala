@@ -4,7 +4,7 @@ import chipsalliance.rocketchip.config.Parameters
 import device.{AXI4Plic, AXI4Timer, TLTimer}
 import chisel3._
 import chisel3.util._
-import freechips.rocketchip.diplomacy.{AddressSet, LazyModule, LazyModuleImp}
+import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink.{BankBinder, TLBuffer, TLBundleParameters, TLCacheCork, TLClientNode, TLFilter, TLFuzzer, TLIdentityNode, TLToAXI4, TLWidthWidget, TLXbar}
 import utils.{DataDontCareNode, DebugIdentityNode}
 import utils.XSInfo
@@ -102,13 +102,13 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
   // connections
   // -------------------------------------------------
   for (i <- 0 until NumCores) {
-    l3_xbar := TLBuffer() := DebugIdentityNode() := xs_core(i).memBlock.dcache.clientNode
-    l3_xbar := TLBuffer() := DebugIdentityNode() := xs_core(i).l1pluscache.clientNode
-    l3_xbar := TLBuffer() := DebugIdentityNode() := xs_core(i).ptw.node
-    mmioXbar   := TLBuffer() := DebugIdentityNode() := xs_core(i).memBlock.uncache.clientNode
-    mmioXbar   := TLBuffer() := DebugIdentityNode() := xs_core(i).frontend.instrUncache.clientNode
+    l3_xbar := TLBuffer() := xs_core(i).memBlock.dcache.clientNode
+    l3_xbar := TLBuffer() := xs_core(i).l1pluscache.clientNode
+    l3_xbar := TLBuffer() := xs_core(i).ptw.node
+    mmioXbar   := TLBuffer() := xs_core(i).memBlock.uncache.clientNode
+    mmioXbar   := TLBuffer() := xs_core(i).frontend.instrUncache.clientNode
   }
-  l3_xbar := TLBuffer() := DebugIdentityNode() := l2prefetcher.clientNode
+  l3_xbar := TLBuffer() := l2prefetcher.clientNode
 
   // DMA should not go to MMIO
   val mmioRange = AddressSet(base = 0x0000000000L, mask = 0x007fffffffL)
@@ -130,16 +130,25 @@ class XSSoc()(implicit p: Parameters) extends LazyModule with HasSoCParameter {
 
   l3_xbar :=
     TLBuffer() :=
-    DebugIdentityNode() :=
     tlError_xbar
 
   val bankedNode =
-    BankBinder(L3NBanks, L3BlockSize) :*= l3_cache.node :*= TLBuffer() :*= DebugIdentityNode() :*= l3_xbar
+    BankBinder(L3NBanks, L3BlockSize) :*= l3_cache.node :*= TLBuffer() :*= l3_xbar
 
   for(i <- 0 until L3NBanks) {
+    val buffers = Seq.fill(90){TLBuffer(BufferParams(1, false, true))}
+    (buffers.init zip buffers.tail) foreach { case (curr, succ) =>
+      curr := succ
+    }
+
     mem(i) :=
       AXI4UserYanker() :=
       TLToAXI4() :=
+      DebugIdentityNode("after") :=
+      buffers.head
+
+    buffers.last :=
+      DebugIdentityNode("before") :=
       TLWidthWidget(L3BusWidth / 8) :=
       TLBuffer() :=
       TLCacheCork() :=
