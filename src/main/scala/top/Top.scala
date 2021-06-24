@@ -142,12 +142,21 @@ trait HaveAXI4MemPort {
     )
   ))
 
+  val buffers = Seq.fill(45){ TLBuffer(BufferParams(1, false, true)) }
+  (buffers.init zip buffers.tail) foreach { case (curr, succ) =>
+    curr := succ
+  }
+  println(s"add dummy delay ${buffers.size * 2}")
+
   val mem_xbar = TLXbar()
   mem_xbar :=* TLBuffer() :=* TLCacheCork() :=* bankedNode
   memAXI4SlaveNode :=
     AXI4UserYanker() :=
     AXI4Deinterleaver(L3BlockSize) :=
     TLToAXI4() :=
+    buffers.head
+
+  buffers.last :=
     TLWidthWidget(L3BusWidth / 8) :=
     mem_xbar
 
