@@ -23,6 +23,8 @@ import chisel3.util._
 import xiangshan._
 import utils._
 
+import scala.math.min
+
 trait HasBPUConst extends HasXSParameter with HasIFUConst {
   val MaxMetaLength = 1024 // TODO: Reduce meta length
   val MaxBasicBlockSize = 32
@@ -92,6 +94,14 @@ trait BPUUtils extends HasXSParameter {
   def getFallThroughAddr(start: UInt, carry: Bool, pft: UInt) = {
     val higher = start.head(VAddrBits-log2Ceil(PredictWidth)-instOffsetBits-1)
     Cat(Mux(carry, higher+1.U, higher), pft, 0.U(instOffsetBits.W))
+  }
+
+  def foldTag(tag: UInt, l: Int): UInt = {
+    val nChunks = (tag.getWidth + l - 1) / l
+    val chunks = (0 until nChunks).map { i => 
+      tag(min((i+1)*l, tag.getWidth)-1, i*l)
+    }
+    ParallelXOR(chunks)
   }
 }
 
