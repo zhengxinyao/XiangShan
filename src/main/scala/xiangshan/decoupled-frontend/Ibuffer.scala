@@ -145,7 +145,6 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
   }
   io.full := !allowEnq
 
-
   // Debug info
   if (!env.FPGAPlatform && env.EnablePerfDebug) {
     XSDebug(io.flush, "IBuffer Flushed\n")
