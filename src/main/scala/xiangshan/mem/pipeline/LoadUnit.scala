@@ -75,6 +75,12 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule {
   val s0_vaddr = Mux(io.loadFastMatch.orR, fastpath_vaddr, slowpath_vaddr) 
   val s0_mask  = Mux(io.loadFastMatch.orR, fastpath_mask, slowpath_mask) 
 
+  when(io.loadFastMatch.orR){
+    XSDebug("load to load forward, forwarded data: %x\n", 
+      Mux(io.loadFastMatch(0), io.fastpath(0).data, io.fastpath(1).data)
+    )
+  }
+
   // query DTLB
   io.dtlbReq.valid := io.in.valid
   io.dtlbReq.bits.vaddr := s0_vaddr
@@ -402,6 +408,8 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper {
     !io.lsq.forward.dataInvalidFast // forward failed
   io.fastUop.bits := load_s1.io.out.bits.uop
   io.fastUop.bits.cf.fastfwd := load_s1.io.out.bits.uop.ctrl.fuOpType === LSUOpType.ld
+  val can_fastfwd = load_s1.io.out.bits.uop.ctrl.fuOpType === LSUOpType.ld && io.fastUop.valid
+  when(can_fastfwd){ XSDebug("can fastfwd\n") }
 
   XSDebug(load_s0.io.out.valid,
     p"S0: pc ${Hexadecimal(load_s0.io.out.bits.uop.cf.pc)}, lId ${Hexadecimal(load_s0.io.out.bits.uop.lqIdx.asUInt)}, " +
@@ -439,6 +447,6 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper {
   io.lsq.ldout.ready := !hitLoadOut.valid
 
   when(io.ldout.fire()){
-    XSDebug("ldout %x\n", io.ldout.bits.uop.cf.pc)
+    XSDebug("ldout pc %x data %x mmio %x\n", io.ldout.bits.uop.cf.pc, io.ldout.bits.data, io.ldout.bits.debug.isMMIO)
   }
 }
