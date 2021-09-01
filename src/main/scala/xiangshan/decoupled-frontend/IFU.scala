@@ -35,8 +35,26 @@ trait HasInstrMMIOConst extends HasXSParameter with HasIFUConst{
 
 trait HasIFUConst extends HasXSParameter {
   def align(pc: UInt, bytes: Int): UInt = Cat(pc(VAddrBits-1, log2Ceil(bytes)), 0.U(log2Ceil(bytes).W))
+  def IFQSIZE   =  16
   // def groupAligned(pc: UInt)  = align(pc, groupBytes)
   // def packetAligned(pc: UInt) = align(pc, packetBytes)
+}
+
+class IfqPtr(implicit p: Parameters) extends CircularQueuePtr[IfqPtr](16)
+{
+  override def cloneType = (new IfqPtr).asInstanceOf[this.type]
+}
+
+object IfqPtr {
+  def apply(f: Bool, v: UInt)(implicit p: Parameters): IfqPtr = {
+    val ptr = Wire(new IfqPtr)
+    ptr.flag := f
+    ptr.value := v
+    ptr
+  }
+  def inverse(ptr: IfqPtr)(implicit p: Parameters): IfqPtr = {
+    apply(!ptr.flag, ptr.value)
+  }
 }
 
 class IfuToFtqIO(implicit p:Parameters) extends XSBundle {
@@ -64,6 +82,21 @@ class NewIFUIO(implicit p: Parameters) extends XSBundle {
   val iTLBInter       = Vec(2, new BlockTlbRequestIO) 
 }
 
+class IFQEntry(implicit p: Parameters) extends XSBundle with HasICacheParameters{
+  val ftqReq = new FetchRequestBundle
+  val isDoubleLine = Bool()
+  val situation    = Vec(2, Bool())
+  val paddr = Vec(2, UInt(PAddrBits.W))
+  val vSetIdx = Vec(2, UInt(idxBits.W))
+  val pTag    = Vec(2, UInt(tagBits.W))
+  val hit   = Bool()
+  val waymask = Vec(2, UInt(nWays.W))
+  val accessFault = Vec(2, Bool())
+  val pageFault = Vec(2, Bool())
+  val bankhit     = Vec(2, Bool())
+  val hitData     = Vec(2, UInt(blockBits.W))
+}
+
 // record the situation in which fallThruAddr falls into
 // the middle of an RVI inst
 class LastHalfInfo(implicit p: Parameters) extends XSBundle {
@@ -88,6 +121,7 @@ class IfuToPreDecode(implicit p: Parameters) extends XSBundle {
 }
 
 class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
+  with HasCircularQueuePtrHelper
 {
   println(s"icache ways: ${nWays} sets:${nSets}")
   val io = IO(new NewIFUIO)
@@ -216,7 +250,6 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     bank_hit_data
   })
 
-
   //---------------------------------------------
   //  Fetch Stage 3 :
   //  * get data from last stage (hit from f1_hit_data/miss from missQueue response)
@@ -224,32 +257,65 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   //  * cut cacheline(s) and send to PreDecode
   //  * check if prediction is right (branch target and type, jump direction and type , jal target )
   //---------------------------------------------
-  val f2_fetchFinish = Wire(Bool())
 
-  val f2_valid        = RegInit(false.B)
-  val f2_ftq_req      = RegEnable(next = f1_ftq_req,    enable = f1_fire)
-  val f2_situation    = RegEnable(next = f1_situation,  enable=f1_fire)
-  val f2_doubleLine   = RegEnable(next = f1_doubleLine, enable=f1_fire)
-  val f2_fire         = f2_valid && f2_fetchFinish && f3_ready
+  val fetchQueue       = RegInit(VecInit(Seq.fill(IFQSIZE)(0.U.asTypeOf(new IFQEntry))))
+  val ifqEnqPtr, ifqDeqPtr = RegInit(IfqPtr(false.B, 0.U))
 
-  f2_ready := (f3_ready && f2_fetchFinish) || !f2_valid
+  val newIfqEntry = Wire(new IFQEntry)
+  newIfqEntry.ftqReq        := f1_ftq_req
+  newIfqEntry.isDoubleLine  := f1_doubleLine
+  newIfqEntry.situation     := f1_situation
+  newIfqEntry.paddr         := f1_pAddrs
+  newIfqEntry.vSetIdx       := f1_vSetIdx
+  newIfqEntry.pTag          := f1_pTags
+  newIfqEntry.hit           := f1_hit
+  newIfqEntry.waymask       := f1_victim_masks
+  newIfqEntry.accessFault   := VecInit(tlbExcpAF)
+  newIfqEntry.pageFault     := VecInit(tlbExcpPF)
+  newIfqEntry.bankhit       := f1_bank_hit
+  newIfqEntry.hitData       := f1_hit_data
 
-  when(f2_flush)                  {f2_valid := false.B}
-  .elsewhen(f1_fire && !f1_flush) {f2_valid := true.B }
-  .elsewhen(f2_fire)              {f2_valid := false.B}
+  val allowIn  = f1_fire && !f1_flush
+  val ifqFull  = isFull(ifqEnqPtr, ifqDeqPtr)
+  val ifqEmpty = isEmpty(ifqEnqPtr, ifqDeqPtr)
 
+  when(allowIn){
+    fetchQueue(ifqEnqPtr.value) := newIfqEntry
+  }
 
-  val f2_pAddrs   = RegEnable(next = f1_pAddrs, enable = f1_fire)
-  val f2_hit      = RegEnable(next = f1_hit   , enable = f1_fire)
-  val f2_bank_hit = RegEnable(next = f1_bank_hit, enable = f1_fire)
+  val deqIfqEntry = fetchQueue(ifqDeqPtr.value)
+
+  val f2_valid    = !ifqEmpty
+  val f2_doubleLine = deqIfqEntry.isDoubleLine
+  val f2_situation  = deqIfqEntry.situation
+  val f2_ftq_req  = deqIfqEntry.ftqReq
+  val f2_pAddrs   = deqIfqEntry.paddr
+  val f2_hit      = deqIfqEntry.hit
+  val f2_bank_hit = deqIfqEntry.bankhit
   val f2_miss     = f2_valid && !f2_hit 
-  val (f2_vSetIdx, f2_pTags) = (RegEnable(next = f1_vSetIdx, enable = f1_fire), RegEnable(next = f1_pTags, enable = f1_fire))
-  val f2_waymask  = RegEnable(next = f1_victim_masks, enable = f1_fire)
+  val (f2_vSetIdx, f2_pTags) = (deqIfqEntry.vSetIdx, deqIfqEntry.pTag)
+  val f2_waymask  = deqIfqEntry.waymask
   //exception information
-  val f2_except_pf = RegEnable(next = VecInit(tlbExcpPF), enable = f1_fire)
-  val f2_except_af = RegEnable(next = VecInit(tlbExcpAF), enable = f1_fire)
+  val f2_except_pf = deqIfqEntry.pageFault
+  val f2_except_af = deqIfqEntry.accessFault
   val f2_except    = VecInit((0 until 2).map{i => f2_except_pf(i) || f2_except_af(i)})
   val f2_has_except = f2_valid && (f2_except_af.reduce(_||_) || f2_except_pf.reduce(_||_))
+  val f2_fetchFinish = WireInit(false.B)
+
+  val f2_fire         = f2_valid && f2_fetchFinish && f3_ready
+
+  f2_ready := !ifqFull //(f3_ready && f2_fetchFinish) || !f2_valid
+
+  ifqEnqPtr := ifqEnqPtr + allowIn
+  ifqDeqPtr := ifqDeqPtr + f2_fire
+
+  when(f2_flush)                  {
+    ifqEnqPtr := IfqPtr(false.B, 0.U)
+    ifqDeqPtr := IfqPtr(false.B, 0.U)
+  }
+
+  println(s"with of ifq_ptr: ${ifqEnqPtr.value.getWidth}")
+
 
   //instruction 
   val wait_idle :: wait_queue_ready :: wait_send_req  :: wait_two_resp :: wait_0_resp :: wait_1_resp :: wait_one_resp ::wait_finish :: Nil = Enum(8)
@@ -365,7 +431,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   
   val sec_miss_reg   = RegInit(0.U.asTypeOf(Vec(4, Bool())))
   val reservedRefillData = Reg(Vec(2, UInt(blockBits.W)))
-  val f2_hit_datas    = RegEnable(next = f1_hit_data, enable = f1_fire) 
+  val f2_hit_datas    = deqIfqEntry.hitData
   val f2_datas        = Wire(Vec(2, UInt(blockBits.W)))
 
   f2_datas.zipWithIndex.map{case(bank,i) =>  
