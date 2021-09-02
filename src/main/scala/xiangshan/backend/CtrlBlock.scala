@@ -155,13 +155,7 @@ class RedirectGenerator(implicit p: Parameters) extends XSModule
   val stage3CfiUpdate = io.stage3Redirect.bits.cfiUpdate
   stage3CfiUpdate.pc := s2_pc
   stage3CfiUpdate.pd := s2_pd
-  // stage3CfiUpdate.rasSp := s2_ftqRead.rasSp
-  // stage3CfiUpdate.rasEntry := s2_ftqRead.rasTop
-  // stage3CfiUpdate.predHist := s2_ftqRead.predHist
-  // stage3CfiUpdate.specCnt := s2_ftqRead.specCnt
-  // stage3CfiUpdate.hist := s2_hist
   stage3CfiUpdate.predTaken := s2_redirect_bits_reg.cfiUpdate.predTaken
-  // stage3CfiUpdate.br_hit := s2_sawNotTakenBranch
   stage3CfiUpdate.target := s2_target
   stage3CfiUpdate.taken := s2_redirect_bits_reg.cfiUpdate.taken
   stage3CfiUpdate.isMisPred := s2_redirect_bits_reg.cfiUpdate.isMisPred
@@ -293,12 +287,12 @@ class CtrlBlock(implicit p: Parameters) extends XSModule
   rename.io.out <> dispatch.io.fromRename
   rename.io.renameBypass <> dispatch.io.renameBypass
   rename.io.dispatchInfo <> dispatch.io.preDpInfo
-  rename.io.csrCtrl <> RegNext(io.csrCtrl)
 
   dispatch.io.redirect <> stage2Redirect
   dispatch.io.flush := flushReg
   dispatch.io.enqRoq <> roq.io.enq
   dispatch.io.enqLsq <> io.enqLsq
+  dispatch.io.singleStep := false.B
   dispatch.io.allocPregs.zipWithIndex.foreach { case (preg, i) =>
     intBusyTable.io.allocPregs(i).valid := preg.isInt
     fpBusyTable.io.allocPregs(i).valid := preg.isFp
