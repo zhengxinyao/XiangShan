@@ -3,7 +3,7 @@ name: EMU Test
 
 on:
   push:
-    branches: [ master, dcp-frontend-run-ci ]
+    branches: [ master, dcp-frontend-run-ci-br1 ]
   pull_request:
     branches: [ master ]
 
