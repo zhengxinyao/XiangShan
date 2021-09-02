@@ -232,7 +232,7 @@ class ICacheMissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
 {
     val io = IO(new Bundle{
         // MSHR ID
-        val id          = Input(UInt(1.W))
+        val id          = Input(UInt(3.W))
 
         val req         = Flipped(DecoupledIO(new ICacheMissReq))
         val resp        = DecoupledIO(new ICacheMissResp)
@@ -336,18 +336,114 @@ class ICacheMissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     //resp to icache
     io.resp.valid := (state === s_wait_resp) && !needFlush
 
-    if (!env.FPGAPlatform && env.EnablePerfDebug) {
-      XSDebug("[ICache MSHR %d] (req)valid:%d  ready:%d req.addr:%x waymask:%b  || Register: req:%x  \n",io.id.asUInt,io.req.valid,io.req.ready,io.req.bits.addr,io.req.bits.waymask,req.asUInt)
-      XSDebug("[ICache MSHR %d] (Info)state:%d  needFlush:%d\n",io.id.asUInt,state,needFlush)
-      XSDebug("[ICache MSHR %d] (mem_acquire) valid%d ready:%d\n",io.id.asUInt,io.mem_acquire.valid,io.mem_acquire.ready)
-      XSDebug("[ICache MSHR %d] (mem_grant)   valid%d ready:%d data:%x \n",io.id.asUInt,io.mem_grant.valid,io.mem_grant.ready,io.mem_grant.bits.data)
-      XSDebug("[ICache MSHR %d] (meta_write)  valid%d ready:%d  tag:%x \n",io.id.asUInt,io.meta_write.valid,io.meta_write.ready,io.meta_write.bits.phyTag)
-      XSDebug("[ICache MSHR %d] (refill)  valid%d ready:%d  data:%x \n",io.id.asUInt,io.data_write.valid,io.data_write.ready,io.data_write.bits.data.asUInt())
-      XSDebug("[ICache MSHR %d] (resp)  valid%d ready:%d \n",io.id.asUInt,io.resp.valid,io.resp.ready)
+}
+
+class ICachePfEntry(edge: TLEdgeOut,id :Int)(implicit p: Parameters) extends ICacheMissQueueModule
+  with HasIFUConst
+{
+    val io = IO(new Bundle{
+        // MSHR ID
+        val id          = Input(UInt(3.W))
+
+        val req         = Flipped(DecoupledIO(new ICacheMissReq))
+        
+        val mem_acquire = DecoupledIO(new TLBundleA(edge.bundle))
+        val mem_grant   = Flipped(DecoupledIO(new TLBundleD(edge.bundle)))
+
+        val meta_write  = DecoupledIO(new ICacheMetaWriteBundle)
+        val data_write  = DecoupledIO(new ICacheDataWriteBundle)
+    
+        val flush = Input(Bool())
+    })
+
+    val s_idle :: s_memReadReq :: s_memReadResp :: s_write_back :: s_wait_resp :: Nil = Enum(5)
+    val state = RegInit(s_idle)
+
+    //req register
+    val req = Reg(new ICacheMissReq)
+    val delta = id/2
+    println(s"icahce pf entry${id}: delta is ${delta}")
+    val req_pf_addr = req.addr + (delta *2* blockBytes).U
+    val req_idx = req.vSetIdx + (2* delta).U        //virtual index
+    val req_tag = get_tag(req_pf_addr)           //physical tag
+    val req_waymask = req.waymask
+
+    val (_, _, refill_done, refill_address_inc) = edge.addr_inc(io.mem_grant)
+
+    //8 for 64 bits bus and 2 for 256 bits
+    val readBeatCnt = Reg(UInt(log2Up(refillCycles).W))
+    val respDataReg = Reg(Vec(refillCycles,UInt(beatBits.W)))
+
+    //initial
+    io.mem_acquire.bits := DontCare
+    io.mem_grant.ready := true.B   
+    io.meta_write.bits := DontCare
+    io.data_write.bits := DontCare
+
+    io.req.ready := state === s_idle
+    io.mem_acquire.valid := state === s_memReadReq
+
+    //flush register
+    val needFlush = RegInit(false.B)
+    when(io.flush && (state =/= s_idle) && (state =/= s_wait_resp)){ needFlush := true.B }
+    .elsewhen((state=== s_wait_resp) && needFlush){ needFlush := false.B }
+
+    //state change
+    switch(state){
+      is(s_idle){
+        when(io.req.fire()){
+          readBeatCnt := 0.U
+          state := s_memReadReq
+          req := io.req.bits
+        }
+      }
+
+      // memory request
+      is(s_memReadReq){ 
+        when(io.mem_acquire.fire()){ 
+          state := s_memReadResp
+        }
+      }
+
+      is(s_memReadResp){
+        when (edge.hasData(io.mem_grant.bits)) {
+          when (io.mem_grant.fire()) {
+            readBeatCnt := readBeatCnt + 1.U
+            respDataReg(readBeatCnt) := io.mem_grant.bits.data
+            when (readBeatCnt === (refillCycles - 1).U) {
+              assert(refill_done, "refill not done!")
+              state := Mux(needFlush || io.flush, s_wait_resp, s_write_back)
+            }
+          }
+        }
+      }
+
+      is(s_write_back){
+          state := s_wait_resp
+      }
+
+      is(s_wait_resp){
+        state := s_idle
+      }
+
     }
 
+    //refill write and meta write
+    //WARNING: Maybe could not finish refill in 1 cycle
+    io.meta_write.valid := (state === s_write_back) && !needFlush
+    io.meta_write.bits.apply(tag=req_tag, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
+   
+    io.data_write.valid := (state === s_write_back) && !needFlush
+    io.data_write.bits.apply(data=respDataReg.asUInt, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
+
+    //mem request
+    io.mem_acquire.bits  := edge.Get(
+      fromSource      = io.id,
+      toAddress       = align(req_pf_addr, blockBytes),
+      lgSize          = (log2Up(cacheParams.blockBytes)).U)._2
 
 }
+
 
 //TODO: This is a stupid missqueue that has only 2 entries
 class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMissQueueModule
@@ -369,15 +465,15 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
   // assign default values to output signals
   io.mem_grant.ready := false.B
 
-  val meta_write_arb = Module(new Arbiter(new ICacheMetaWriteBundle,  2))
-  val refill_arb     = Module(new Arbiter(new ICacheDataWriteBundle,  2))
+  val meta_write_arb = Module(new Arbiter(new ICacheMetaWriteBundle,  2 + 4))
+  val refill_arb     = Module(new Arbiter(new ICacheDataWriteBundle,  2 + 4))
 
   io.mem_grant.ready := true.B
 
-  val entries = (0 until 2) map { i =>
+  val missEntries = (0 until 2) map { i =>
     val entry = Module(new ICacheMissEntry(edge))
 
-    entry.io.id := i.U(1.W)
+    entry.io.id := i.U(3.W)
     entry.io.flush := io.flush
 
     // entry req
@@ -411,6 +507,37 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     entry
   }
 
+  def idMap(index: Int): Int =  index match {
+      case 0 => 2
+      case 1 => 4
+      case 2 => 3
+      case 3 => 5
+  }
+
+  val pfEntries = (0 until 4) map { i =>
+      val id = idMap(i)
+      val entry = Module(new ICachePfEntry(edge, id))
+
+      entry.io.id := id.U(3.W)
+      entry.io.flush := io.flush
+
+      // entry req
+      entry.io.req.valid := io.req(id%2).valid
+      entry.io.req.bits  := io.req(id%2).bits
+
+      // entry resp
+      meta_write_arb.io.in(id)     <>  entry.io.meta_write
+      refill_arb.io.in(id)         <>  entry.io.data_write
+
+      entry.io.mem_grant.valid := false.B
+      entry.io.mem_grant.bits  := DontCare
+      when (io.mem_grant.bits.source === id.U(3.W)) {
+        entry.io.mem_grant <> io.mem_grant
+      }
+      entry
+  }
+
+  val entries = missEntries ++ pfEntries
   TLArbiter.lowestFromSeq(edge, io.mem_acquire, entries.map(_.io.mem_acquire))
 
   io.meta_write     <> meta_write_arb.io.out
@@ -430,7 +557,7 @@ class ICache()(implicit p: Parameters) extends LazyModule with HasICacheParamete
   val clientParameters = TLMasterPortParameters.v1(
     Seq(TLMasterParameters.v1(
       name = "icache",
-      sourceId = IdRange(0, cacheParams.nMissEntries)
+      sourceId = IdRange(0, cacheParams.nMissEntries + 4)
     ))
   )
 
