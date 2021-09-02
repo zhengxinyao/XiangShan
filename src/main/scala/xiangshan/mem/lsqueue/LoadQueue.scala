@@ -97,6 +97,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val uncache = new DCacheWordIO
     val exceptionAddr = new ExceptionAddrIO
     val lqFull = Output(Bool())
+    val prefetchInfo = Output(Vec(L1DPrefetchInfoWidth, Valid(new PrefetchInfoIO)))
   })
 
   println("LoadQueue: size:" + LoadQueueSize)
@@ -105,7 +106,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   // val data = Reg(Vec(LoadQueueSize, new LsRoqEntry))
   val dataModule = Module(new LoadQueueData(LoadQueueSize, wbNumRead = LoadPipelineWidth, wbNumWrite = LoadPipelineWidth))
   dataModule.io := DontCare
-  val vaddrModule = Module(new SyncDataModuleTemplate(UInt(VAddrBits.W), LoadQueueSize, numRead = 1, numWrite = LoadPipelineWidth))
+  val vaddrModule = Module(new SyncDataModuleTemplate(UInt(VAddrBits.W), LoadQueueSize, numRead = 1 + L1DPrefetchInfoWidth, numWrite = LoadPipelineWidth))
   vaddrModule.io := DontCare
   val allocated = RegInit(VecInit(List.fill(LoadQueueSize)(false.B))) // lq entry has been allocated
   val datavalid = RegInit(VecInit(List.fill(LoadQueueSize)(false.B))) // data is valid
@@ -643,6 +644,22 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   // no inst will be commited 1 cycle before tval update
   vaddrModule.io.raddr(0) := (deqPtrExt + commitCount).value
   io.exceptionAddr.vaddr := vaddrModule.io.rdata(0)
+
+  // Generate L1D Cache prefetch info
+  val prefetchPtrExt = RegInit(0.U.asTypeOf(new LqPtr))
+  val prefetchInfoValid = Wire(Vec(L1DPrefetchInfoWidth, Bool()))
+  // Send prefetch info if inst is valid
+  (0 until L1DPrefetchInfoWidth).map(i => {
+    val ptr = (prefetchPtrExt + i.U).value
+    prefetchInfoValid(i) := allocated(ptr) && datavalid(ptr)
+    vaddrModule.io.raddr(1 + i) := prefetchInfoValid(i)
+    io.prefetchInfo(i).valid := RegNext(prefetchInfoValid(i))
+    io.prefetchInfo(i).bits.vaddr := vaddrModule.io.rdata(1 + i)
+    io.prefetchInfo(i).bits.pc := RegNext(uop(prefetchInfoValid(i))).cf.pc
+  })
+  // naive prefetchPtrExt update logics
+  // TODO: make prefetchPtrExt more accurate
+  prefetchPtrExt := prefetchPtrExt + PopCount(prefetchInfoValid.asUInt)
 
   // misprediction recovery / exception redirect
   // invalidate lq term using robIdx

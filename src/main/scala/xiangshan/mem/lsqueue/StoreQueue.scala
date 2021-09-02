@@ -68,6 +68,7 @@ class StoreQueue(implicit p: Parameters) extends XSModule with HasDCacheParamete
     val sqempty = Output(Bool())
     val issuePtrExt = Output(new SqPtr) // used to wake up delayed load/store
     val sqFull = Output(Bool())
+    val prefetchInfo = Output(Vec(L1DPrefetchInfoWidth, Valid(new PrefetchInfoIO)))
   })
 
   println("StoreQueue: size:" + StoreQueueSize)
@@ -79,7 +80,7 @@ class StoreQueue(implicit p: Parameters) extends XSModule with HasDCacheParamete
   dataModule.io := DontCare
   val paddrModule = Module(new SQPaddrModule(StoreQueueSize, numRead = StorePipelineWidth, numWrite = StorePipelineWidth, numForward = StorePipelineWidth))
   paddrModule.io := DontCare
-  val vaddrModule = Module(new SyncDataModuleTemplate(UInt(VAddrBits.W), StoreQueueSize, numRead = 1, numWrite = StorePipelineWidth))
+  val vaddrModule = Module(new SyncDataModuleTemplate(UInt(VAddrBits.W), StoreQueueSize, numRead = 1 + L1DPrefetchInfoWidth, numWrite = StorePipelineWidth))
   vaddrModule.io := DontCare
 
   // state & misc
@@ -449,6 +450,22 @@ class StoreQueue(implicit p: Parameters) extends XSModule with HasDCacheParamete
 
   // Read vaddr for mem exception
   io.exceptionAddr.vaddr := vaddrModule.io.rdata(0)
+  // Generate L1D Cache prefetch info
+  val prefetchPtrExt = RegInit(0.U.asTypeOf(new SqPtr))
+  val prefetchInfoValid = Wire(Vec(L1DPrefetchInfoWidth, Bool()))
+  // Send prefetch info if inst is valid
+  (0 until L1DPrefetchInfoWidth).map(i => {
+    val ptr = (prefetchPtrExt + i.U).value
+    prefetchInfoValid(i) := allocated(ptr) && addrvalid(ptr)
+    vaddrModule.io.raddr(1 + i) := prefetchInfoValid(i)
+    io.prefetchInfo(i).valid := RegNext(prefetchInfoValid(i))
+    io.prefetchInfo(i).bits.vaddr := vaddrModule.io.rdata(1 + i)
+    io.prefetchInfo(i).bits.pc := RegNext(uop(prefetchInfoValid(i))).cf.pc
+  })
+  // naive prefetchPtrExt update logics
+  // TODO: make prefetchPtrExt more accurate
+  prefetchPtrExt := prefetchPtrExt + PopCount(prefetchInfoValid.asUInt)
+
 
   // misprediction recovery / exception redirect
   // invalidate sq term using robIdx

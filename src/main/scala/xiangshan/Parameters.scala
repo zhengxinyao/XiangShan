@@ -137,6 +137,7 @@ case class XSCoreParameters
   ),
   LoadPipelineWidth: Int = 2,
   StorePipelineWidth: Int = 2,
+  L1DPrefetchInfoWidth: Int = 2,
   StoreBufferSize: Int = 16,
   StoreBufferThreshold: Int = 7,
   RefillSize: Int = 512,
@@ -278,6 +279,7 @@ trait HasXSParameter {
   val NRFpWritePorts = exuParameters.FpExuCnt + exuParameters.LduCnt
   val LoadPipelineWidth = coreParams.LoadPipelineWidth
   val StorePipelineWidth = coreParams.StorePipelineWidth
+  val L1DPrefetchInfoWidth = coreParams.L1DPrefetchInfoWidth
   val StoreBufferSize = coreParams.StoreBufferSize
   val StoreBufferThreshold = coreParams.StoreBufferThreshold
   val RefillSize = coreParams.RefillSize

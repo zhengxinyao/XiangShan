@@ -38,17 +38,17 @@ class FwdEntry extends Bundle {
   val data = UInt(8.W)
 }
 
-// inflight miss block reqs
-class InflightBlockInfo(implicit p: Parameters) extends XSBundle {
-  val block_addr = UInt(PAddrBits.W)
-  val valid = Bool()
-}
-
 class LsqEnqIO(implicit p: Parameters) extends XSBundle {
   val canAccept = Output(Bool())
   val needAlloc = Vec(RenameWidth, Input(UInt(2.W)))
   val req = Vec(RenameWidth, Flipped(ValidIO(new MicroOp)))
   val resp = Vec(RenameWidth, Output(new LSIdx))
+}
+
+class PrefetchInfoIO(implicit p: Parameters) extends XSBundle {
+  // val paddr = UInt(PAddrBits.W)
+  val vaddr = UInt(VAddrBits.W)
+  val pc = UInt(VAddrBits.W)
 }
 
 // Load / Store Queue Wrapper for XiangShan Out of Order LSU
@@ -75,6 +75,8 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
     val issuePtrExt = Output(new SqPtr)
     val sqFull = Output(Bool())
     val lqFull = Output(Bool())
+    val ldPrefetchInfo = Output(Vec(L1DPrefetchInfoWidth, Valid(new PrefetchInfoIO)))
+    val stPrefetchInfo = Output(Vec(L1DPrefetchInfoWidth, Valid(new PrefetchInfoIO)))
   })
 
   val loadQueue = Module(new LoadQueue)
@@ -176,4 +178,7 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
 
   io.lqFull := loadQueue.io.lqFull
   io.sqFull := storeQueue.io.sqFull
+
+  io.ldPrefetchInfo <> loadQueue.io.prefetchInfo
+  io.stPrefetchInfo <> storeQueue.io.prefetchInfo
 }
