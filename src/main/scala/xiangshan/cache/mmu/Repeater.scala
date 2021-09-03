@@ -31,21 +31,22 @@ class PTWRepeater(Width: Int = 1)(implicit p: Parameters) extends XSModule with 
     val ptw = new TlbPtwIO
     val sfence = Input(new SfenceBundle)
   })
-  val req_in = if (Width == 1) {
-    io.tlb.req(0)
-  } else {
-    val arb = Module(new RRArbiter(io.tlb.req(0).bits.cloneType, Width))
-    arb.io.in <> io.tlb.req
-    arb.io.out
-  }
-  val (tlb, ptw, sfence) = (io.tlb, io.ptw, RegNext(io.sfence.valid))
-  val req = RegEnable(req_in.bits, req_in.fire())
-  val resp = RegEnable(ptw.resp.bits, ptw.resp.fire())
-  val haveOne = BoolStopWatch(req_in.fire(), tlb.resp.fire() || sfence)
-  val sent = BoolStopWatch(ptw.req(0).fire(), req_in.fire() || sfence)
-  val recv = BoolStopWatch(ptw.resp.fire(), req_in.fire() || sfence)
 
-  req_in.ready := !haveOne
+  val (tlb, ptw, sfence) = (io.tlb, io.ptw, RegNext(io.sfence.valid))
+  val resp = RegEnable(ptw.resp.bits, ptw.resp.fire())
+  val resp_latch = RegEnable(resp, tlb.resp.valid)
+  val resp_latch_valid = RegNext(tlb.resp.valid && !sfence, init = false.B)
+  def mergeIt(vpn: UInt): Bool = {
+    (resp_latch.entry.hit(vpn) && resp_latch_valid)
+  }
+  val tlb_req_fire = tlb.req(0).valid && tlb.req(0).ready && !mergeIt(tlb.req(0).bits.vpn)
+
+  val req = RegEnable(tlb.req(0).bits, tlb_req_fire)
+  val haveOne = BoolStopWatch(tlb_req_fire, tlb.resp.fire() || sfence)
+  val sent = BoolStopWatch(ptw.req(0).fire(), tlb_req_fire || sfence)
+  val recv = BoolStopWatch(ptw.resp.fire(), tlb_req_fire || sfence)
+
+  tlb.req(0).ready := !haveOne
   ptw.req(0).valid := haveOne && !sent
   ptw.req(0).bits := req
 
@@ -54,11 +55,11 @@ class PTWRepeater(Width: Int = 1)(implicit p: Parameters) extends XSModule with 
   ptw.resp.ready := !recv
 
   XSPerfAccumulate("req_count", ptw.req(0).fire())
-  XSPerfAccumulate("tlb_req_cycle", BoolStopWatch(req_in.fire(), tlb.resp.fire() || sfence))
+  XSPerfAccumulate("tlb_req_cycle", BoolStopWatch(tlb_req_fire, tlb.resp.fire() || sfence))
   XSPerfAccumulate("ptw_req_cycle", BoolStopWatch(ptw.req(0).fire(), ptw.resp.fire() || sfence))
 
   XSDebug(haveOne, p"haveOne:${haveOne} sent:${sent} recv:${recv} sfence:${sfence} req:${req} resp:${resp}")
-  XSDebug(req_in.valid || io.tlb.resp.valid, p"tlb: ${tlb}\n")
+  XSDebug(io.tlb.req(0).valid || io.tlb.resp.valid, p"tlb: ${tlb}\n")
   XSDebug(io.ptw.req(0).valid || io.ptw.resp.valid, p"ptw: ${ptw}\n")
   assert(!RegNext(recv && io.ptw.resp.valid, init = false.B), "re-receive ptw.resp")
 }
