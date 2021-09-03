@@ -138,6 +138,11 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   fromFtq.req.ready := fetch_req(0).ready && fetch_req(1).ready && f1_ready && GTimer() > 500.U
 
+  if (!env.FPGAPlatform && env.EnablePerfDebug) {
+    // Performance Counter
+    XSPerfAccumulate("fetch_stall_by_icache",  fromFtq.req.valid && !(fetch_req(0).ready && fetch_req(1).ready) )
+  }
+
   //---------------------------------------------
   //  Fetch Stage 2 :
   //  * Send req to ITLB and TLB Response (Get Paddr)
@@ -216,7 +221,6 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     bank_hit_data
   })
 
-
   //---------------------------------------------
   //  Fetch Stage 3 :
   //  * get data from last stage (hit from f1_hit_data/miss from missQueue response)
@@ -272,6 +276,8 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val  except_0        = f2_valid && f2_except(0)                                                   
 
   val f2_mq_datas     = Reg(Vec(2, UInt(blockBits.W)))   
+  val f2_miss_sit     = VecInit(Seq(only_0_miss, hit_0_miss_1, miss_0_hit_1, miss_0_miss_1))
+
 
   when(fromMissQueue(0).fire) {f2_mq_datas(0) :=  fromMissQueue(0).bits.data}
   when(fromMissQueue(1).fire) {f2_mq_datas(1) :=  fromMissQueue(1).bits.data}
@@ -451,6 +457,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f3_except_pf      = RegEnable(next = f2_except_pf, enable = f2_fire)
   val f3_except_af      = RegEnable(next = f2_except_af, enable = f2_fire)
   val f3_hit            = RegEnable(next = f2_hit   , enable = f2_fire)
+  val f3_miss_sit       = RegEnable(next = f2_miss_sit, enable = f2_fire)
 
   val f3_lastHalf       = RegInit(0.U.asTypeOf(new LastHalfInfo))
   val f3_lastHalfMatch  = f3_lastHalf.matchThisBlock(f3_ftq_req.startAddr)
@@ -516,14 +523,17 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   if (!env.FPGAPlatform && env.EnablePerfDebug) {
     // Performance Counter
-    XSPerfAccumulate("req",   io.toIbuffer.fire() )
-    XSPerfAccumulate("miss",  io.toIbuffer.fire() && !f3_hit )
-    XSPerfAccumulate("frontendFlush",  f3_redirect )
-    XSPerfAccumulate("only_0_miss",   only_0_miss )
-    XSPerfAccumulate("hit_0_miss_1",  hit_0_miss_1 )
-    XSPerfAccumulate("miss_0_hit_1",  miss_0_hit_1 )
-    XSPerfAccumulate("miss_0_miss_1", miss_0_miss_1 )
-    XSPerfAccumulate("crossLine", io.toIbuffer.fire() && f3_situation(0) )
-    XSPerfAccumulate("lastInLin", io.toIbuffer.fire() && f3_situation(1) )
+    XSPerfAccumulate("fetch_req",   io.toIbuffer.fire() )
+    XSPerfAccumulate("fetch_miss",  io.toIbuffer.fire() && !f3_hit )
+    XSPerfAccumulate("fetch_frontendFlush",  f3_redirect )
+    XSPerfAccumulate("fetch_only_0_miss",   f3_miss_sit(0) && io.toIbuffer.fire())
+    XSPerfAccumulate("fetch_hit_0_miss_1",  f3_miss_sit(1) && io.toIbuffer.fire())
+    XSPerfAccumulate("fetch_miss_0_hit_1",  f3_miss_sit(2) && io.toIbuffer.fire())
+    XSPerfAccumulate("fetch_miss_0_miss_1", f3_miss_sit(3) && io.toIbuffer.fire())
+    XSPerfAccumulate("fetch_crossLine", io.toIbuffer.fire() && f3_situation(0) )
+    XSPerfAccumulate("fetch_lastInLin", io.toIbuffer.fire() && f3_situation(1) )
+    XSPerfAccumulate("fetch_fallThruError", io.toIbuffer.fire() && f3_ftq_req.fallThroughError )
+    XSPerfAccumulate("fetch_pipeline_empty", io.toIbuffer.ready && !f3_valid )
+    XSPerfAccumulate("fetch_pipeline_stall", !io.toIbuffer.ready && io.toIbuffer.valid )
   }
 }

@@ -10,8 +10,8 @@ import xiangshan.cache._
 import utils._
 
 case class ICacheParameters(
-    nSets: Int = 256,
-    nWays: Int = 8,
+    nSets: Int = 128,
+    nWays: Int = 4,
     rowBits: Int = 64,
     nTLBEntries: Int = 32,
     tagECC: Option[String] = None,
@@ -473,7 +473,7 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
   val missEntries = (0 until 2) map { i =>
     val entry = Module(new ICacheMissEntry(edge))
 
-    entry.io.id := i.U(3.W)
+    entry.io.id := i.U(3.W) 
     entry.io.flush := io.flush
 
     // entry req
@@ -501,7 +501,8 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
           stop = entry.io.resp.fire() || entry.io.flush,
           startHighPriority = true)
       )
-      XSPerfAccumulate("entryReq" + Integer.toString(i, 10), entry.io.req.fire())
+      XSPerfAccumulate("icache_entryReq" + Integer.toString(i, 10), entry.io.req.fire())
+      XSPerfAccumulate("icache_mem_reqire_stall"+ Integer.toString(i, 10), entry.io.mem_acquire.valid && !entry.io.mem_acquire.ready   )
     }
 
     entry
