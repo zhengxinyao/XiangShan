@@ -135,11 +135,16 @@ class TLB(Width: Int, isDtlb: Boolean)(implicit p: Parameters) extends TlbModule
   val sRefillMask = Mux(refill, UIntToOH(sRefillIdx)(TlbSPEntrySize-1, 0), 0.U).asBools
   def TLBNormalRead(i: Int) = {
 
-    val entryHitVec = if (isDtlb)
-                        VecInit(nMeta.zip(nRefillMask).map{ case (e, m) => ~m && e.hit(reqAddr(i).vpn) } ++
-                                sMeta.zip(sRefillMask).map{ case (e,m) => ~m && e.hit(reqAddr(i).vpn) })
-                      else
-                        VecInit(nMeta.map(_.hit(reqAddr(i).vpn)) ++ sMeta.map(_.hit(reqAddr(i).vpn/*, satp.asid*/)))
+    val entryHitVec_n = if(isDtlb) 
+                          nMeta.zip(nRefillMask).map{ case (e, m) => ~m && e.hit(reqAddr(i).vpn) }
+                        else 
+                          nMeta.map(_.hit(reqAddr(i).vpn))
+    val entryHitVec_s = if(isDtlb)
+                          sMeta.zip(sRefillMask).map{ case (e,m) => ~m && e.hit(reqAddr(i).vpn) }
+                        else 
+                          sMeta.map(_.hit(reqAddr(i).vpn/*, satp.asid*/))
+
+    val entryHitVec = VecInit(entryHitVec_n ++ entryHitVec_s) 
 
     val reqAddrReg = if (isDtlb) RegNext(reqAddr(i)) else reqAddr(i)
     val cmdReg = if (isDtlb) RegNext(cmd(i)) else cmd(i)
@@ -151,11 +156,16 @@ class TLB(Width: Int, isDtlb: Boolean)(implicit p: Parameters) extends TlbModule
     val pfHitVec   = VecInit((pf zip entryHitVecReg).map{ case (a,b) => a&b })
     val pfArray = ParallelOR(pfHitVec).asBool && validReg && vmEnable
     val hit     = ParallelOR(hitVec).asBool && validReg && vmEnable && ~pfArray
+    //TODO : test take API
+    val TlbNormalHit = ParallelOR(hitVec.take(TlbEntrySize)).asBool && validReg && vmEnable && ~pfArray
     val miss    = !hit && validReg && vmEnable && ~pfArray
 
     val meta_tags = nMeta.map(_.tag) ++ sMeta.map(_.tag)
     val hitTag =  ParallelMux(hitVec zip meta_tags)
-    val bias = reqAddrReg.vpn - hitTag
+    // this may be wrong !! Fix it
+    val bias_raw = Mux(TlbNormalHit,reqAddrReg.vpn - hitTag,0.U)
+    val bias = if(colt_stride == 1) bias_raw else Cat(bias_raw,0.U(colt_stride_len.W))
+    // val bias = reqAddrReg.vpn - hitTag
 
     //NOTE: only 4K mergeable pte's bias may be non-zero
     val hitppn_raw  = ParallelMux(hitVec zip data.map(_.genPPN(reqAddrReg.vpn)))

@@ -150,6 +150,23 @@ class TlbData(superpage: Boolean = false)(implicit p: Parameters) extends TlbBun
     }
   }
 
+  // def genPPN(vpn: UInt,bias: UInt): UInt = {
+  //   val res = Wire(UInt(ppnLen.W))
+  //   if (superpage) {
+  //     res := genPPN(vpn)
+  //   } else {
+  //     //stride colt
+  //     if(colt_stride == 1)
+  //     {
+  //       res := ppn + bias
+  //     }else
+  //     {
+  //       res := ppn + Cat(bias,0.U(colt_stride_len.W))
+  //     }
+  //   }
+  //   res
+  // }
+
   def apply(ppn: UInt, level: UInt, perm: UInt, pf: Bool) = {
     this.level.map(_ := level(0))
     this.ppn := ppn
