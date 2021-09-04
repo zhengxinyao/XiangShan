@@ -295,6 +295,17 @@ object FDivSqrtDecode extends DecodeConstants {
 }
 
 /**
+ * Svinval extension Constants
+ */
+object SvinvalDecode extends DecodeConstants {
+  val table: Array[(BitPat, List[BitPat])] = Array(
+  SINVAL_VMA        ->List(SrcType.reg, SrcType.imm, SrcType.DC, FuType.fence, FenceOpType.sfence, N, N, N, N, N, N, N, SelImm.IMM_X),
+  SFENCE_W_INVAL    ->List(SrcType.DC, SrcType.DC, SrcType.DC, FuType.fence, FenceOpType.nofence, N, N, N, Y, N, N, N, SelImm.IMM_X),
+  SFENCE_INVAL_IR   ->List(SrcType.DC, SrcType.DC, SrcType.DC, FuType.fence, FenceOpType.nofence, N, N, N, Y, Y, Y, N, SelImm.IMM_X)
+  )
+}
+
+/**
  * XiangShan Trap Decode constants
  */
 object XSTrapDecode extends DecodeConstants {
@@ -418,6 +429,8 @@ class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstan
   ctrl_flow := io.enq.ctrl_flow
 
   var decode_table = XDecode.table ++ FDecode.table ++ FDivSqrtDecode.table ++ X64Decode.table ++ XSTrapDecode.table
+
+  if(HasSvinvalExtension) decode_table = decode_table ++ SvinvalDecode.table
 
   // output
   cf_ctrl.cf := ctrl_flow
