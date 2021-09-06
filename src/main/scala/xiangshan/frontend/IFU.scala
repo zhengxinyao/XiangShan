@@ -76,6 +76,7 @@ class IfuToPreDecode(implicit p: Parameters) extends XSBundle {
   val data          = if(HasCExtension) Vec(PredictWidth + 1, UInt(16.W)) else Vec(PredictWidth, UInt(32.W))  
   val startAddr     = UInt(VAddrBits.W)
   val fallThruAddr  = UInt(VAddrBits.W)
+  val maxBoundPC    = UInt(VAddrBits.W)
   val fallThruError = Bool()
   val isDoubleLine  = Bool()
   val ftqOffset     = Valid(UInt(log2Ceil(PredictWidth).W))
@@ -150,12 +151,13 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   val tlbRespAllValid = WireInit(false.B)
 
-  val f1_valid      = RegInit(false.B)
-  val f1_ftq_req    = RegEnable(next = f0_ftq_req,    enable=f0_fire)
-  val f1_situation  = RegEnable(next = f0_situation,  enable=f0_fire)
-  val f1_doubleLine = RegEnable(next = f0_doubleLine, enable=f0_fire)
-  val f1_vSetIdx    = RegEnable(next = f0_vSetIdx,    enable=f0_fire)
-  val f1_fire       = f1_valid && tlbRespAllValid && f2_ready
+  val f1_valid        = RegInit(false.B)
+  val f1_ftq_req      = RegEnable(next = f0_ftq_req,    enable=f0_fire)
+  val f1_max_bound_pc = RegEnable(next = f0_ftq_req.startAddr + (FetchWidth * 4).U,    enable=f0_fire)
+  val f1_situation    = RegEnable(next = f0_situation,  enable=f0_fire)
+  val f1_doubleLine   = RegEnable(next = f0_doubleLine, enable=f0_fire)
+  val f1_vSetIdx      = RegEnable(next = f0_vSetIdx,    enable=f0_fire)
+  val f1_fire         = f1_valid && tlbRespAllValid && f2_ready
 
   f1_ready := f2_ready && tlbRespAllValid || !f1_valid
 
@@ -228,6 +230,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   val f2_valid        = RegInit(false.B)
   val f2_ftq_req      = RegEnable(next = f1_ftq_req,    enable = f1_fire)
+  val f2_max_bound_pc = RegEnable(next = f1_max_bound_pc, enable = f1_fire)
   val f2_situation    = RegEnable(next = f1_situation,  enable=f1_fire)
   val f2_doubleLine   = RegEnable(next = f1_doubleLine, enable=f1_fire)
   val f2_fire         = f2_valid && f2_fetchFinish && f3_ready
@@ -439,6 +442,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f3_ftq_req        = RegEnable(next = f2_ftq_req,    enable=f2_fire)
   val f3_situation      = RegEnable(next = f2_situation,  enable=f2_fire)
   val f3_doubleLine     = RegEnable(next = f2_doubleLine, enable=f2_fire)
+  val f3_max_bound_pc   = RegEnable(next = f2_max_bound_pc, enable = f2_fire)
   val f3_fire           = io.toIbuffer.fire()
 
   when(f3_flush)                  {f3_valid := false.B}
@@ -462,6 +466,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   preDecoderIn.data          :=  f3_cut_data
   preDecoderIn.startAddr     :=  f3_ftq_req.startAddr
   preDecoderIn.fallThruAddr  :=  f3_ftq_req.fallThruAddr
+  preDecoderIn.maxBoundPC    :=  f3_max_bound_pc
   preDecoderIn.fallThruError :=  f3_ftq_req.fallThruError
   preDecoderIn.isDoubleLine  :=  f3_doubleLine
   preDecoderIn.ftqOffset     :=  f3_ftq_req.ftqOffset
