@@ -62,7 +62,7 @@ class ICacheMetaWriteBundle(implicit p: Parameters) extends ICacheBundle
   val waymask = UInt(nWays.W)
   val bankIdx   = Bool()
 
-  def apply(tag:UInt, idx:UInt, waymask:UInt, bankIdx: Bool){
+  def generate(tag:UInt, idx:UInt, waymask:UInt, bankIdx: Bool){
     this.virIdx  := idx
     this.phyTag  := tag
     this.waymask := waymask
@@ -78,7 +78,7 @@ class ICacheDataWriteBundle(implicit p: Parameters) extends ICacheBundle
   val waymask = UInt(nWays.W)
   val bankIdx = Bool()
 
-  def apply(data:UInt, idx:UInt, waymask:UInt, bankIdx: Bool){
+  def generate(data:UInt, idx:UInt, waymask:UInt, bankIdx: Bool){
     this.virIdx  := idx
     this.data    := data
     this.waymask := waymask
@@ -201,11 +201,11 @@ abstract class ICacheMissQueueBundle(implicit p: Parameters) extends XSBundle
 
 class ICacheMissReq(implicit p: Parameters) extends ICacheBundle
 {
-    val addr      = UInt(PAddrBits.W)
-    val vSetIdx   = UInt(idxBits.W)
-    val waymask   = UInt(16.W)
+    val addr          = UInt(PAddrBits.W)
+    val vSetIdx       = UInt(idxBits.W)
+    val waymask       = UInt(16.W)
     val clientID  = UInt(1.W)
-    def apply(missAddr:UInt, missIdx:UInt, missWaymask:UInt, source:UInt) = {
+    def generate(missAddr:UInt, missIdx:UInt, missWaymask:UInt, source:UInt) = {
       this.addr := missAddr
       this.vSetIdx  := missIdx
       this.waymask := missWaymask
@@ -233,10 +233,11 @@ class ICacheMissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     val io = IO(new Bundle{
         // MSHR ID
         val id          = Input(UInt(3.W))
+        val pf_done     = Input(Bool())
 
         val req         = Flipped(DecoupledIO(new ICacheMissReq))
         val resp        = DecoupledIO(new ICacheMissResp)
-        
+
         val mem_acquire = DecoupledIO(new TLBundleA(edge.bundle))
         val mem_grant   = Flipped(DecoupledIO(new TLBundleD(edge.bundle)))
 
@@ -246,7 +247,7 @@ class ICacheMissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
         val flush = Input(Bool())
     })
 
-    val s_idle :: s_memReadReq :: s_memReadResp :: s_write_back :: s_wait_resp :: Nil = Enum(5)
+    val s_idle :: s_memReadReq :: s_memReadResp :: s_write_back :: s_wait_pf :: s_wait_resp :: Nil = Enum(6)
     val state = RegInit(s_idle)
 
     //req register
@@ -260,6 +261,11 @@ class ICacheMissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     //8 for 64 bits bus and 2 for 256 bits
     val readBeatCnt = Reg(UInt(log2Up(refillCycles).W))
     val respDataReg = Reg(Vec(refillCycles,UInt(beatBits.W)))
+    val pf_done = RegInit(false.B)
+
+    when(io.flush)           {pf_done := false.B}
+    .elsewhen(io.pf_done) {pf_done := true.B}
+    .elsewhen(pf_done && state === s_wait_pf) {pf_done := false.B}
 
     //initial
     io.resp.bits := DontCare
@@ -307,7 +313,11 @@ class ICacheMissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
       }
 
       is(s_write_back){
-          state := s_wait_resp
+          state := s_wait_pf
+      }
+
+      is(s_wait_pf){
+          state := Mux(pf_done, s_wait_resp, s_wait_pf)
       }
 
       is(s_wait_resp){
@@ -321,10 +331,10 @@ class ICacheMissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     //refill write and meta write
     //WARNING: Maybe could not finish refill in 1 cycle
     io.meta_write.valid := (state === s_write_back) && !needFlush
-    io.meta_write.bits.apply(tag=req_tag, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
+    io.meta_write.bits.generate(tag=req_tag, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
    
     io.data_write.valid := (state === s_write_back) && !needFlush
-    io.data_write.bits.apply(data=respDataReg.asUInt, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
+    io.data_write.bits.generate(data=respDataReg.asUInt, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
 
     //mem request
     io.mem_acquire.bits  := edge.Get(
@@ -346,6 +356,8 @@ class ICachePfEntry(edge: TLEdgeOut,id :Int)(implicit p: Parameters) extends ICa
         val id          = Input(UInt(3.W))
 
         val req         = Flipped(DecoupledIO(new ICacheMissReq))
+        val miss_situ   = Input(UInt(2.W))
+        val is_done     = Output(Bool())
         
         val mem_acquire = DecoupledIO(new TLBundleA(edge.bundle))
         val mem_grant   = Flipped(DecoupledIO(new TLBundleD(edge.bundle)))
@@ -361,10 +373,9 @@ class ICachePfEntry(edge: TLEdgeOut,id :Int)(implicit p: Parameters) extends ICa
 
     //req register
     val req = Reg(new ICacheMissReq)
-    val delta = id/2
-    println(s"icahce pf entry${id}: delta is ${delta}")
-    val req_pf_addr = req.addr + (delta *2* blockBytes).U
-    val req_idx = req.vSetIdx + (2* delta).U        //virtual index
+    val mis_sit_reg = Reg(UInt(2.W))
+    val req_pf_addr = Mux( mis_sit_reg === "b01".U,  req.addr + ((id-1) * blockBytes).U,   req.addr + (id * blockBytes).U)
+    val req_idx     = Mux( mis_sit_reg === "b01".U,  req.vSetIdx + (id-1).U,               req.vSetIdx + id.U )
     val req_tag = get_tag(req_pf_addr)           //physical tag
     val req_waymask = req.waymask
 
@@ -380,6 +391,7 @@ class ICachePfEntry(edge: TLEdgeOut,id :Int)(implicit p: Parameters) extends ICa
     io.meta_write.bits := DontCare
     io.data_write.bits := DontCare
 
+    io.is_done := false.B
     io.req.ready := state === s_idle
     io.mem_acquire.valid := state === s_memReadReq
 
@@ -395,6 +407,7 @@ class ICachePfEntry(edge: TLEdgeOut,id :Int)(implicit p: Parameters) extends ICa
           readBeatCnt := 0.U
           state := s_memReadReq
           req := io.req.bits
+          mis_sit_reg := io.miss_situ
         }
       }
 
@@ -424,6 +437,7 @@ class ICachePfEntry(edge: TLEdgeOut,id :Int)(implicit p: Parameters) extends ICa
 
       is(s_wait_resp){
         state := s_idle
+        io.is_done :=true.B
       }
 
     }
@@ -431,10 +445,10 @@ class ICachePfEntry(edge: TLEdgeOut,id :Int)(implicit p: Parameters) extends ICa
     //refill write and meta write
     //WARNING: Maybe could not finish refill in 1 cycle
     io.meta_write.valid := (state === s_write_back) && !needFlush
-    io.meta_write.bits.apply(tag=req_tag, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
+    io.meta_write.bits.generate(tag=req_tag, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
    
     io.data_write.valid := (state === s_write_back) && !needFlush
-    io.data_write.bits.apply(data=respDataReg.asUInt, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
+    io.data_write.bits.generate(data=respDataReg.asUInt, idx=req_idx, waymask=req_waymask, bankIdx=req_idx(0))
 
     //mem request
     io.mem_acquire.bits  := edge.Get(
@@ -465,16 +479,21 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
   // assign default values to output signals
   io.mem_grant.ready := false.B
 
-  val meta_write_arb = Module(new Arbiter(new ICacheMetaWriteBundle,  2 + 4))
-  val refill_arb     = Module(new Arbiter(new ICacheDataWriteBundle,  2 + 4))
+  val meta_write_arb = Module(new Arbiter(new ICacheMetaWriteBundle,  2 + 3))
+  val refill_arb     = Module(new Arbiter(new ICacheDataWriteBundle,  2 + 3))
 
   io.mem_grant.ready := true.B
+
+  val miss_situation = Cat(io.req(1).valid, io.req(0).valid).asUInt
+  val pfDoneReg = RegInit(VecInit(Seq.fill(3)(false.B)))
+  val pf_all_done = pfDoneReg.reduce(_ && _)
 
   val missEntries = (0 until 2) map { i =>
     val entry = Module(new ICacheMissEntry(edge))
 
     entry.io.id := i.U(3.W) 
     entry.io.flush := io.flush
+    entry.io.pf_done := pf_all_done
 
     // entry req
     entry.io.req.valid := io.req(i).valid
@@ -515,20 +534,30 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
       case 3 => 5
   }
 
-  val pfEntries = (0 until 4) map { i =>
+  val miss_arb = Module(new Arbiter(new ICacheMissReq,  2))
+  miss_arb.io.in(0).valid := io.req(0).valid 
+  miss_arb.io.in(0).bits  := io.req(0).bits 
+  miss_arb.io.in(1).valid := io.req(1).valid 
+  miss_arb.io.in(1).bits  := io.req(1).bits  
+  miss_arb.io.out.ready := DontCare
+
+  val pfEntries = (0 until 3) map { i =>
       val id = idMap(i)
       val entry = Module(new ICachePfEntry(edge, id))
 
       entry.io.id := id.U(3.W)
       entry.io.flush := io.flush
+      entry.io.miss_situ := miss_situation
 
       // entry req
-      entry.io.req.valid := io.req(id%2).valid
-      entry.io.req.bits  := io.req(id%2).bits
+      entry.io.req.valid := miss_arb.io.out.valid
+      entry.io.req.bits  := miss_arb.io.out.bits
 
       // entry resp
       meta_write_arb.io.in(id)     <>  entry.io.meta_write
       refill_arb.io.in(id)         <>  entry.io.data_write
+
+      when(entry.io.is_done) { pfDoneReg(i) := true.B }
 
       entry.io.mem_grant.valid := false.B
       entry.io.mem_grant.bits  := DontCare
@@ -538,8 +567,10 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
       entry
   }
 
-  val entries = missEntries ++ pfEntries
-  TLArbiter.lowestFromSeq(edge, io.mem_acquire, entries.map(_.io.mem_acquire))
+  when(pf_all_done || io.flush) { pfDoneReg.map(_ := false.B)}
+
+  val entries_mem_acquire = missEntries.map(_.io.mem_acquire) ++ pfEntries.map(_.io.mem_acquire)
+  TLArbiter.lowestFromSeq(edge, io.mem_acquire, entries_mem_acquire)
 
   io.meta_write     <> meta_write_arb.io.out
   io.data_write     <> refill_arb.io.out
@@ -558,7 +589,8 @@ class ICache()(implicit p: Parameters) extends LazyModule with HasICacheParamete
   val clientParameters = TLMasterPortParameters.v1(
     Seq(TLMasterParameters.v1(
       name = "icache",
-      sourceId = IdRange(0, cacheParams.nMissEntries + 4)
+      sourceId = IdRange(0, cacheParams.nMissEntries + 3
+      )
     ))
   )
 

@@ -337,7 +337,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
         wait_state := wait_finish
       }
     }
-
+    
     is(wait_finish) {
       when(f2_fire) {wait_state := wait_idle }
     }
