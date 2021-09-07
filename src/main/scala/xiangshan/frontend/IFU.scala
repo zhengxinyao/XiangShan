@@ -72,20 +72,31 @@ class LastHalfInfo(implicit p: Parameters) extends XSBundle {
   def matchThisBlock(startAddr: UInt) = valid && middlePC === startAddr
 }
 
-class IfuToPreDecode(implicit p: Parameters) extends XSBundle {
+class IfuToPdStage1(implicit p: Parameters) extends XSBundle {
   val data          = if(HasCExtension) Vec(PredictWidth + 1, UInt(16.W)) else Vec(PredictWidth, UInt(32.W))  
   val startAddr     = UInt(VAddrBits.W)
   val fallThruAddr  = UInt(VAddrBits.W)
-  val maxBoundPC    = UInt(VAddrBits.W)
+  val fallThruError = Bool()
+  val isDoubleLine  = Bool()
+  val instValid     = Bool() 
+  val lastHalfMatch = Bool()
+  val oversize      = Bool()
+  val pageFault     = Vec(2, Bool())
+  val accessFault   = Vec(2, Bool())
+}
+
+class IfuToPdStage2(implicit p: Parameters) extends XSBundle {
+  val stage1Resp    = new Stage1Resp
+  val startAddr     = UInt(VAddrBits.W)
+  val fallThruAddr  = UInt(VAddrBits.W)
   val fallThruError = Bool()
   val isDoubleLine  = Bool()
   val ftqOffset     = Valid(UInt(log2Ceil(PredictWidth).W))
   val target        = UInt(VAddrBits.W)
-  val pageFault     = Vec(2, Bool())
-  val accessFault   = Vec(2, Bool())
-  val instValid     = Bool() 
   val lastHalfMatch = Bool()
   val oversize      = Bool()
+  val maxBoundPC    = UInt(VAddrBits.W)
+  val instValid     = Bool()
 }
 
 class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
@@ -137,6 +148,14 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     fetch_req(i).bits.vSetIdx := f0_vSetIdx
   }
 
+  toITLB(0).valid         := f0_fire
+  toITLB(0).bits.vaddr    := align(f0_ftq_req.startAddr, blockBytes)
+  toITLB(0).bits.debug.pc := align(f0_ftq_req.startAddr, blockBytes)
+  
+  toITLB(1).valid         := f0_fire && f0_doubleLine
+  toITLB(1).bits.vaddr    := align(f0_ftq_req.fallThruAddr, blockBytes)
+  toITLB(1).bits.debug.pc := align(f0_ftq_req.fallThruAddr, blockBytes) 
+
   fromFtq.req.ready := fetch_req(0).ready && fetch_req(1).ready && f1_ready && GTimer() > 500.U
 
   //---------------------------------------------
@@ -163,8 +182,8 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   from_bpu_f1_flush := fromFtq.flushFromBpu.shouldFlushByStage3(f1_ftq_req.ftqIdx)
 
-  val preDecoder      = Module(new PreDecode)
-  val (preDecoderIn, preDecoderOut)   = (preDecoder.io.in, preDecoder.io.out)
+  val preDecodeStage2      = Module(new PreDecodeStage2)
+  val (preDecoderIn, preDecoderOut)   = (preDecodeStage2.io.in, preDecodeStage2.io.out)
 
   //flush generate and to Ftq
   val predecodeOutValid = WireInit(false.B)
@@ -172,14 +191,6 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   when(f1_flush)                  {f1_valid  := false.B}
   .elsewhen(f0_fire && !f0_flush) {f1_valid  := true.B}
   .elsewhen(f1_fire)              {f1_valid  := false.B}
-
-  toITLB(0).valid         := f1_valid
-  toITLB(0).bits.vaddr    := align(f1_ftq_req.startAddr, blockBytes)
-  toITLB(0).bits.debug.pc := align(f1_ftq_req.startAddr, blockBytes)
-  
-  toITLB(1).valid         := f1_valid && f1_doubleLine
-  toITLB(1).bits.vaddr    := align(f1_ftq_req.fallThruAddr, blockBytes)
-  toITLB(1).bits.debug.pc := align(f1_ftq_req.fallThruAddr, blockBytes)
 
   toITLB.map{port =>
     port.bits.cmd                 := TlbCmd.exec
@@ -430,6 +441,18 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     reservedRefillData(1) := f2_mq_datas(1)
   }
 
+  val preDecodeStage1 = Module(new PreDecodeStage1)
+  preDecodeStage1.io.in.data := f2_cut_data
+  preDecodeStage1.io.in.startAddr := f2_ftq_req.startAddr
+  preDecodeStage1.io.in.fallThruAddr := f2_ftq_req.fallThruAddr
+  preDecodeStage1.io.in.fallThruError := f2_ftq_req.fallThruError
+  preDecodeStage1.io.in.isDoubleLine := f2_doubleLine
+  preDecodeStage1.io.in.instValid := f2_valid
+  preDecodeStage1.io.in.lastHalfMatch := false.B
+  preDecodeStage1.io.in.oversize := f2_ftq_req.oversize
+  preDecodeStage1.io.in.pageFault := f2_except_pf
+  preDecodeStage1.io.in.accessFault := f2_except_af
+
 
   //---------------------------------------------
   //  Fetch Stage 4 :
@@ -456,14 +479,15 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f3_except_af      = RegEnable(next = f2_except_af, enable = f2_fire)
   val f3_hit            = RegEnable(next = f2_hit   , enable = f2_fire)
 
+  val f3_s1_resp        = RegEnable(next = preDecodeStage1.io.out,   enable = f2_fire)
+
   val f3_lastHalf       = RegInit(0.U.asTypeOf(new LastHalfInfo))
   val f3_lastHalfMatch  = f3_lastHalf.matchThisBlock(f3_ftq_req.startAddr)
   val f3_except         = VecInit((0 until 2).map{i => f3_except_pf(i) || f3_except_af(i)})
   val f3_has_except     = f3_valid && (f3_except_af.reduce(_||_) || f3_except_pf.reduce(_||_))
 
   
-  preDecoderIn.instValid     :=  f3_valid && !f3_has_except
-  preDecoderIn.data          :=  f3_cut_data
+  preDecoderIn.stage1Resp          :=  f3_s1_resp
   preDecoderIn.startAddr     :=  f3_ftq_req.startAddr
   preDecoderIn.fallThruAddr  :=  f3_ftq_req.fallThruAddr
   preDecoderIn.maxBoundPC    :=  f3_max_bound_pc
@@ -473,8 +497,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   preDecoderIn.target        :=  f3_ftq_req.target
   preDecoderIn.oversize      :=  f3_ftq_req.oversize
   preDecoderIn.lastHalfMatch :=  f3_lastHalfMatch
-  preDecoderIn.pageFault     :=  f3_except_pf  
-  preDecoderIn.accessFault   :=  f3_except_af
+  preDecoderIn.instValid :=  f3_valid
 
 
   // TODO: What if next packet does not match?

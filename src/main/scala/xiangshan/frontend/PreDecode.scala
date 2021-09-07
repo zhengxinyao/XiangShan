@@ -99,10 +99,34 @@ class PreDecodeResp(implicit p: Parameters) extends XSBundle with HasPdConst {
   val crossPageIPF = Vec(PredictWidth, Bool())
 }
 
-class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
+class Stage1Resp(implicit p: Parameters) extends XSBundle with HasPdConst{
+  val pc          = Vec(PredictWidth, UInt(VAddrBits.W))
+  val instrs      = if(HasCExtension) Vec(PredictWidth, UInt(16.W)) else Vec(PredictWidth, UInt(32.W))  
+  val pds         = Vec(PredictWidth, new PreDecodeInfo)
+  val targets     = Vec(PredictWidth, UInt(VAddrBits.W))
+  val pageFault    = Vec(PredictWidth, Bool())
+  val accessFault  = Vec(PredictWidth, Bool())
+  val nextLinePC = UInt(VAddrBits.W)
+}
+
+class Stage2Resp(implicit p: Parameters) extends XSBundle with HasPdConst{
+  val takens      = Vec(PredictWidth, Bool())
+  val misOffset    = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
+  val cfiOffset    = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
+  val target       = UInt(VAddrBits.W)
+  val jalTarget    = UInt(VAddrBits.W)
+  val hasLastHalf  = Bool()
+  val realEndPC    = UInt(VAddrBits.W)
+  val instrRange   = Vec(PredictWidth, Bool())
+  val pageFault    = Vec(PredictWidth, Bool())
+  val accessFault  = Vec(PredictWidth, Bool())
+  val crossPageIPF = Vec(PredictWidth, Bool())
+}
+
+class PreDecodeStage1(implicit p: Parameters) extends XSModule with HasPdConst{
   val io = IO(new Bundle() {
-    val in = Input(new IfuToPreDecode)
-    val out = Output(new PreDecodeResp)
+    val in = Input(new IfuToPdStage1)
+    val out = Output(new Stage1Resp)
   })
 
   val instValid     = io.in.instValid 
@@ -111,23 +135,11 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
   val pcEnd         = io.in.fallThruAddr
   val pcEndError    = io.in.fallThruError
   val isDoubleLine  = io.in.isDoubleLine
-  val bbOffset      = io.in.ftqOffset.bits
-  val bbTaken       = io.in.ftqOffset.valid
-  val bbTarget      = io.in.target
-  val oversize      = io.in.oversize
   val pageFault     = io.in.pageFault
   val accessFault   = io.in.accessFault
-  val maxBoundPC    = io.in.maxBoundPC
 
-
-  val validStart , validEnd, instRange            = Wire(Vec(PredictWidth, Bool()))
+  val validStart , validEnd            = Wire(Vec(PredictWidth, Bool()))
   dontTouch(validStart)
-  val misPred, takens, falseHit                   = Wire(Vec(PredictWidth, Bool()))
-  val targets                                     = Wire(Vec(PredictWidth, UInt(VAddrBits.W)))
-  //"real" means signals that are genrated by repaired end pc of this basic block using predecode information
-  val realEndPC                                   = Wire(UInt(VAddrBits.W))
-  val realHasLastHalf, realMissPred, realTakens   = Wire(Vec(PredictWidth, Bool()))
-
   val rawInsts = if (HasCExtension) VecInit((0 until PredictWidth).map(i => Cat(data(i+1), data(i))))  
                        else         VecInit((0 until PredictWidth).map(i => data(i)))
   
@@ -137,25 +149,23 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
     pc(log2Ceil(blockBytes))  ^  nextLineStart(log2Ceil(blockBytes))
   }
   val nextLinePC =  getNextLineStart(pcStart)
-
+  io.out.nextLinePC := nextLinePC
 
   for (i <- 0 until PredictWidth) {
     //TODO: Terrible timing for pc comparing
-    val isNextLine      = !compNextLineStart(io.out.pc, nextLinePC)
+    val isNextLine      = !compNextLineStart(io.out.pc(i), nextLinePC)
     val nullInstruction = isNextLine && !isDoubleLine
-
     val hasPageFault   = validStart(i) && (!isNextLine && pageFault(0)   ||  isNextLine && pageFault(1))
     val hasAccessFault = validStart(i) && (!isNextLine && accessFault(0) ||  isNextLine && accessFault(1))
     val exception      = hasPageFault || hasAccessFault
     val inst           = Mux(exception || nullInstruction , NOP, WireInit(rawInsts(i)))
-    val expander       = Module(new RVCExpander)
 
     val isFirstInBlock = i.U === 0.U
     val isLastInBlock  = (i == PredictWidth - 1).B
     val currentPC      = pcStart + (i << 1).U((log2Ceil(PredictWidth)+1).W)
     val currentIsRVC   = isRVC(inst) && HasCExtension.B
 
-    val lastIsValidEnd =  if (i == 0) { !io.in.lastHalfMatch } else { validEnd(i-1) || isFirstInBlock || !HasCExtension.B }
+    val lastIsValidEnd = if(i == 0) true.B else  validEnd(i-1) || isFirstInBlock || !HasCExtension.B
     
     validStart(i)   := (lastIsValidEnd || !HasCExtension.B)
     validEnd(i)     := validStart(i) && currentIsRVC || !validStart(i) || !HasCExtension.B
@@ -164,47 +174,105 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
     val jalOffset = jal_offset(inst, currentIsRVC)
     val brOffset  = br_offset(inst, currentIsRVC)
 
-    io.out.pd(i).valid         := (lastIsValidEnd || !HasCExtension.B)
-    io.out.pd(i).isRVC         := currentIsRVC
-    io.out.pd(i).brType        := brType
-    io.out.pd(i).isCall        := isCall 
-    io.out.pd(i).isRet         := isRet
-    io.out.pc(i)               := currentPC
     io.out.pageFault(i)        := hasPageFault
     io.out.accessFault(i)      := hasAccessFault
-    io.out.crossPageIPF(i)     := (io.out.pc(i) === align(realEndPC, 64) - 2.U) && !pageFault(0) && pageFault(1) && !currentIsRVC
 
-    expander.io.in             := inst
+    io.out.pds(i).valid         := (lastIsValidEnd || !HasCExtension.B)
+    io.out.pds(i).isRVC         := currentIsRVC
+    io.out.pds(i).brType        := brType
+    io.out.pds(i).isCall        := isCall 
+    io.out.pds(i).isRet         := isRet
+    io.out.pc(i)               := currentPC
+    io.out.instrs(i)           := inst
+    io.out.targets(i)          := io.out.pc(i) + Mux( io.out.pds(i).isBr, brOffset, jalOffset)
+  }
+
+  // for (i <- 0 until PredictWidth) {
+  //   XSDebug(true.B,
+  //     p"instr ${Hexadecimal(io.out.instrs(i))}, " +
+  //     p"validStart ${Binary(validStart(i))}, " +
+  //     p"validEnd ${Binary(validEnd(i))}, " +
+  //     p"pc ${Hexadecimal(io.out.pc(i))}, " +
+  //     p"isRVC ${Binary(io.out.pd(i).isRVC)}, " +
+  //     p"brType ${Binary(io.out.pd(i).brType)}, " +
+  //     p"isRet ${Binary(io.out.pd(i).isRet)}, " +
+  //     p"isCall ${Binary(io.out.pd(i).isCall)}\n"
+  //   )
+  // }
+}
+
+class PreDecodeStage2(implicit p: Parameters) extends XSModule with HasPdConst{
+  val io = IO(new Bundle() {
+    val in = Input(new IfuToPdStage2)
+    val out = Output(new PreDecodeResp)
+  })
+
+  val pcStart       = io.in.startAddr
+  val pcEnd         = io.in.fallThruAddr
+  val pcEndError    = io.in.fallThruError
+  val isDoubleLine  = io.in.isDoubleLine
+  val bbOffset      = io.in.ftqOffset.bits
+  val bbTaken       = io.in.ftqOffset.valid
+  val bbTarget      = io.in.target
+  val oversize      = io.in.oversize
+  val maxBoundPC    = io.in.maxBoundPC
+  val insts         = io.in.stage1Resp.instrs
+  val pc            = io.in.stage1Resp.pc 
+  val pd            = io.in.stage1Resp.pds
+  val targets       = io.in.stage1Resp.targets
+  val valids        = io.in.stage1Resp.pds.map(_.valid)
+  val pageFault     = io.in.stage1Resp.pageFault
+  val accessFault   = io.in.stage1Resp.accessFault
+  val instValid     = io.in.instValid
+  val nextLinePC    = io.in.stage1Resp.nextLinePC
+
+
+  val misPred, takens, falseHit, instRange                   = Wire(Vec(PredictWidth, Bool()))
+  //"real" means signals that are genrated by repaired end pc of this basic block using predecode information
+  val realEndPC                                   = Wire(UInt(VAddrBits.W))
+  val realHasLastHalf, realMissPred, realTakens   = Wire(Vec(PredictWidth, Bool()))
+
+  for (i <- 0 until PredictWidth) {
+    val expander       = Module(new RVCExpander)
+    expander.io.in             := insts(i)
     io.out.instrs(i)           := expander.io.out.bits
 
-    takens(i)    := (validStart(i)  && (bbTaken && bbOffset === i.U && !io.out.pd(i).notCFI || io.out.pd(i).isJal || io.out.pd(i).isRet))
+    val currentIsRVC   = isRVC(insts(i)) && HasCExtension.B
 
-    val jumpTarget      = io.out.pc(i) + Mux(io.out.pd(i).isBr, brOffset, jalOffset)
-    targets(i) := Mux(takens(i), jumpTarget, pcEnd)
+    takens(i)    := (valids(i)  && (bbTaken && bbOffset === i.U && !pd(i).notCFI || pd(i).isJal || pd(i).isRet))
                        //Banch and jal have wrong targets
-    val targetFault    = (validStart(i)  && i.U === bbOffset && bbTaken && (io.out.pd(i).isBr || io.out.pd(i).isJal) && bbTarget =/= targets(i))  
+    val targetFault    = (valids(i)  && i.U === bbOffset && bbTaken && (pd(i).isBr || pd(i).isJal) && bbTarget =/= targets(i))  
                        //An not-CFI instruction is predicted taken
-    val notCFIFault    = (validStart(i)  && i.U === bbOffset && io.out.pd(i).notCFI && bbTaken) 
+    val notCFIFault    = (valids(i)  && i.U === bbOffset && pd(i).notCFI && bbTaken) 
                        //A jal instruction is predicted not taken
-    val jalFault       = (validStart(i)  && !bbTaken && io.out.pd(i).isJal)
+    val jalFault       = (valids(i)  && !bbTaken && pd(i).isJal)
                        //A ret instruction is predicted not taken
-    val retFault       = (validStart(i)  && !bbTaken && io.out.pd(i).isRet) 
+    val retFault       = (valids(i)  && !bbTaken && pd(i).isRet) 
                        //An invalid instruction is predicted taken
-    val invalidInsFault  = (!validStart(i)  && i.U === bbOffset && bbTaken)
+    val invalidInsFault  = (!valids(i)  && i.U === bbOffset && bbTaken)
 
     misPred(i)   := targetFault  || notCFIFault || jalFault || retFault || invalidInsFault || pcEndError
     falseHit(i)  := invalidInsFault || notCFIFault
 
+    io.out.crossPageIPF(i)     := (io.out.pc(i) === align(realEndPC, 64) - 2.U) && !pageFault(0) && pageFault(1) && !currentIsRVC
+    io.out.pageFault(i)        := pageFault(i)
+    io.out.accessFault(i)      := accessFault(i)
+
     realMissPred(i)     := misPred(i) && instRange(i)
-    realHasLastHalf(i)  := instValid && currentPC === (realEndPC - 2.U) && validStart(i) && instRange(i) && !currentIsRVC
+    realHasLastHalf(i)  := instValid && pc(i) === (realEndPC - 2.U) && valids(i) && instRange(i) && !currentIsRVC
     realTakens(i)       := takens(i) && instRange(i)  
   }
 
-  val jumpOH                  =  VecInit(io.out.pd.zipWithIndex.map{ case(inst, i) => inst.isJal  && validStart(i) }) //TODO: need jalr?
+  def pcGreatThan(pc1: UInt, pc2: UInt): Bool = {
+    (pc1(6) ^ pc2(6)) && (pc1(5,1) <  pc2(5,1)) || !(pc1(6) ^ pc2(6)) && (pc1(5,1) >  pc2(5,1))
+  }
+
+
+  val jumpOH                  =  VecInit(pd.zipWithIndex.map{ case(inst, i) => inst.isJal  && valids(i) }) //TODO: need jalr?
   val jumpOffset              =  PriorityEncoder(jumpOH)
-  val rvcOH                   =  VecInit(io.out.pd.map(inst => inst.isRVC))
+  val rvcOH                   =  VecInit(pd.map(inst => inst.isRVC))
   val jumpPC                  =  ParallelPriorityMux(jumpOH, io.out.pc)
-  val jumpTarget              =  ParallelPriorityMux(jumpOH, target)
+  val jumpTarget              =  ParallelPriorityMux(jumpOH, targets)
   val jumpIsRVC               =  ParallelPriorityMux(jumpOH, rvcOH)
   val jumpNextPC              =  jumpPC + Mux(jumpIsRVC, 2.U, 4.U)
   val (hasFalseHit, hasJump)  =  (ParallelOR(falseHit), ParallelOR(jumpOH))
@@ -213,14 +281,10 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
   val fixCross                =  pcGreatThan(maxBoundPC, nextLinePC) && !isDoubleLine
   val boundPC                 =  Mux(fixCross, nextLinePC - 2.U  ,maxBoundPC)
 
-  def pcGreatThan(pc1: UInt, pc2: UInt): Bool = {
-    ((pc1(6) ^ pc2(6)) && (pc1(5,1) <  pc2(5,1)) || !(pc1(6) ^ pc2(6)) && (pc1(5,1) >  pc2(5,1))
-  }
-
   instRange               :=  VecInit((0 until PredictWidth).map(i => endRange(i) &&  takeRange(i)))
-  realEndPC               :=  Mux( , Mux(hasJump && !pcGreatThan(jumpNextPC, boundPC), jumpNextPC, boundPC), pcEnd)
+  realEndPC               :=  Mux( hasFalseHit , Mux(hasJump && !pcGreatThan(jumpNextPC, boundPC), jumpNextPC, boundPC), pcEnd)
 
-  val validLastOffset     = Mux(io.out.pd((PredictWidth - 1).U).valid, (PredictWidth - 1).U, (PredictWidth - 2).U)
+  val validLastOffset     = Mux(pd((PredictWidth - 1).U).valid, (PredictWidth - 1).U, (PredictWidth - 2).U)
   io.out.misOffset.valid  := ParallelOR(realMissPred)
   io.out.misOffset.bits   := Mux(pcEndError,validLastOffset,PriorityEncoder(realMissPred))
   io.out.instrRange.zipWithIndex.map{case (bit,i) => bit := instRange(i).asBool()}
@@ -235,20 +299,11 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
 
   io.out.hasLastHalf      := realHasLastHalf.reduce(_||_)
   io.out.realEndPC        := realEndPC
-
-  for (i <- 0 until PredictWidth) {
-    XSDebug(true.B,
-      p"instr ${Hexadecimal(io.out.instrs(i))}, " +
-      p"validStart ${Binary(validStart(i))}, " +
-      p"validEnd ${Binary(validEnd(i))}, " +
-      p"pc ${Hexadecimal(io.out.pc(i))}, " +
-      p"isRVC ${Binary(io.out.pd(i).isRVC)}, " +
-      p"brType ${Binary(io.out.pd(i).brType)}, " +
-      p"isRet ${Binary(io.out.pd(i).isRet)}, " +
-      p"isCall ${Binary(io.out.pd(i).isCall)}\n"
-    )
-  }
+  io.out.pc               := pc 
+  io.out.pd               := pd
+  
 }
+
 
 class RVCExpander(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle {
