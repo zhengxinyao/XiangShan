@@ -97,19 +97,22 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
 
 // Dequeue DecodeWidth insts from Ibuffer
 class CtrlFlow(implicit p: Parameters) extends XSBundle {
+  /** frontend info **/
   val instr = UInt(32.W)
   val pc = UInt(VAddrBits.W)
   val foldpc = UInt(MemPredPCWidth.W)
   val exceptionVec = ExceptionVec()
-  val intrVec = Vec(12, Bool())
-  val pd = new PreDecodeInfo
+  //val pd = new PreDecodeInfo
+  val ftqPtr = new FtqPtr
+  val ftqOffset = UInt(log2Up(PredictWidth).W)
   val pred_taken = Bool()
+  /** backend info **/
+  val intrVec = Vec(12, Bool())
   val crossPageIPFFix = Bool()
+  val pd = new PreDecodeInfo
   val storeSetHit = Bool() // inst has been allocated an store set
   val loadWaitBit = Bool() // load inst should not be executed until all former store addr calcuated
   val ssid = UInt(SSIDWidth.W)
-  val ftqPtr = new FtqPtr
-  val ftqOffset = UInt(log2Up(PredictWidth).W)
   // This inst will flush all the pipe when it is the oldest inst in ROB,
   // then replay from this inst itself
   val replayInst = Bool() 

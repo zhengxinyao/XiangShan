@@ -74,22 +74,26 @@ class PredecodeWritebackBundle(implicit p:Parameters) extends XSBundle {
   val instrRange   = Vec(PredictWidth, Bool())
 }
 
-class Exception(implicit p: Parameters) extends XSBundle {
-
-}
-
-class FetchToIBuffer(implicit p: Parameters) extends XSBundle {
-  val instrs    = Vec(PredictWidth, UInt(32.W))
-  val valid     = UInt(PredictWidth.W)
-  val pd        = Vec(PredictWidth, new PreDecodeInfo)
-  val pc        = Vec(PredictWidth, UInt(VAddrBits.W))
-  val foldpc    = Vec(PredictWidth, UInt(MemPredPCWidth.W))
+class FetchToIBuffer(implicit p: Parameters) extends XSBundle with HasICacheParameters{
+  val cacheline    = UInt(blockBits.W)
+  val rangeVec     = Vec(PredictWidth, Bool())
+  val linePC       = UInt(VAddrBits.W)
   //val exception = new Exception
   val ftqPtr       = new FtqPtr
   val ftqOffset    = Vec(PredictWidth, ValidUndirectioned(UInt(log2Ceil(PredictWidth).W)))
   val ipf          = Vec(PredictWidth, Bool())
   val acf          = Vec(PredictWidth, Bool())
-  val crossPageIPFFix = Vec(PredictWidth, Bool())
+  //val crossPageIPFFix = Vec(PredictWidth, Bool())
+}
+
+class IBufferToDecode(implicit p: Parameters) extends XSBundle {
+  val instr = UInt(32.W)
+  val pc = UInt(VAddrBits.W)
+  val foldpc = UInt(MemPredPCWidth.W)
+  val exceptionVec = ExceptionVec()
+  val ftqPtr = new FtqPtr
+  val ftqOffset = UInt(log2Up(PredictWidth).W)
+  val pred_taken = Bool()
 }
 
 // Move from BPU
