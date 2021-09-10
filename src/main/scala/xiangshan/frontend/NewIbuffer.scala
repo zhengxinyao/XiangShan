@@ -3,6 +3,7 @@ package xiangshan.frontend
 import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
+import freechips.rocketchip.rocket.{ExpandedInstruction, RVCDecoder}
 import xiangshan._
 import xiangshan.backend.fu._
 import utils._
@@ -13,11 +14,20 @@ trait IBufConst extends HasXSParameter
     with HasExceptionNO
 {
     val lastInstrIdx         = PredictWidth - 1
+    val InstrLen             = blockBytes/PredictWidth
 
     def isRVC(inst: UInt) = (inst(1,0) =/= 3.U)
     def getNextLineStart(pc: UInt) = Cat(pc(VAddrBits-1, log2Ceil(blockBytes) + 1), 1.U(1.W) , 0.U(log2Ceil(blockBytes).W))
-    def genValids(isRVC: Vec[Bool], range: Vec[Bool]): UInt ={
 
+    //WARNING: This could be timing critical
+    def genValids(isRVC: Vec[Bool], range: Vec[Bool], lastHalf: Bool) ={
+        val validStart, validEnd = Wire(Vec(PredictWidth, Bool()))
+        for(i <- 0 until PredictWidth){
+            val lastIsValidEnd =  if (i == 0) { lastHalf } else { validEnd(i-1) || !HasCExtension.B }
+            validStart(i)   := (lastIsValidEnd || !HasCExtension.B)
+            validEnd(i)     := validStart(i) && isRVC(i) || !validStart(i) || !HasCExtension.B
+        }
+        validStart
     }
 }
 
@@ -48,7 +58,7 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
 {
     class IBufEntry(implicit p: Parameters) extends XSBundle {
         val cacheline = UInt(blockBits.W)
-        val lastHalfInst = UInt(16.W)
+        val lastHalfInst = UInt(InstrLen.W)
         val linePC = UInt(VAddrBits.W)
         val foldpc = UInt(MemPredPCWidth.W)
         val pred_taken = Bool()
@@ -87,7 +97,7 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
     val cacheline = enqEntry.cacheline.asTypeOf((Vec(PredictWidth, UInt(16.W))))
     val isRVCVec = VecInit(cacheline.map(isRVC(_)))
     val rangeVec = io.in.bits.rangeVec
-    val validVec = genValids(isRVCVec, rangeVec)
+    val validVec = genValids(isRVCVec, rangeVec, lastHalf.hasLastHalf)
 
     validVecQueue.io.waddr(0) := enqPtr.value
     validVecQueue.io.wen(0)   := io.in.fire()
@@ -151,19 +161,44 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
 
     deqPtr := deqPtr + canDeque
 
+    /** out to decode logic */
+    //expand instructions to 32 bits
+    val expanders       = (0 until DecodeWidth).map{ i =>
+        val expander = Module(new RVCExpander)
+        expander.io.in := rawInsts(outPtrs(i))
+        expander
+    }
+
+
     for(i <- 0 until DecodeWidth){
-        io.out(i).bits.instr  := rawInsts(outPtrs(i))
-        io.out(i).bits.pc     := deqEntry.linePC + outPtrs(i)
-        io.out(i).bits.foldpc := XORFold(io.out(i).bits.pc(VAddrBits-1,1), MemPredPCWidth) //TODO: this maybe timing critical
-        io.out(i).bits.exceptionVec := deqExpVec
-        io.out(i).bits.ftqPtr       := deqEntry.ftqPtr
-        io.out(i).bits.pred_taken   := deqEntry.pred_taken
-        io.out(i).bits.ftqOffset    := outPtrs(i)
+        //ignore the backend info in CtrFlow
+        io.out(i).bits := DontCare
+        //assign the frontend info to CtrFlow
+        io.out(i).bits.instr  := RegNext(expanders(i).io.out)
+        io.out(i).bits.pc     := RegNext(deqEntry.linePC + outPtrs(i))
+        io.out(i).bits.foldpc := RegNext(XORFold(io.out(i).bits.pc(VAddrBits-1,1), MemPredPCWidth)) //TODO: this maybe timing critical
+        io.out(i).bits.exceptionVec := RegNext(deqExpVec)
+        io.out(i).bits.ftqPtr       := RegNext(deqEntry.ftqPtr)
+        io.out(i).bits.pred_taken   := RegNext(deqEntry.pred_taken)
+        io.out(i).bits.ftqOffset    := RegNext(outPtrs(i))
     }
 
     /** flush logic */
     when(io.flush){
         enqPtr := IbufPtr(false.B, 0.U)
         deqPtr := IbufPtr(false.B, 0.U)
+    }
+}
+
+class RVCExpander(implicit p: Parameters) extends XSModule {
+    val io = IO(new Bundle {
+        val in = Input(UInt(32.W))
+        val out = Output(new ExpandedInstruction)
+    })
+
+    if (HasCExtension) {
+        io.out := new RVCDecoder(io.in, XLEN).decode
+    } else {
+        io.out := new RVCDecoder(io.in, XLEN).passthrough
     }
 }
