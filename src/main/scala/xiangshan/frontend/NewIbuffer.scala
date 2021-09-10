@@ -20,10 +20,10 @@ trait IBufConst extends HasXSParameter
     def getNextLineStart(pc: UInt) = Cat(pc(VAddrBits-1, log2Ceil(blockBytes) + 1), 1.U(1.W) , 0.U(log2Ceil(blockBytes).W))
 
     //WARNING: This could be timing critical
-    def genValids(isRVC: Vec[Bool], range: Vec[Bool], lastHalf: Bool) ={
+    def genValids(isRVC: Vec[Bool], range: Vec[Bool], lastHalfMatch: Bool) ={
         val validStart, validEnd = Wire(Vec(PredictWidth, Bool()))
         for(i <- 0 until PredictWidth){
-            val lastIsValidEnd =  if (i == 0) { lastHalf } else { validEnd(i-1) || !HasCExtension.B }
+            val lastIsValidEnd =  if (i == 0) { !lastHalfMatch } else { validEnd(i-1) || !HasCExtension.B }
             validStart(i)   := (lastIsValidEnd || !HasCExtension.B)
             validEnd(i)     := validStart(i) && isRVC(i) || !validStart(i) || !HasCExtension.B
         }
@@ -70,7 +70,7 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
     class LastHalf(implicit  p: Parameters) extends XSBundle {
         val hasLastHalf     = Bool()
         val lastPageFaut    = Bool()
-        val halfInstr       = UInt(16.W)
+        val halfInstr       = UInt(InstrLen.W)
         val lastEndPC       = UInt(VAddrBits.W)
 
         def matchThisBlock(lineStart: UInt) = hasLastHalf && lastEndPC === lineStart
@@ -85,9 +85,11 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
 
     /** enq logic */
     val enqEntry = Wire(new IBufEntry)
+    val allowEnq = io.in.fire() && !io.flush
 
     enqEntry.cacheline := io.in.bits.cacheline
     enqEntry.linePC    := io.in.bits.linePC
+    enqEntry.lastHalfInst := lastHalf.halfInstr
 
     ibuffer.io.waddr(0) := enqPtr.value
     ibuffer.io.wen(0)   := io.in.fire()
@@ -97,14 +99,14 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
     val cacheline = enqEntry.cacheline.asTypeOf((Vec(PredictWidth, UInt(16.W))))
     val isRVCVec = VecInit(cacheline.map(isRVC(_)))
     val rangeVec = io.in.bits.rangeVec
-    val validVec = genValids(isRVCVec, rangeVec, lastHalf.hasLastHalf)
+    val validVec = genValids(isRVCVec, rangeVec, lastHalf.matchThisBlock(io.in.bits.linePC))
 
     validVecQueue.io.waddr(0) := enqPtr.value
     validVecQueue.io.wen(0)   := io.in.fire()
     validVecQueue.io.wdata(0) := validVec
 
     //save the last half RVI intstruction, as well as the middle pc and the page fault bit
-    val lastIsHalfRVI = !isRVCVec(lastInstrIdx)  && validVec(lastInstrIdx) && io.in.fire()
+    val lastIsHalfRVI = !isRVCVec(lastInstrIdx)  && validVec(lastInstrIdx) && allowEnq
     val lastHalfMet   = lastHalf.matchThisBlock(io.in.bits.linePC)
 
     when(io.flush){
@@ -141,13 +143,14 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
 
     val canDeque = validInstrCnt === 0.U
     val deqExpVec = Wire(ExceptionVec())
+    val deqPtrNext = canDeque + canDeque
 
     deqExpVec := DontCare
     deqExpVec(instrPageFault) := deqEntry.ipf
     deqExpVec(instrAccessFault) := deqEntry.acf
 
-    ibuffer.io.raddr(0) := deqPtr.value
-    validVecQueue.io.raddr(0) := deqPtr.value
+    ibuffer.io.raddr(0) := deqPtrNext
+    validVecQueue.io.raddr(0) := deqPtrNext
 
     validVecQueue.io.waddr(0) := deqPtr.value
     validVecQueue.io.wen(0)   := validInstrCnt > acceptCnt
