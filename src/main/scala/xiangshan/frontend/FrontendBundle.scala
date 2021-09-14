@@ -83,9 +83,8 @@ class FetchToIBuffer(implicit p: Parameters) extends XSBundle with HasICachePara
   //val exception = new Exception
   val ftqPtr       = new FtqPtr
   val ftqOffset    = Vec(PredictWidth, ValidUndirectioned(UInt(log2Ceil(PredictWidth).W)))
-  val ipf          = Vec(PredictWidth, Bool())
-  val acf          = Vec(PredictWidth, Bool())
-  //val crossPageIPFFix = Vec(PredictWidth, Bool())
+  val ipf          = Bool()
+  val acf          = Bool()
 }
 
 class IBufferToDecode(implicit p: Parameters) extends XSBundle {

@@ -93,6 +93,7 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
     enqEntry.linePC    := io.in.bits.linePC
     enqEntry.lastHalfInst.valid := lastHalf.hasLastHalf
     enqEntry.lastHalfInst.bits  := lastHalf.halfInstr
+    enqEntry.crossPageFault := lastHalf.hasLastHalf && !lastHalf.lastPageFaut && io.in.bits.ipf && lastHalf.matchThisBlock(io.in.bits.linePC)
 
     ibuffer.io.waddr(0) := enqPtr.value
     ibuffer.io.wen(0)   := io.in.fire()
@@ -154,6 +155,7 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
     deqExpVec := DontCare
     deqExpVec(instrPageFault) := deqEntry.ipf
     deqExpVec(instrAccessFault) := deqEntry.acf
+    val deqCrossPageFault = deqEntry.crossPageFault
 
     ibuffer.io.raddr(0) := deqPtrNext
     validVecQueue.io.raddr(0) := deqPtrNext
@@ -188,6 +190,7 @@ class NewIbuffer(implicit p: Parameters ) extends XSModule with HasCircularQueue
         io.out(i).bits.pc     := RegNext(deqEntry.linePC + outPtrs(i))
         io.out(i).bits.foldpc := RegNext(XORFold(io.out(i).bits.pc(VAddrBits-1,1), MemPredPCWidth)) //TODO: this maybe timing critical
         io.out(i).bits.exceptionVec := RegNext(deqExpVec)
+        io.out(i).bits.crossPageIPFFix := deqCrossPageFault
         io.out(i).bits.ftqPtr       := RegNext(deqEntry.ftqPtr)
         io.out(i).bits.pred_taken   := RegNext(deqEntry.pred_taken)
         io.out(i).bits.ftqOffset    := RegNext(outPtrs(i))
