@@ -19,6 +19,7 @@ import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
 import xiangshan._
+import xiangshan.backend.decode.CFIInfo
 import utils._
 
 class FetchRequestBundle(implicit p: Parameters) extends XSBundle {
@@ -63,15 +64,16 @@ class FetchRequestBundle(implicit p: Parameters) extends XSBundle {
 }
 
 class PredecodeWritebackBundle(implicit p:Parameters) extends XSBundle {
-  val pc           = Vec(PredictWidth, UInt(VAddrBits.W))
-  val pd           = Vec(PredictWidth, new PreDecodeInfo) // TODO: redefine Predecode
-  val ftqIdx       = new FtqPtr
-  val ftqOffset    = UInt(log2Ceil(PredictWidth).W)
-  val misOffset    = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
-  val cfiOffset    = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
-  val target       = UInt(VAddrBits.W)
-  val jalTarget    = UInt(VAddrBits.W)
-  val instrRange   = Vec(PredictWidth, Bool())
+  val pc            = Vec(DecodeWidth, UInt(VAddrBits.W))
+  val cfi           = Vec(DecodeWidth, new CFIInfo) // TODO: redefine Predecode
+  val ftqIdx        = new FtqPtr
+  val ftqOffset     = Vec(DecodeWidth, UInt(log2Ceil(PredictWidth).W))
+  val misOffset     = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
+  val taken         = Vec(DecodeWidth, taken)
+  val target        = UInt(VAddrBits.W)
+  val jalTarget     = UInt(VAddrBits.W)
+  val instrValids   = Vec(DecodeWidth, Bool())
+  //val instrRange   = Vec(PredictWidth, Bool())
 }
 
 class FetchToIBuffer(implicit p: Parameters) extends XSBundle with HasICacheParameters{
@@ -91,6 +93,7 @@ class IBufferToDecode(implicit p: Parameters) extends XSBundle {
   val pc = UInt(VAddrBits.W)
   val foldpc = UInt(MemPredPCWidth.W)
   val exceptionVec = ExceptionVec()
+  val crossPageFault = Bool()
   val ftqPtr = new FtqPtr
   val ftqOffset = UInt(log2Up(PredictWidth).W)
   val pred_taken = Bool()

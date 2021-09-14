@@ -20,7 +20,7 @@ import chisel3._
 import chisel3.util._
 import xiangshan.backend.roq.RoqPtr
 import xiangshan.backend.CtrlToFtqIO
-import xiangshan.backend.decode.{ImmUnion, XDecode}
+import xiangshan.backend.decode.{ImmUnion, XDecode, CFIInfo}
 import xiangshan.mem.{LqPtr, SqPtr}
 import xiangshan.frontend.PreDecodeInfo
 import xiangshan.frontend.HasBPUParameter
@@ -102,6 +102,7 @@ class CtrlFlow(implicit p: Parameters) extends XSBundle {
   val pc = UInt(VAddrBits.W)
   val foldpc = UInt(MemPredPCWidth.W)
   val exceptionVec = ExceptionVec()
+  val target = UInt(VAddrBits.W)
   //val pd = new PreDecodeInfo
   val ftqPtr = new FtqPtr
   val ftqOffset = UInt(log2Up(PredictWidth).W)
@@ -109,7 +110,7 @@ class CtrlFlow(implicit p: Parameters) extends XSBundle {
   /** backend info **/
   val intrVec = Vec(12, Bool())
   val crossPageIPFFix = Bool()
-  val pd = new PreDecodeInfo
+  val pd = new CFIInfo
   val storeSetHit = Bool() // inst has been allocated an store set
   val loadWaitBit = Bool() // load inst should not be executed until all former store addr calcuated
   val ssid = UInt(SSIDWidth.W)
