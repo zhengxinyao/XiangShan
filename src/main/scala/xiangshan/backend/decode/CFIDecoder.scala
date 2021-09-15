@@ -32,6 +32,8 @@ trait HasCFIDecConst extends HasXSParameter with HasICacheParameters with HasIFU
     SignExt(Mux(rvc, SignExt(rvc_offset, max_width), SignExt(rvi_offset, max_width)), XLEN)
   }
   def getFtqOffset(pc: UInt): UInt = pc(log2Ceil(PredictWidth), 1)
+  def extendWidth             = pow(2, log2Ceil(DecodeWidth)).toInt
+
 }
 
 object CFIDecodeInst {
@@ -127,7 +129,6 @@ class CFIDecoder(implicit p: Parameters) extends XSModule with HasCFIDecConst{
   }
 
   //find the first jump and mask the flow instrucitons
-  val extendWidth             = pow(2, log2Ceil(DecodeWidth)).toInt
   val takeRange               = Fill(extendWidth, 1.U(1.W)) >> (~PriorityEncoder(takens))
 
   io.out.zipWithIndex.map{case(out, i) => out.valid := io.in(i).valid && takeRange(i)}
@@ -141,9 +142,5 @@ class CFIDecoder(implicit p: Parameters) extends XSModule with HasCFIDecConst{
   io.toFtq.bits.target      := realTargets(jumpIdx)
   io.toFtq.bits.jalTarget   := realTargets(jalIdx)
   io.toFtq.bits.instrValids := VecInit(io.out.map(_.valid))
-
-  //io.toFtq.bits.ftqOffset := io.in(0).bits.ftqOffset
-
-
 
 }

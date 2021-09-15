@@ -35,6 +35,7 @@ class DecodeStage(implicit p: Parameters) extends XSModule {
   })
 
   val decoders = Seq.fill(DecodeWidth)(Module(new DecodeUnit))
+  val cfiDecoder = Module(new CFIDecoder)
 
   // basic wait table load violation predictor (for debug only)
   val waittable = Module(new WaitTable)
@@ -53,10 +54,16 @@ class DecodeStage(implicit p: Parameters) extends XSModule {
     decoders(i).io.enq.ctrl_flow.storeSetHit := ssit.io.rdata(i).valid
     decoders(i).io.enq.ctrl_flow.ssid := ssit.io.rdata(i).ssid
 
-    io.out(i).valid      := io.in(i).valid
+    io.out(i).valid      := io.in(i).valid && cfiDecoder.io.out(i).valid
     io.out(i).bits       := decoders(i).io.deq.cf_ctrl
+    io.out(i).bits.cf.pd := cfiDecoder.io.out(i)
     io.in(i).ready       := io.out(i).ready
+
+    cfiDecoder.io.in(i).valid := io.in(i).valid
+    cfiDecoder.io.in(i).bits  := io.in(i).bits
   }
+
+
   for (i <- 0 until StorePipelineWidth) {
     waittable.io.update(i) <> RegNext(io.memPredUpdate(i))
   }

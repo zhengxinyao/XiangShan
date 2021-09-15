@@ -103,13 +103,12 @@ class CtrlFlow(implicit p: Parameters) extends XSBundle {
   val foldpc = UInt(MemPredPCWidth.W)
   val exceptionVec = ExceptionVec()
   val target = UInt(VAddrBits.W)
-  //val pd = new PreDecodeInfo
+  val crossPageIPFFix = Bool()
   val ftqPtr = new FtqPtr
   val ftqOffset = UInt(log2Up(PredictWidth).W)
   val pred_taken = Bool()
   /** backend info **/
   val intrVec = Vec(12, Bool())
-  val crossPageIPFFix = Bool()
   val pd = new CFIInfo
   val storeSetHit = Bool() // inst has been allocated an store set
   val loadWaitBit = Bool() // load inst should not be executed until all former store addr calcuated
