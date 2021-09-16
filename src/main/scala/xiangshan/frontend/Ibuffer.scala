@@ -55,6 +55,8 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
     out.bits.intrVec := DontCare
   }
 
+  println(p"PredictWidth: {$PredictWidth}")
+
   val ibuf = Module(new SyncDataModuleTemplate(new IBufEntry, IBufSize, DecodeWidth, PredictWidth))
   ibuf.io.wdata.map(w => dontTouch(w.ftqOffset))
   val head_vec = RegInit(VecInit((0 until DecodeWidth).map(_.U.asTypeOf(new IbufPtr))))

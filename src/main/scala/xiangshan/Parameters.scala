@@ -147,7 +147,7 @@ case class XSCoreParameters
     name = "itlb",
     fetchi = true,
     useDmode = false,
-    sameCycle = true,
+    sameCycle = false,
     normalReplacer = Some("plru"),
     superReplacer = Some("plru"),
     shouldBlock = true

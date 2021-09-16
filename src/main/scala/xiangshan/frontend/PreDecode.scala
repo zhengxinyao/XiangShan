@@ -256,3 +256,12 @@ class RVCExpander(implicit p: Parameters) extends XSModule {
     io.out := new RVCDecoder(io.in, XLEN).passthrough
   }
 }
+
+
+class FakePreDecoder(implicit p: Parameters) extends XSModule with HasPdConst{
+  val io = IO(new Bundle() {
+    val in = Input(new IfuToPreDecode)
+    val out = Output(new PreDecodeResp)
+  })
+  io.out := DontCare
+}
