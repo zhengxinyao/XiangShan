@@ -376,25 +376,26 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     else bank := Mux(f2_bank_hit(i), f2_hit_datas(i),Mux(sec_miss_reg(3),reservedRefillData(1),Mux(sec_miss_reg(1),reservedRefillData(0), f2_mq_datas(i))))
   }
 
-  def cut(cacheline: UInt, startPtr: Vec[UInt]) : Vec[UInt] ={
-    if(HasCExtension){
+  def cut(cacheline: UInt, startPtr: UInt) : Vec[UInt] ={
+    //if(HasCExtension){
       val result   = Wire(Vec(PredictWidth + 1, UInt(16.W)))
-      val dataVec  = cacheline.asTypeOf(Vec(blockBytes * 2/ 2, UInt(16.W)))
+      val group    = VecInit((0 until PredictWidth + 1 ).map(i => cacheline(16 * i + 511, 16 * i) ))
+      val dataVec  = group.asTypeOf(Vec(blockBytes/ 2, UInt(16.W)))
       (0 until PredictWidth + 1).foreach( i =>
-        result(i) := dataVec(startPtr(i))
+        result(i) := dataVec(startPtr)
       )
       result 
-    } else {
-      val result   = Wire(Vec(PredictWidth, UInt(32.W)) )
-      val dataVec  = cacheline.asTypeOf(Vec(blockBytes * 2/ 4, UInt(32.W)))
-      (0 until PredictWidth).foreach( i =>
-        result(i) := dataVec(startPtr(i))
-      )
-      result 
-    }
+    // } else {
+    //   val result   = Wire(Vec(PredictWidth, UInt(32.W)) )
+    //   val dataVec  = cacheline.asTypeOf(Vec(blockBytes * 2/ 4, UInt(32.W)))
+    //   (0 until PredictWidth).foreach( i =>
+    //     result(i) := dataVec(startPtr(i))
+    //   )
+    //   result 
+    // }
   }
 
-  val f2_cut_data = cut( Cat(f2_sel_data.map(cacheline => cacheline.asUInt ).reverse).asUInt, f2_cut_ptr )
+  val f2_cut_data = cut( Cat(f2_sel_data.map(cacheline => cacheline.asUInt ).reverse).asUInt, f2_ftq_req.startAddr(blockOffBits-1, 1) )
   
   // deal with secondary miss in f1 
   val f2_0_f1_0 =   ((f2_valid && !f2_bank_hit(0)) && f1_valid && (get_block_addr(f2_ftq_req.startAddr) === get_block_addr(f1_ftq_req.startAddr)))
@@ -480,7 +481,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f3_predecode_range = VecInit(preDecoderOut.pd.map(inst => inst.valid)).asUInt
 
   io.toIbuffer.valid          := f3_valid 
-  io.toIbuffer.bits.instrs    := preDecoderOut.instrs
+  io.toIbuffer.bits.instrs    := f3_cut_data.asTypeOf(Vec(PredictWidth, UInt(32.W)))
   io.toIbuffer.bits.valid     := f3_predecode_range & preDecoderOut.instrRange.asUInt
   io.toIbuffer.bits.pd        := preDecoderOut.pd
   io.toIbuffer.bits.ftqPtr    := f3_ftq_req.ftqIdx
