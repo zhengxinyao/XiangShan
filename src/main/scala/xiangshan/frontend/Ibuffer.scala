@@ -102,7 +102,7 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
 
     ibuf.io.waddr(i) := tail_vec(offset(i)).value
     ibuf.io.wdata(i) := inWire
-    ibuf.io.wen(i)   := io.in.bits.valid(i) && io.in.fire && !io.flush
+    ibuf.io.wen(i)   := io.in.bits.enqEnable(i) && io.in.fire && !io.flush
   }
 
   when (io.in.fire && !io.flush) {
