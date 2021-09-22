@@ -105,8 +105,9 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
     ibuf.io.wen(i)   := io.in.bits.enqEnable(i) && io.in.fire && !io.flush
   }
 
+  //WARNING: this path maybe timing critical
   when (io.in.fire && !io.flush) {
-    tail_vec := VecInit(tail_vec.map(_ + PopCount(io.in.bits.valid)))
+    tail_vec := VecInit(tail_vec.map(_ + PopCount(io.in.bits.enqEnable)))
   }
 
   // Dequeue
@@ -130,7 +131,6 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
     io.out(i).bits.loadWaitBit := DontCare
     io.out(i).bits.storeSetHit := DontCare
     io.out(i).bits.ssid := DontCare
-    io.out(i).bits.replayInst := false.B
   }
   val next_head_vec = VecInit(head_vec.map(_ + numDeq))
   ibuf.io.raddr := VecInit(next_head_vec.map(_.value))

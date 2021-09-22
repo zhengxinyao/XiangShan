@@ -182,10 +182,10 @@ object FaultType {
 }
 
 class CheckInfo extends Bundle {  // 8 bit
-  val faultType  = UInt(2.W)
-  def isjalFault      = faultType === FaultType.jalFault
-  def istargetFault   = faultType === FaultType.targetFault
-  def isfaulsePred    = faultType === FaultType.faulsePred
+  val value  = UInt(2.W)
+  def isjalFault      = value === FaultType.jalFault
+  def istargetFault   = value === FaultType.targetFault
+  def isfaulsePred    = value === FaultType.faulsePred
 }
 
 class PredCheckerResp(implicit p: Parameters) extends XSBundle with HasPdConst {
@@ -240,7 +240,7 @@ class PredChecker(implicit p: Parameters) extends XSModule with HasPdConst {
   val seqTargets = VecInit((0 until PredictWidth).map(i => pc(i) + Mux(pds(i).isRVC, 2.U, 4.U ) ))
 
 
-  io.out.faultType.zipWithIndex.map{case(faultType, i) => faultType := Mux(jalFaultVec(i), FaultType.jalFault , Mux(targetFault(i), FaultType.targetFault , FaultType.faulsePred))}
+  io.out.faultType.zipWithIndex.map{case(faultType, i) => faultType.value := Mux(jalFaultVec(i), FaultType.jalFault , Mux(targetFault(i), FaultType.targetFault , FaultType.faulsePred))}
   io.out.fixedMissPred.zipWithIndex.map{case(missPred, i ) => missPred := jalFaultVec(i) || retFaultVec(i) || notCFITaken(i) || invalidTaken(i) || targetFault(i)}
   io.out.fixedTarget.zipWithIndex.map{case(target, i) => target := Mux(jalFaultVec(i) || targetFault(i), jumpTargets(i),  seqTargets(i) )}
 

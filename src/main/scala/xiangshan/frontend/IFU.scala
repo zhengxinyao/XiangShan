@@ -88,7 +88,7 @@ class LastHalfInfo(implicit p: Parameters) extends XSBundle {
 //}
 
 class IfuToPreDecode(implicit p: Parameters) extends XSBundle {
-  val data                =  if(HasCExtension) Vec(PredictWidth + 1, UInt(32.W)) else Vec(PredictWidth, UInt(32.W))
+  val data                =  if(HasCExtension) Vec(PredictWidth + 1, UInt(16.W)) else Vec(PredictWidth, UInt(32.W))
   val lastHalfMatch       =  Bool()
 }
 
@@ -217,7 +217,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   tlbRespAllValid := tlbRespValid(0)  && (tlbRespValid(1) || !f1_doubleLine)
 
   val f1_pAddrs             = tlbRespPAddr   //TODO: Temporary assignment
-  val f1_pTags              = VecInit(f1_pAddrs.map(get_tag(_)))
+  val f1_pTags              = VecInit(f1_pAddrs.map(get_phy_tag(_)))
   val (f1_tags, f1_cacheline_valid, f1_datas)   = (meta_resp.tags, meta_resp.valid, data_resp.datas)
   val bank0_hit_vec         = VecInit(f1_tags(0).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(0)(i) && way_tag ===  f1_pTags(0) })
   val bank1_hit_vec         = VecInit(f1_tags(1).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(1)(i) && way_tag ===  f1_pTags(1) })
@@ -272,7 +272,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f2_waymask  = RegEnable(next = f1_victim_masks, enable = f1_fire)
   val f2_cut_ptr = RegEnable(next = f1_cut_ptr, enable = f1_fire)
 
-  val f2_pc = VecInit((0 until PredictWidth).map(i => f2_ftq_req.startAddr + i.U))
+  val f2_pc = VecInit((0 until PredictWidth).map(i => f2_ftq_req.startAddr + (i * 2).U))
   val f2_miss     = f2_valid && !f2_hit
   val (f2_vSetIdx, f2_pTags) = (RegEnable(next = f1_vSetIdx, enable = f1_fire), RegEnable(next = f1_pTags, enable = f1_fire))
   //exception information
@@ -283,6 +283,10 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   def isNextLine(pc: UInt, startAddr: UInt) = {
     startAddr(blockOffBits) ^ pc(blockOffBits)
+  }
+
+  def isLastInLine(pc: UInt) = {
+    pc(blockOffBits - 1, 0) === "b11110".U
   }
 
   def getBasicBlockIdx( pc: UInt, start:  UInt ): UInt = {
@@ -296,7 +300,6 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f2_instr_range = f2_jump_range | f2_ftr_range
   val f2_pf_vec = VecInit((0 until PredictWidth).map(i => (!isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_except_pf(0)   ||  isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_doubleLine &&  f2_except_pf(1))))
   val f2_af_vec = VecInit((0 until PredictWidth).map(i => (!isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_except_af(0)   ||  isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_doubleLine && f2_except_af(1))))
-
 
   val f2_hit_datas      =  VecInit(f2_datas.zipWithIndex.map { case(bank, i) =>
     val bank_hit_data = Mux1H(f2_bank_hit_vec(i).asUInt, bank)
@@ -324,6 +327,8 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val  except_0        = f2_valid && f2_except(0)
 
   val f2_mq_datas     = Reg(Vec(2, UInt(blockBits.W)))
+  val sec_miss_reg   = RegInit(0.U.asTypeOf(Vec(4, Bool())))
+
 
   when(fromMissQueue(0).fire) {f2_mq_datas(0) :=  fromMissQueue(0).bits.data}
   when(fromMissQueue(1).fire) {f2_mq_datas(1) :=  fromMissQueue(1).bits.data}
@@ -415,7 +420,6 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     t_w(1).bits    := OHToUInt(f2_waymask(i))
   }
 
-  val sec_miss_reg   = RegInit(0.U.asTypeOf(Vec(4, Bool())))
   val reservedRefillData = Reg(Vec(2, UInt(blockBits.W)))
   val f2_sel_data        = Wire(Vec(2, UInt(blockBits.W)))
 
@@ -428,10 +432,10 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     //if(HasCExtension){
     val result   = Wire(Vec(PredictWidth + 1, UInt(16.W)))
     val group    = VecInit((0 until PredictWidth + 1 ).map(i => cacheline(16 * i + 511, 16 * i) ))
-    val dataVec  = group.asTypeOf(Vec(blockBytes/ 2, UInt(16.W)))
-    (0 until PredictWidth + 1).foreach( i =>
+    (0 until PredictWidth + 1).foreach{ i =>
+      val dataVec = group(i).asTypeOf(Vec(blockBytes/ 2, UInt(16.W)))
       result(i) := dataVec(startPtr)
-    )
+    }
     result
     // } else {
     //   val result   = Wire(Vec(PredictWidth, UInt(32.W)) )
@@ -494,7 +498,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f2_expd_instr = preDecoderOut.expInstr
   val f2_pd = preDecoderOut.pd
   val f2_jump_offset = preDecoderOut.jumpOffset
-  val f2_crossPageFault = VecInit((0 until PredictWidth - 2).map(i => !f2_pf_vec(i) && f2_pf_vec(i + 1) && !f2_pd(i).isRVC ))
+  val f2_crossPageFault = VecInit((0 until PredictWidth).map(i => isLastInLine(f2_pc(i)) && !f2_except_pf(0) && f2_doubleLine &&  f2_except_pf(1) && !f2_pd(i).isRVC ))
 
   //---------------------------------------------
   //  Fetch Stage 4 :
@@ -538,7 +542,8 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   checkerIn.ftqOffset   := f3_ftq_req.ftqOffset
   checkerIn.jumpOffset  := f3_jump_offset
   checkerIn.target      := f3_ftq_req.target
-  checkerIn.instrRange  := f3_instr_range
+  checkerIn.instrRange  := f3_instr_range.asTypeOf(Vec(PredictWidth, Bool()))
+  checkerIn.instrValid  := f3_instr_valid.asTypeOf(Vec(PredictWidth, Bool()))
   checkerIn.pds         := f3_pd
   checkerIn.pc          := f3_pc
 
@@ -556,8 +561,6 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   io.toIbuffer.bits.acf         := f3_af_vec
   io.toIbuffer.bits.crossPageIPFFix := f3_crossPageFault
 
-  val f3_fire = io.toIbuffer.fire()
-
   /* ---------------------------------------------------------------------
    * Ftq Write back :
    *
@@ -572,35 +575,35 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val wb_pd             = RegNext(f3_pd)
   val wb_instr_range    = RegNext(checkerOut.fixedRange.asUInt)
 
-  when(backend_redirect)                 {wb_valid := false.B}
-  .elsewhen(f3_valid && !f3_flush)       {wb_valid := true.B }
-  .elsewhen(wb_valid)                    {wb_valid := false.B}
+  when(backend_redirect)                         {wb_valid := false.B}
+  .elsewhen(f3_valid && !backend_redirect)       {wb_valid := true.B }
+  .elsewhen(wb_valid)                            {wb_valid := false.B}
 
   //Write back to Ftq
 
-  //toFtq.pdWb.valid           := !finishFetchMaskReg && f3_valid
+  toFtq.pdWb.valid           := wb_valid
   toFtq.pdWb.bits.pc         := wb_pc
   toFtq.pdWb.bits.pd         := wb_pd
   toFtq.pdWb.bits.pd.zipWithIndex.map{case(instr,i) => instr.valid :=  wb_pd(i).valid && wb_instr_range(i)}
-  toFtq.pdWb.bits.ftqIdx     := wb_ftq_req.ftqIdx
-  toFtq.pdWb.bits.ftqOffset  := wb_ftq_req.ftqOffset.bits
-  toFtq.pdWb.bits.misOffset.valid := ParallelOR(wb_check_result.fixedMissPred)
-  toFtq.pdWb.bits.misOffset.bits := ParallelPriorityEncoder(wb_check_result.fixedMissPred)
-  toFtq.pdWb.bits.cfiOffset.valid  := ParallelOR(wb_check_result.fixedTaken)
-  toFtq.pdWb.bits.cfiOffset.bits   := ParallelPriorityEncoder(wb_check_result.fixedTaken)
+  toFtq.pdWb.bits.ftqIdx            := wb_ftq_req.ftqIdx
+  toFtq.pdWb.bits.ftqOffset         := wb_ftq_req.ftqOffset.bits
+  toFtq.pdWb.bits.misOffset.valid   := ParallelOR(wb_check_result.fixedMissPred)
+  toFtq.pdWb.bits.misOffset.bits    := ParallelPriorityEncoder(wb_check_result.fixedMissPred)
+  toFtq.pdWb.bits.cfiOffset.valid   := ParallelOR(wb_check_result.fixedTaken)
+  toFtq.pdWb.bits.cfiOffset.bits    := ParallelPriorityEncoder(wb_check_result.fixedTaken)
   toFtq.pdWb.bits.target     := wb_check_result.fixedTarget(ParallelPriorityEncoder(wb_check_result.fixedTaken))
   toFtq.pdWb.bits.jalTarget  := wb_check_result.fixedTarget(ParallelPriorityEncoder(VecInit(wb_pd.map{pd => pd.isJal })))
-  toFtq.pdWb.bits.instrRange := wb_instr_range
+  toFtq.pdWb.bits.instrRange := wb_instr_range.asTypeOf(Vec(PredictWidth, Bool()))
 
   wb_redirect := toFtq.pdWb.bits.misOffset.valid && wb_valid
 
   // Performance Counter
-  XSPerfAccumulate("req",   io.toIbuffer.fire() )
+  XSPerfAccumulate("req",   io.toIbuffer.fire()   )
   XSPerfAccumulate("miss",  io.toIbuffer.fire() && !f3_hit )
-  XSPerfAccumulate("frontendFlush",  wb_redirect )
-  XSPerfAccumulate("only_0_miss",   only_0_miss )
-  XSPerfAccumulate("hit_0_miss_1",  hit_0_miss_1 )
-  XSPerfAccumulate("miss_0_hit_1",  miss_0_hit_1 )
+  XSPerfAccumulate("frontendFlush",  wb_redirect  )
+  XSPerfAccumulate("only_0_miss",   only_0_miss   )
+  XSPerfAccumulate("hit_0_miss_1",  hit_0_miss_1  )
+  XSPerfAccumulate("miss_0_hit_1",  miss_0_hit_1  )
   XSPerfAccumulate("miss_0_miss_1", miss_0_miss_1 )
   XSPerfAccumulate("crossLine", io.toIbuffer.fire() && f3_situation(0) )
   XSPerfAccumulate("lastInLin", io.toIbuffer.fire() && f3_situation(1) )
