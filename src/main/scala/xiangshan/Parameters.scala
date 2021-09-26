@@ -51,6 +51,7 @@ case class XSCoreParameters
   EnableLB: Boolean = false,
   EnableLoop: Boolean = true,
   EnableSC: Boolean = true,
+  EnableIUM: Boolean = true,
   EnbaleTlbDebug: Boolean = false,
   EnableJal: Boolean = false,
   EnableUBTB: Boolean = true,
@@ -274,6 +275,7 @@ trait HasXSParameter {
   val EnableLB = coreParams.EnableLB
   val EnableLoop = coreParams.EnableLoop
   val EnableSC = coreParams.EnableSC
+  val EnableIUM = coreParams.EnableIUM
   val EnbaleTlbDebug = coreParams.EnbaleTlbDebug
   val HistoryLength = coreParams.HistoryLength
   val PathHistoryLength = coreParams.PathHistoryLength

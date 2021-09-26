@@ -129,6 +129,7 @@ class TageMeta(val bank: Int)(implicit p: Parameters)
   val allocate = ValidUndirectioned(UInt(log2Ceil(BankTageNTables(bank)).W))
   val taken = Bool()
   val scMeta = new SCMeta(EnableSC, BankSCNTables(bank))
+  val iumEnq = if(EnableIUM) Bool() else UInt(0.W)
   val pred_cycle = UInt(64.W) // TODO: Use Option
 }
 
@@ -312,7 +313,7 @@ class TageTable
   val table  = Module(new SRAMTemplate(new TageEntry, set=nRows, way=1, shouldReset=true, holdRead=true, singlePort=false))
 
 
-  val (s0_idx, s0_tag) = compute_tag_and_hash(req_unhashed_idx, io.req.bits.hist, io.req.bits.phist)
+  val (s0_idx, s0_tag) = compute_tag_and_hash(req_unhashed_idx, io.req.bits.hist, io.req.bits.phist) // TODO: Move this to TAGE
 
   table.io.r.req.valid := io.req.valid
   table.io.r.req.bits.setIdx := s0_idx
@@ -824,4 +825,4 @@ class Tage(implicit p: Parameters) extends BaseTage {
 }
 
 
-class Tage_SC(implicit p: Parameters) extends Tage with HasSC {}
+class Tage_SC(implicit p: Parameters) extends Tage with HasSC with HasIUM {}

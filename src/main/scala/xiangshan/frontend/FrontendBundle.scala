@@ -196,6 +196,7 @@ class BranchPredictionBundle(implicit p: Parameters) extends XSBundle with HasBP
   val rasSp = UInt(log2Ceil(RasSize).W)
   val rasTop = new RASEntry
   val specCnt = Vec(numBr, UInt(10.W))
+  val iumMeta = Vec(numBr, new IUMMeta(EnableIUM))
   // val meta = UInt(MaxMetaLength.W)
 
   val ftb_entry = new FTBEntry() // TODO: Send this entry to ftq
@@ -305,6 +306,7 @@ class BranchPredictionUpdate(implicit p: Parameters) extends BranchPredictionBun
     rasSp := entry.rasSp
     rasTop := entry.rasEntry
     specCnt := entry.specCnt
+    iumMeta := entry.iumMeta
     this
   }
   // override def toPrintable: Printable = {

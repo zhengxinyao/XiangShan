@@ -145,6 +145,7 @@ class Ftq_Redirect_SRAMEntry(implicit p: Parameters) extends XSBundle with HasBP
   val rasSp = UInt(log2Ceil(RasSize).W)
   val rasEntry = new RASEntry
   val specCnt = Vec(numBr, UInt(10.W))
+  val iumMeta = Vec(numBr, new IUMMeta(EnableIUM))
   val ghist = new GlobalHistory
   val phist = UInt(PathHistoryLength.W)
   val phNewBit = UInt(1.W)
@@ -153,6 +154,7 @@ class Ftq_Redirect_SRAMEntry(implicit p: Parameters) extends XSBundle with HasBP
     this.rasSp := resp.rasSp
     this.rasEntry := resp.rasTop
     this.specCnt := resp.specCnt
+    this.iumMeta := resp.iumMeta
     this.ghist := resp.ghist
     this.phist := resp.phist
     this.phNewBit := resp.pc(instOffsetBits)
@@ -180,7 +182,8 @@ class FtqEntry(implicit p: Parameters) extends XSBundle with HasBPUConst {
   val rasEntry = new RASEntry
   val hist = new GlobalHistory
   val specCnt = Vec(numBr, UInt(10.W))
-  
+  val iumMeta = Vec(numBr, new IUMMeta(EnableIUM))
+
   val valids = Vec(PredictWidth, Bool())
   val brMask = Vec(PredictWidth, Bool())
   // isJalr, isCall, isRet

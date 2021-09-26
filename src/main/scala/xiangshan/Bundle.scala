@@ -22,21 +22,13 @@ import xiangshan.backend.roq.RoqPtr
 import xiangshan.backend.CtrlToFtqIO
 import xiangshan.backend.decode.{ImmUnion, XDecode}
 import xiangshan.mem.{LqPtr, SqPtr}
-import xiangshan.frontend.PreDecodeInfo
-import xiangshan.frontend.HasBPUParameter
-import xiangshan.frontend.GlobalHistory
-import xiangshan.frontend.RASEntry
-import xiangshan.frontend.BPUCtrl
-import xiangshan.frontend.FtqPtr
-import xiangshan.frontend.FtqRead
-import xiangshan.frontend.FtqToCtrlIO
+import xiangshan.frontend.{BPUCtrl, FtqPtr, FtqRead, FtqToCtrlIO, Ftq_Redirect_SRAMEntry, GlobalHistory, HasBPUParameter, IUMMeta, PreDecodeInfo, RASEntry}
 import utils._
 
 import scala.math.max
 import Chisel.experimental.chiselName
 import chipsalliance.rocketchip.config.Parameters
 import chisel3.util.BitPat.bitPatToUInt
-import xiangshan.frontend.Ftq_Redirect_SRAMEntry
 
 class ValidUndirectioned[T <: Data](gen: T) extends Bundle {
   val valid = Bool()
@@ -75,6 +67,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val hist = new GlobalHistory
   val phist = UInt(PathHistoryLength.W)
   val specCnt = Vec(numBr, UInt(10.W))
+  val iumMeta = Vec(numBr, new IUMMeta(EnableIUM))
   val phNewBit = Bool()
   // need pipeline update
   val br_hit = Bool()
