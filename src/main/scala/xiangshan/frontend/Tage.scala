@@ -663,6 +663,8 @@ class Tage(implicit p: Parameters) extends BaseTage {
     resp_meta(w).allocate.valid := allocatableSlots =/= 0.U
     resp_meta(w).allocate.bits  := allocEntry
 
+    resp_meta(w).iumEnq := DontCare // TODO: Remove this
+
     // Update in loop
     val updateValid = updateValids(w)
     val updateMeta = updateMetas(w)
@@ -738,7 +740,11 @@ class Tage(implicit p: Parameters) extends BaseTage {
   }
 
   for (i <- 0 until numBr) {
-    resp_s2.preds.taken_mask(i) := s2_tageTakens(i)
+    when(resp_s2.ftb_entry.always_taken(i)) {
+      resp_s2.preds.taken_mask(i) := true.B
+    }.otherwise {
+      resp_s2.preds.taken_mask(i) := s2_tageTakens(i)
+    }
   }
   // io.out.resp.s3 := RegEnable(resp_s2, io.s2_fire)
 

@@ -697,9 +697,15 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
     backendRedirectCfi.addIntoHist := backendRedirectCfi.pd.isBr && (r_ftb_entry.brIsSaved(r_ftqOffset) ||
         !(r_ftb_entry.brValids(numBr-1) && r_ftqOffset > r_ftb_entry.brOffset(numBr-1)))
+
+    val (v, idx) = r_ftb_entry.getBankIdx(r_ftqOffset)
+    backendRedirectCfi.bankIdx.valid := v
+    backendRedirectCfi.bankIdx.bits := idx
   }.otherwise {
     backendRedirectCfi.shift := (backendRedirectCfi.pd.isBr && backendRedirectCfi.taken).asUInt
     backendRedirectCfi.addIntoHist := backendRedirectCfi.pd.isBr.asUInt
+    backendRedirectCfi.bankIdx.valid := false.B
+    backendRedirectCfi.bankIdx.bits := DontCare
   }
 
 

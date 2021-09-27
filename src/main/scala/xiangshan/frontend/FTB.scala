@@ -66,7 +66,7 @@ class FTBEntry(implicit p: Parameters) extends XSBundle with FTBParams with BPUU
   val oversize    = Bool()
 
   val last_is_rvc = Bool()
-  
+
   val always_taken = Vec(numBr, Bool())
 
   def getTarget(offsetLen: Int)(pc: UInt, lower: UInt, stat: UInt) = {
@@ -119,10 +119,16 @@ class FTBEntry(implicit p: Parameters) extends XSBundle with FTBParams with BPUU
   def getBrMaskByOffset(offset: UInt) = (brValids zip brOffset).map{
     case (v, off) => v && off <= offset
   }
-  
+
   def brIsSaved(offset: UInt) = (brValids zip brOffset).map{
     case (v, off) => v && off === offset
   }.reduce(_||_)
+
+  def getBankIdx(offset: UInt) = {
+    val hits = (brValids zip brOffset).map{ case (v, off) => v && off === offset }
+    (hits.reduce(_||_), OHToUInt(hits))
+  }
+
   def display(cond: Bool): Unit = {
     XSDebug(cond, p"-----------FTB entry----------- \n")
     XSDebug(cond, p"v=${valid}\n")
@@ -263,12 +269,12 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
 
   val s1_latch_call_is_rvc   = DontCare // TODO: modify when add RAS
 
-  io.out.resp.s2.preds.taken_mask    := io.in.bits.resp_in(0).s2.preds.taken_mask
-  for (i <- 0 until numBr) {
-    when (ftb_entry.always_taken(i)) {
-      io.out.resp.s2.preds.taken_mask(i) := true.B
-    }
-  }
+  // io.out.resp.s2.preds.taken_mask    := io.in.bits.resp_in(0).s1.preds.taken_mask
+  // for (i <- 0 until numBr) {
+  //   when (ftb_entry.always_taken(i)) {
+  //     io.out.resp.s2.preds.taken_mask(i) := true.B
+  //   }
+  // }
 
   io.out.resp.s2.preds.hit           := s2_hit
   io.out.resp.s2.pc                  := s2_pc

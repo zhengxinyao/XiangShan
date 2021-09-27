@@ -68,6 +68,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val phist = UInt(PathHistoryLength.W)
   val specCnt = Vec(numBr, UInt(10.W))
   val iumMeta = Vec(numBr, new IUMMeta(EnableIUM))
+  val bankIdx = ValidUndirectioned(UInt(log2Ceil(numBr).W))
   val phNewBit = Bool()
   // need pipeline update
   val br_hit = Bool()
@@ -85,6 +86,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
     this.rasSp := entry.rasSp
     this.rasEntry := entry.rasEntry
     this.specCnt := entry.specCnt
+    this.iumMeta := entry.iumMeta
     this
   }
 }

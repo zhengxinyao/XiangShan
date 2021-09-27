@@ -46,13 +46,14 @@ object IUMPtr {
   }
 }
 
-class IUMMeta(val useIUM: Boolean)(implicit p: Parameters) extends XSBundle with HasBPUParameter {
+class IUMMeta(val useIUM: Boolean)(implicit p: Parameters) extends XSBundle with HasIUMParameter {
   val ium_ptr = if (useIUM) new IUMPtr else UInt(0.W)
   val ium_enq = if (useIUM) Bool() else UInt(0.W)
+  val r_mask = if (useIUM) UInt(nRows.W) else UInt(0.W)
 }
 
 @chiselName
-class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Parameters) extends TageModule {
+class IUMTable(val nRows: Int, tableSize: Int, maxSetIdxBits: Int)(implicit p: Parameters) extends TageModule with HasCircularQueuePtrHelper {
   def update_mask(head: IUMPtr, tail: IUMPtr, len: Int): UInt = {
     val mask = Wire(Vec(len, Bool()))
     when (head.flag === tail.flag) {
@@ -65,7 +66,8 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
 
   def update_left_mask(mask: UInt, len: Int): UInt = {
     val new_mask = Wire(UInt(len.W))
-    when (mask === 0.U) {
+    // when (mask === (1<<(len-1)).U(len.W)) {
+    when (mask === Cat(1.U +: Seq.fill(len-1)(0.U))) {
       new_mask :=  ~(0.U(len.W))
     }.otherwise {
       new_mask := (mask << 1).asUInt
@@ -75,8 +77,9 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
 
   def update_right_mask(mask: UInt, len: Int): UInt = {
     val new_mask = Wire(UInt(len.W))
-    when(mask === ((1<<len)-1).U(len.W)) {
-      new_mask := 1.U(len.W)
+    // when(mask === (~(1<<(len-1))).U(len.W)) {
+    when (mask === Cat(0.U +: Seq.fill(len-1)(1.U))) {
+      new_mask := 0.U(len.W)
     }.otherwise {
       new_mask := (mask << 1).asUInt + 1.U
     }
@@ -84,13 +87,12 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
   }
 
   val tableBits = log2Ceil(tableSize)
-  val maxSetIdxBits = log2Ceil(maxSetIdx)
   // val idxBits = log2Ceil(nRow)
 
   class IUMTag extends XSBundle {
     // val tableIdx = if (useIUM) UInt(tableBits.W) else UInt(0.W)
     // val setIdx = if (useIUM) UInt(log2Ceil(max(TableInfo.map(_(0)))).W) else UInt(0.W)
-    val tag = UInt((1 + tableBits + maxSetIdxBits).W) // UInt(1 + 3 + 11 = 15)
+    val tag = UInt((1 + tableBits + maxSetIdxBits).W) // UInt(1 + 3 + 11 = 15
   }
 
   object IUMTag {
@@ -103,14 +105,24 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
 
   class IUMData extends XSBundle {
     val pred = Bool()
+    val recovered = Bool()
   }
 
   object IUMData {
-    def apply(d: Bool): IUMData = {
+    def apply(d: Bool, r: Bool): IUMData = {
       val data = Wire(new IUMData)
       data.pred := d
+      data.recovered := r
       data
     }
+  }
+
+  class IUMRedirect extends XSBundle {
+    val ptr = new IUMPtr
+    val taken = Bool()
+    val recover_mask = UInt(nRows.W)
+    val need_recover = Bool()
+    val ium_enq = Bool()
   }
 
   class IUMIO extends XSBundle {
@@ -118,23 +130,28 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
     val provider = Flipped(ValidIO(UInt(tableBits.W))) // Send on s2
     val resp = ValidIO(new IUMData) // Response on s2
 
-    val enq_data = Input(Valid(new IUMData))
+    val enq_data = Flipped(ValidIO(new IUMData))
     val enq_ptr = Output(new IUMPtr)
+    val r_mask = Output(UInt(nRows.W))
 
     val deq = Input(Bool())
+    val misPred = Input(Bool())
     
-    val redirect = Input(Valid(new IUMPtr))
-    val taken = Input(Bool())
+    val redirect = Input(Valid(new IUMRedirect))
   }
 
   val io = IO(new IUMIO)
 
   val tagCam  = Module(new CAMTemplate(new IUMTag, nRows, tableSize + 1))
-  val table   = Module(new AsyncDataModuleTemplate(new IUMData, nRows, numRead = 1, numWrite = 2))
+  val table   = Module(new AsyncDataModuleTemplate(new IUMData, nRows, numRead = 2, numWrite = 2))
 
   val head_ptr, tail_ptr = RegInit(IUMPtr(false.B, 0.U))
   val valid_mask, right_mask = RegInit(0.U(nRows.W))
-  val left_mask = RegInit(((1<<nRows) - 1).U(nRows.W))
+  // val left_mask = RegInit(((1<<nRows) - 1).U(nRows.W))
+  val left_mask = RegInit("hffffffffffffffff".U)
+
+  val validEntries = distanceBetween(tail_ptr, head_ptr)
+  dontTouch(validEntries)
 
   // Search logic
   tagCam.io.r.req := VecInit((0 until tableSize).map(i => IUMTag(Cat(0.U(1.W), i.U(tableBits.W), io.req.bits(i))))
@@ -142,7 +159,7 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
 
   val hit_vecs = RegEnable(VecInit((0 until tableSize+1).map {t =>
     VecInit((0 until nRows).map(i => valid_mask(i) && tagCam.io.r.resp(t)(i)))
-  }), io.req.valid)
+  }), VecInit(Seq.fill(tableSize+1)(VecInit(Seq.fill(nRows)(false.B)))), io.req.valid)
 
   val hit_vec = Mux(io.provider.valid, hit_vecs(io.provider.bits), hit_vecs(tableSize.U))
 
@@ -180,10 +197,14 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
   table.io.wdata(0) := io.enq_data.bits
 
   io.enq_ptr := tail_ptr
+  // io.r_mask := right_mask
   tail_ptr := tail_ptr + io.enq_data.valid
 
   when(io.enq_data.valid) {
     right_mask := update_right_mask(right_mask, nRows)
+    io.r_mask := update_right_mask(right_mask, nRows)
+  }.otherwise {
+    io.r_mask := right_mask
   }
   
   // Dequeue logic
@@ -192,27 +213,41 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdx: Int)(implicit p: Param
     left_mask := update_left_mask(left_mask, nRows)
   }
 
-  // Update logic
-  tail_ptr := io.redirect.bits + io.redirect.valid
-
+  // Redirect logic
   when(io.redirect.valid) { // TODO: redirect diff bank
-    valid_mask := update_mask(head_ptr + io.deq, io.redirect.bits + io.redirect.valid, nRows)
+    valid_mask := update_mask(head_ptr + io.deq, io.redirect.bits.ptr + io.redirect.bits.ium_enq, nRows)
+    right_mask := io.redirect.bits.recover_mask
+    tail_ptr := io.redirect.bits.ptr + io.redirect.bits.ium_enq
   }.otherwise {
     valid_mask := update_mask(head_ptr + io.deq, tail_ptr + io.enq_data.valid, nRows)
   }
 
   // TODO: Write conflict
-  table.io.wen(1) := io.redirect.valid
-  table.io.waddr(1) := io.redirect.bits.value
-  table.io.wdata(1) := IUMData(io.taken)
+  table.io.wen(1) := io.redirect.valid && io.redirect.bits.need_recover
+  table.io.waddr(1) := io.redirect.bits.ptr.value
+  table.io.wdata(1) := IUMData(io.redirect.bits.taken, true.B)
+
+  assert(!(io.enq_data.valid && isFull(tail_ptr, head_ptr)))
+  assert(nRows.U - PopCount(left_mask) === head_ptr.value)
+  assert(PopCount(right_mask) === tail_ptr.value)
+
+  table.io.raddr(1) := head_ptr.value
 
   if (BPUDebug && debug) {
+    val deq_data = table.io.rdata(1)
+    XSDebug(p"validEntries: ${validEntries}\n")
     XSDebug(p"head_ptr: f:${head_ptr.flag} v:${head_ptr.value}, tail_ptr: f:${tail_ptr.flag} v:${tail_ptr.value}\n")
     XSDebug(p"v_mask: ${Hexadecimal(valid_mask)}, l_mask: ${Hexadecimal(left_mask)}, r_mask: ${Hexadecimal(right_mask)}\n")
     XSDebug(p"pred_by_tage: ${io.provider.valid}, table_idx: ${io.provider.bits}, s2_hit_vecs: ${Hexadecimal(hit_vec.asUInt)}, hit_idx: ${hit_idx}\n")
-    XSDebug(io.enq_data.valid, s"IUMEnqueue, enq_data: ${io.enq_data.bits}\n")
+    XSDebug(io.enq_data.valid, s"IUMEnqueue, enq_data: ${io.enq_data.bits.pred}\n")
     XSDebug(io.deq, "IUMDequeue\n")
-    XSDebug(io.redirect.valid, s"IUMRedirect, redirect ptr: f:${io.redirect.bits.flag} v:${io.redirect.bits.value}, taken: ${io.taken}\n")
+    XSDebug(io.redirect.valid, s"IUMRedirect, need_recover:${io.redirect.bits.need_recover}, redirect ptr: f:${io.redirect.bits.ptr.flag} v:${io.redirect.bits.ptr.value}, taken: ${io.redirect.bits.taken}\n")
+    XSPerfAccumulate("IUMTable_need_recover", io.redirect.valid && io.redirect.bits.need_recover)
+    XSPerfAccumulate("IUMTable_recovered", io.resp.valid && io.resp.bits.recovered)
+    XSPerfAccumulate("IUMTable_recovered_and_wrong", io.deq && io.misPred && deq_data.recovered)
+    XSPerfAccumulate("IUMTable_recovered_and_right", io.deq && !io.misPred && deq_data.recovered)
+    XSPerfAccumulate("IUMTable_unrecovered_and_wrong", io.deq && io.misPred && !deq_data.recovered)
+    XSPerfAccumulate("IUMTable_unrecovered_and_right", io.deq && !io.misPred && !deq_data.recovered)
   }
 }
 
@@ -233,7 +268,9 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
       }
   }
 
-  val bank_IUMTables = Seq.fill(2)(Module(new IUMTable(64, tableSize, maxSetIdxBits)))
+  val bank_IUMTables = Seq.fill(2)(Module(new IUMTable(nRows, tableSize, maxSetIdxBits))) // tableSize = 6, maxSetIdxBits = 11
+  println(s"IUM_Argument: tableSize = $tableSize")
+  println(s"IUM_Argument: maxSetIdxBits = $maxSetIdxBits\n")
 
   bank_IUMTables.zipWithIndex.foreach {case (t, i) =>
     t.io.req.valid := io.s1_fire
@@ -243,20 +280,33 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
     // use ium returen data
     when(t.io.resp.valid) { s2_tageTakens(i) := t.io.resp.bits.pred }
 
-    val needEnq = RegEnable(io.in.bits.resp_in(0).s1.preds.hit && io.in.bits.resp_in(0).s1.ftb_entry.brValids(i) && io.s1_fire, io.s1_fire)
+    val needEnq = io.in.bits.resp_in(0).s2.preds.hit && io.in.bits.resp_in(0).s2.ftb_entry.brValids(i) && io.s2_fire
     t.io.enq_data.valid := needEnq
     t.io.enq_data.bits.pred := s2_tageTakens(i)
+    t.io.enq_data.bits.recovered := false.B
 
-    resp_meta(i).iumEnq := needEnq
+    resp_meta(i).iumEnq := needEnq // Update
 
     io.out.resp.s2.iumMeta(i).ium_ptr := t.io.enq_ptr
-    io.out.resp.s2.iumMeta(i).ium_enq := needEnq
+    io.out.resp.s2.iumMeta(i).ium_enq := needEnq // Redirect
+    io.out.resp.s2.iumMeta(i).r_mask := t.io.r_mask
 
     t.io.deq := io.update.valid && updateMetas(i).iumEnq.asBool // NOTE: Will it be update when commit?
+    t.io.misPred := io.update.valid && updateMetas(i).iumEnq.asBool && io.update.bits.mispred_mask(i)
 
-    t.io.redirect.valid := io.redirect.valid && io.redirect.bits.cfiUpdate.isMisPred && io.redirect.bits.cfiUpdate.iumMeta(i).ium_enq.asBool
-    t.io.redirect.bits := io.redirect.bits.cfiUpdate.iumMeta(i).ium_ptr
-    t.io.taken := io.redirect.bits.cfiUpdate.taken
+    val cfi = io.redirect.bits.cfiUpdate
+
+    t.io.redirect.valid := io.redirect.valid
+
+    t.io.redirect.bits.need_recover := cfi.isMisPred &&
+      cfi.bankIdx.valid && cfi.bankIdx.bits === i.U &&
+      cfi.iumMeta(i).ium_enq.asBool // TODO: This can be delete
+
+    t.io.redirect.bits.ium_enq := cfi.iumMeta(i).ium_enq.asBool
+
+    t.io.redirect.bits.ptr := cfi.iumMeta(i).ium_ptr
+    t.io.redirect.bits.taken := io.redirect.bits.cfiUpdate.taken
+    t.io.redirect.bits.recover_mask := cfi.iumMeta(i).r_mask
 
     if (BPUDebug && debug) {
       XSDebug(p"ium_bank${i} provided: ${s2_provideds(i)},provider: ${s2_providers(i)} \n")
