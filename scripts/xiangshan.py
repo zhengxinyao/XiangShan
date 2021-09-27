@@ -78,6 +78,8 @@ class XSArgs(object):
 
     def get_makefile_args(self):
         makefile_args = [
+
+
             (self.threads, "EMU_THREADS"),
             (self.with_dramsim3, "WITH_DRAMSIM3"),
             (self.trace, "EMU_TRACE"),
@@ -207,6 +209,18 @@ class XiangShan(object):
         riscv_tests = map(lambda x: os.path.join(base_dir, x), riscv_tests)
         return riscv_tests
 
+    def __get_ci_misc(self, name=None):
+        base_dir = "/home/ci-runner/xsenv/workloads"
+        workloads = [
+            "bitmanip/bitMisc.bin",
+            "coremark_rv64gc_o2/coremark-riscv64-xs.bin",
+            "coremark_rv64gc_o3/coremark-riscv64-xs.bin",
+            "coremark_rv64gcb_o3/coremark-riscv64-xs.bin",
+            "ext_intr/amtest-riscv64-xs.bin"
+        ]
+        misc_tests = map(lambda x: os.path.join(base_dir, x), workloads)
+        return misc_tests
+
     def __am_apps_path(self, bench):
         filename = f"{bench}-riscv64-noop.bin"
         return [os.path.join(self.args.am_home, "apps", bench, "build", filename)]
@@ -229,6 +243,7 @@ class XiangShan(object):
         all_tests = {
             "cputest": self.__get_ci_cputest,
             "riscv-tests": self.__get_ci_rvtest,
+            "misc-tests": self.__get_ci_misc,
             "microbench": self.__am_apps_path,
             "coremark": self.__am_apps_path
         }
