@@ -253,7 +253,7 @@ class ICacheMissEntry(edge: TLEdgeOut, id: Int)(implicit p: Parameters) extends 
     val io = IO(new Bundle{
         val id          = Input(UInt(log2Ceil(nMissEntries).W))
 
-        val req         = Flipped(ValidIO(new ICacheMissReq))
+        val req         = Flipped(DecoupledIO(new ICacheMissReq))
         val resp        = ValidIO(new ICacheMissResp)
       
         val mem_acquire = DecoupledIO(new TLBundleA(edge.bundle))
@@ -412,6 +412,9 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
   val meta_write_arb = Module(new Arbiter(new ICacheMetaWriteBundle,  2))
   val refill_arb     = Module(new Arbiter(new ICacheDataWriteBundle,  2))
 
+  dontTouch(meta_write_arb.io.in)
+  dontTouch(refill_arb.io.in)
+
   io.mem_grant.ready := true.B
 
   val entries = (0 until 2) map { i =>
@@ -421,9 +424,7 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     entry.io.flush := io.flush || io.fencei
 
     // entry req
-    entry.io.req.valid := io.req(i).valid
-    entry.io.req.bits  := io.req(i).bits
-    io.req(i).ready    := entry.io.req.ready
+    entry.io.req       <> io.req(i)
 
     // entry resp
     meta_write_arb.io.in(i)     <>  entry.io.meta_write
@@ -492,8 +493,10 @@ class ICacheImp(outer: ICache) extends LazyModuleImp(outer) with HasICacheParame
   val dataArray      = Module(new ICacheDataArray)
   val missQueue      = Module(new ICacheMissQueue(edge))
 
-  metaArray.io.write <> missQueue.io.meta_write
-  dataArray.io.write <> missQueue.io.data_write
+  metaArray.io.write <> missQueue.io.meta_write 
+  dataArray.io.write <> missQueue.io.data_write 
+  missQueue.io.meta_write.ready := true.B 
+  missQueue.io.data_write.ready := true.B 
 
   metaArray.io.read      <> io.metaRead.req 
   metaArray.io.readResp  <> io.metaRead.resp
