@@ -59,7 +59,6 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
   // recording referenced times of each physical registers
   val archRefCounter = RegInit(VecInit(Seq.fill(NRPhyRegs)(0.U(IntRefCounterWidth.W))))
   val specRefCounter = RegInit(VecInit(Seq.fill(NRPhyRegs)(0.U(IntRefCounterWidth.W))))
-  val cmtCounter = RegInit(VecInit(Seq.fill(NRPhyRegs)(0.U(IntRefCounterWidth.W))))
 
   val archRefCounterNext = Wire(Vec(NRPhyRegs, UInt(IntRefCounterWidth.W)))
   archRefCounterNext.foreach(_ := DontCare)
@@ -71,10 +70,6 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
   val updateSpecRefCounter = WireInit(VecInit(Seq.fill(NRPhyRegs)(false.B))) // update with xxxNext
   val clearSpecRefCounter = WireInit(VecInit(Seq.fill(NRPhyRegs)(false.B))) // reset to zero
 
-  val cmtCounterNext = Wire(Vec(NRPhyRegs, UInt(IntRefCounterWidth.W)))
-  cmtCounterNext.foreach(_ := DontCare)
-  val updateCmtCounter = WireInit(VecInit(Seq.fill(NRPhyRegs)(false.B)))
-  val clearCmtCounter = WireInit(VecInit(Seq.fill(NRPhyRegs)(false.B)))
 
   // send max flag of spec ref counter to rename stage
   maxVec zip specRefCounter foreach { case (max, cnt) =>
@@ -102,10 +97,12 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
    */
   val freeVec = WireInit(VecInit(Seq.fill(CommitWidth)(false.B))) // if dec(i).bits is freed and ready for writing back to free list
 
-  val updateCmtCounterVec = WireInit(VecInit(Seq.fill(CommitWidth)(false.B)))
+  val increaseArchRefCounterVec = WireInit(VecInit(Seq.fill(CommitWidth)(false.B)))
+  val decreaseArchRefCounterVec = WireInit(VecInit(Seq.fill(CommitWidth)(false.B)))
   val updateArchRefCounterVec = WireInit(VecInit(Seq.fill(CommitWidth)(false.B)))
+
   val decreaseSpecRefCounterVec = WireInit(VecInit(Seq.fill(CommitWidth)(false.B))) // used when walking ME instructions
-  val decreaseSpecRefCounterValueVec = Wire(Vec(CommitWidth, UInt(log2Ceil(CommitWidth-1).W)))
+  val decreaseRefCounterValueVec = Wire(Vec(CommitWidth, UInt(log2Ceil(CommitWidth-1).W)))
 
   // handle duplicate INC requirements on cmtCounter and archRefCounter
   val old_pdests_cmp = Wire(MixedVec(List.tabulate(CommitWidth-1)(i => UInt((i+1).W))))
@@ -138,16 +135,22 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
 
   for (i <- 0 until CommitWidth) {
 
-    freeVec(i) := (cmtCounter(freePhyReg(i)) + old_pdests_times(i) === specRefCounter(freePhyReg(i))) &&
-      freeReq(i) && freePhyReg(i) =/= 0.U && !walk
+    freeVec(i) := (old_pdests_times(i) === specRefCounter(freePhyReg(i))) && freeReq(i) && freePhyReg(i) =/= 0.U && !walk
 
-    updateCmtCounterVec(i) := freeReq(i) && old_pdests_is_last(i) && freePhyReg(i) =/= 0.U && !walk
+    val updateCurrentReg = freeReq(i) && old_pdests_is_last(i) && freePhyReg(i) =/= 0.U // could be free or update
 
-    updateArchRefCounterVec(i) := freeReq(i) && eliminatedMove(i) && pdests_is_last(i) && multiRefPhyReg(i) =/= 0.U && !walk
+    // commit && pdest = preg_idx
+    increaseArchRefCounterVec(i) := freeReq(i) && eliminatedMove(i) && pdests_is_last(i) && multiRefPhyReg(i) =/= 0.U && !walk
+    // commit && old_pdest = preg_idx (can be invalidated by reg-clear-flag)
+    decreaseArchRefCounterVec(i) := updateCurrentReg && !walk
+    updateArchRefCounterVec(i) := increaseArchRefCounterVec(i) || decreaseArchRefCounterVec(i)
 
     // pdests_is_last equals old_pdests_is_last when walk.valid
-    decreaseSpecRefCounterVec(i) := freeReq(i) && eliminatedMove(i) && pdests_is_last(i) && freePhyReg(i) =/= 0.U && walk
-    decreaseSpecRefCounterValueVec(i) := pdests_times(i) + 1.U
+    val decSpecAtCommit = updateCurrentReg && !walk
+    val decSpecAtWalk = freeReq(i) && pdests_is_last(i) && freePhyReg(i) =/= 0.U && walk && eliminatedMove(i)
+    decreaseSpecRefCounterVec(i) := decSpecAtCommit | decSpecAtWalk
+
+    decreaseRefCounterValueVec(i) := Mux(walk, pdests_times(i), old_pdests_times(i)) + 1.U
 
 
     // write freed preg into free list at tail ptr
@@ -163,24 +166,13 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
     }
   }
 
-  // set counters-update flag
+  // set counters-clear flags
   for (preg <- 1 until NRPhyRegs) {
     // set clear bit
     freeVec.zipWithIndex.foreach { case (ready, idx) =>
       when (ready && preg.U === freePhyReg(idx)) {
         clearArchRefCounter(preg) := true.B
         clearSpecRefCounter(preg) := true.B
-        clearCmtCounter(preg) := true.B
-      }
-    }
-
-    // set update bit
-    updateCmtCounterVec.zipWithIndex.foreach { case (ready, idx) =>
-      when (ready && preg.U === freePhyReg(idx)) {
-        updateCmtCounter(preg) := true.B
-        // cmt counter after incrementing/ stay not change
-        // free vec has higher priority than cmtCounterNext, so normal free wouldn't cause cmtCounter increasing
-        cmtCounterNext(preg) := cmtCounter(preg) + 1.U + old_pdests_times(idx)
       }
     }
 
@@ -188,7 +180,7 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
       when (ready && preg.U === multiRefPhyReg(idx)) {
         updateArchRefCounter(preg) := true.B
         // arch ref counter of pdest
-        archRefCounterNext(preg) := archRefCounter(preg) + 1.U + pdests_times(idx)
+        archRefCounterNext(preg) := archRefCounter(preg) + Mux(increaseArchRefCounterVec(idx), 1.U + pdests_times(idx), 0.U) - Mux(decreaseArchRefCounterVec(idx), decreaseRefCounterValueVec(idx), 0.U)
       }
     }
   }
@@ -230,8 +222,8 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
 
     updateSpecRefCounter(preg) := doIncrease || doDecrease
     val addOne = specRefCounter(preg) + 1.U
-    val subN = specRefCounter(preg) - decreaseSpecRefCounterValueVec(OHToUInt(decreaseCmpVec))
-    specRefCounterNext(preg) := Mux(doDecrease, subN, addOne)
+    val subN = specRefCounter(preg) - decreaseRefCounterValueVec(OHToUInt(decreaseCmpVec))
+    specRefCounterNext(preg) := specRefCounter(preg) + Mux(doIncrease, 1.U, 0.U) - Mux(doDecrease, decreaseRefCounterValueVec(OHToUInt(decreaseCmpVec)), 0.U)
   }
 
 
@@ -246,7 +238,7 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
 
   val dupRegCntNeg = RegInit(0.U(5.W))
   val dupCntDecVec = WireInit(VecInit(Seq.tabulate(CommitWidth)(i =>
-    Mux(updateCmtCounterVec(i) && !freeVec(i), old_pdests_times(i) + 1.U,
+    Mux(freeReq(i) && old_pdests_is_last(i) && freePhyReg(i) =/= 0.U && !walk && old_pdests_times(i) =/= specRefCounter(freePhyReg(i)), old_pdests_times(i) + 1.U,
     Mux(freeVec(i) && specRefCounter(freePhyReg(i)) =/= 0.U, old_pdests_times(i), 0.U)))))
   dupRegCntNeg := Mux(!flush && !walk, dupRegCntNeg + dupCntDecVec.reduceTree(_ + _), dupRegCntNeg)
 
@@ -273,6 +265,5 @@ class MEFreeList(implicit val p: config.Parameters) extends MultiIOModule with M
     specRefCounter(i) := Mux(flush, archRefCounter(i),
                            Mux(clearSpecRefCounter(i), 0.U, Mux(updateSpecRefCounter(i), specRefCounterNext(i), specRefCounter(i))))
     archRefCounter(i) :=   Mux(clearArchRefCounter(i), 0.U, Mux(updateArchRefCounter(i), archRefCounterNext(i), archRefCounter(i) ))
-    cmtCounter(i)     :=   Mux(clearCmtCounter(i),     0.U, Mux(updateCmtCounter(i),     cmtCounterNext(i),     cmtCounter(i)     ))
   }
 }
