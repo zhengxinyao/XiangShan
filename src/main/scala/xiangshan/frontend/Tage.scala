@@ -832,3 +832,4 @@ class Tage(implicit p: Parameters) extends BaseTage {
 
 
 class Tage_SC(implicit p: Parameters) extends Tage with HasSC with HasIUM {}
+// class Tage_SC(implicit p: Parameters) extends Tage with HasSC {}

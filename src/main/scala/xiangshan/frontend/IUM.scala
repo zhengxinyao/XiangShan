@@ -231,10 +231,10 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdxBits: Int)(implicit p: P
   assert(nRows.U - PopCount(left_mask) === head_ptr.value)
   assert(PopCount(right_mask) === tail_ptr.value)
 
-  table.io.raddr(1) := head_ptr.value
+  table.io.raddr(1) := io.redirect.bits.ptr.value
 
   if (BPUDebug && debug) {
-    val deq_data = table.io.rdata(1)
+    val r_data = table.io.rdata(1)
     XSDebug(p"validEntries: ${validEntries}\n")
     XSDebug(p"head_ptr: f:${head_ptr.flag} v:${head_ptr.value}, tail_ptr: f:${tail_ptr.flag} v:${tail_ptr.value}\n")
     XSDebug(p"v_mask: ${Hexadecimal(valid_mask)}, l_mask: ${Hexadecimal(left_mask)}, r_mask: ${Hexadecimal(right_mask)}\n")
@@ -244,10 +244,10 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdxBits: Int)(implicit p: P
     XSDebug(io.redirect.valid, s"IUMRedirect, need_recover:${io.redirect.bits.need_recover}, redirect ptr: f:${io.redirect.bits.ptr.flag} v:${io.redirect.bits.ptr.value}, taken: ${io.redirect.bits.taken}\n")
     XSPerfAccumulate("IUMTable_need_recover", io.redirect.valid && io.redirect.bits.need_recover)
     XSPerfAccumulate("IUMTable_recovered", io.resp.valid && io.resp.bits.recovered)
-    XSPerfAccumulate("IUMTable_recovered_and_wrong", io.deq && io.misPred && deq_data.recovered)
-    XSPerfAccumulate("IUMTable_recovered_and_right", io.deq && !io.misPred && deq_data.recovered)
-    XSPerfAccumulate("IUMTable_unrecovered_and_wrong", io.deq && io.misPred && !deq_data.recovered)
-    XSPerfAccumulate("IUMTable_unrecovered_and_right", io.deq && !io.misPred && !deq_data.recovered)
+    XSPerfAccumulate("IUMTable_recovered_and_wrong", io.redirect.valid && io.redirect.bits.need_recover && r_data.recovered)
+    // XSPerfAccumulate("IUMTable_recovered_and_right", io.deq && !io.misPred && deq_data.recovered)
+    XSPerfAccumulate("IUMTable_unrecovered_and_wrong", io.redirect.valid && io.redirect.bits.need_recover && !r_data.recovered)
+    // XSPerfAccumulate("IUMTable_unrecovered_and_right", io.deq && !io.misPred && !deq_data.recovered)
   }
 }
 
@@ -272,18 +272,20 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
   println(s"IUM_Argument: tableSize = $tableSize")
   println(s"IUM_Argument: maxSetIdxBits = $maxSetIdxBits\n")
 
+  val ftb_hit = io.in.bits.resp_in(0).s2.preds.hit
+
   bank_IUMTables.zipWithIndex.foreach {case (t, i) =>
     t.io.req.valid := io.s1_fire
     t.io.req.bits  := s1_idxes(i)
     t.io.provider.valid := s2_provideds(i)
     t.io.provider.bits := s2_providers(i)
     // use ium returen data
-    when(t.io.resp.valid) { s2_tageTakens(i) := t.io.resp.bits.pred }
+    when(t.io.resp.valid) { s2_tageTakens(i) := t.io.resp.bits.pred || ftb_entry.always_taken(i)}
 
-    val needEnq = io.in.bits.resp_in(0).s2.preds.hit && io.in.bits.resp_in(0).s2.ftb_entry.brValids(i) && io.s2_fire
+    val needEnq = ftb_hit && !ftb_entry.always_taken(i) && ftb_entry.brValids(i) && io.s2_fire
     t.io.enq_data.valid := needEnq
     t.io.enq_data.bits.pred := s2_tageTakens(i)
-    t.io.enq_data.bits.recovered := false.B
+    t.io.enq_data.bits.recovered := t.io.resp.valid && t.io.resp.bits.recovered
 
     resp_meta(i).iumEnq := needEnq // Update
 
