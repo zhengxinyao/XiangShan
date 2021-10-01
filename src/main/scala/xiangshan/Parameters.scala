@@ -94,7 +94,7 @@ case class XSCoreParameters
       tage.io.in.bits.resp_in(0)  := ftb.io.out.resp
       ittage.io.in.bits.resp_in(0)  := tage.io.out.resp
       ras.io.in.bits.resp_in(0) := ittage.io.out.resp
-      
+
       (preds, ras.io.out.resp)
     }),
 

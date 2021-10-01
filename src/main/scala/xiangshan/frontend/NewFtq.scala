@@ -901,6 +901,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   update.pc          := commit_pc_bundle.startAddr
   update.preds.hit   := commit_hit === h_hit || commit_hit === h_false_hit
   update.meta        := commit_meta.meta
+  update.ftq_idx     := commPtr
   update.full_target := commit_target
   update.fromFtqRedirectSram(commit_spec_meta)
 

@@ -3,7 +3,7 @@ name: EMU Test
 
 on:
   push:
-    branches: [ master, ium]
+    branches: [ master, ium-acyclic-queue ]
   pull_request:
     branches: [ master ]
 
