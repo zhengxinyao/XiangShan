@@ -129,7 +129,8 @@ class TageMeta(val bank: Int)(implicit p: Parameters)
   val allocate = ValidUndirectioned(UInt(log2Ceil(BankTageNTables(bank)).W))
   val taken = Bool()
   val scMeta = new SCMeta(EnableSC, BankSCNTables(bank))
-  // val iumTag = if(EnableIUM) UInt(15.W) else UInt(0.W)
+  val iumHit = if(EnableIUM) Bool() else UInt(0.W)
+  val iumPred = if(EnableIUM) Bool() else UInt(0.W)
   val pred_cycle = UInt(64.W) // TODO: Use Option
 }
 
@@ -590,7 +591,8 @@ class Tage(implicit p: Parameters) extends BaseTage {
   updateOldCtr  := DontCare
   updateU       := DontCare
 
-  val updateMisPreds = update.mispred_mask
+  // val updateMisPreds = update.mispred_mask
+  val updateMisPreds = update.preds.taken_mask.zip(updateMetas.map(_.scMeta)).map{case (taken, scMeta) => taken =/= Mux(scMeta.scCovered.asBool, scMeta.scPred, scMeta.tageTaken)}
 
   // access tag tables and output meta info
   for (w <- 0 until TageBanks) {
@@ -663,7 +665,8 @@ class Tage(implicit p: Parameters) extends BaseTage {
     resp_meta(w).allocate.valid := allocatableSlots =/= 0.U
     resp_meta(w).allocate.bits  := allocEntry
 
-    // resp_meta(w).iumTag := DontCare // TODO: Remove this
+    resp_meta(w).iumHit := false.B // TODO: Remove this
+    resp_meta(w).iumPred := false.B // TODO: Remove this
 
     // Update in loop
     val updateValid = updateValids(w)

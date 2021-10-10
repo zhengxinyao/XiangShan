@@ -45,6 +45,7 @@ abstract class SCModule(implicit p: Parameters) extends TageModule with HasSCPar
 class SCMeta(val useSC: Boolean, val ntables: Int)(implicit p: Parameters) extends XSBundle with HasSCParameter {
   val tageTaken = if (useSC) Bool() else UInt(0.W)
   val scUsed = if (useSC) Bool() else UInt(0.W)
+  val scCovered = if (useSC) Bool() else UInt(0.W)
   val scPred = if (useSC) Bool() else UInt(0.W)
   // Suppose ctrbits of all tables are identical
   val ctrs = if (useSC) Vec(ntables, SInt(SCCtrBits.W)) else Vec(ntables, SInt(0.W))
@@ -294,6 +295,7 @@ trait HasSC extends HasSCParameter { this: Tage =>
     val s2_chooseBit = s2_tageTakens(w)
     scMeta.tageTaken := s2_tageTakens(w)
     scMeta.scUsed := s2_provideds(w)
+    scMeta.scCovered := false.B
     scMeta.scPred := s2_scPreds(s2_chooseBit)
     scMeta.ctrs   := s2_scCtrs
 
@@ -307,6 +309,7 @@ trait HasSC extends HasSCParameter { this: Tage =>
       when (!s2_sumBelowThresholds(s2_chooseBit)) {
         val pred = s2_scPreds(s2_chooseBit)
         val debug_pc = Cat(debug_pc_s2, w.U, 0.U(instOffsetBits.W))
+        scMeta.scCovered := true.B
         s2_agree(w) := s2_tageTakens(w) === pred
         s2_disagree(w) := s2_tageTakens(w) =/= pred
         // fit to always-taken condition

@@ -131,6 +131,7 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdxBits: Int)(implicit p: P
 
   // val hit_idx = Wire(UInt(maxSetIdxBits.W))
   val hit_idx = OHToUInt(hit_vec)
+  val req_hit = ParallelOR(hit_vec)
 
   assert(hit_vec.asUInt === 0.U || PopCount(hit_vec) === 1.U)
 
@@ -147,7 +148,7 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdxBits: Int)(implicit p: P
 
   table.io.raddr(0) := hit_idx
   io.resp.bits := table.io.rdata(0)
-  io.resp.valid := ParallelOR(hit_vec)
+  io.resp.valid := req_hit
   io.resp_tag := Mux(io.provider.valid,
     Cat(0.U(1.W), io.provider.bits, s2_req(io.provider.bits)),
     Cat(1.U(1.W), 0.U(tableBits.W), s2_req(0)))
@@ -260,7 +261,8 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdxBits: Int)(implicit p: P
     XSPerfAccumulate("IUM_enq_no_hit", io.enq_data.valid && !enq_hit)
     XSPerfAccumulate("IUM_enq_hit_full", io.enq_data.valid && invalid_mask === 0.U && enq_hit)
     XSPerfAccumulate("IUM_enq_no_hit_full", io.enq_data.valid && invalid_mask === 0.U && !enq_hit)
-    XSPerfAccumulate("iUM_enq", io.enq_data.valid)
+    XSPerfAccumulate("IUM_enq", io.enq_data.valid)
+    XSPerfAccumulate("IUM_req_hit", req_hit)
     // // XSPerfAccumulate("IUMTable_unrecovered_and_right", io.deq && !io.misPred && !deq_data.recovered)
   }
 }
@@ -292,9 +294,10 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
     t.io.provider.valid := s2_provideds(i)
     t.io.provider.bits := s2_providers(i)
     // use ium returen data
-    when(t.io.resp.valid) { s2_tageTakens(i) := t.io.resp.bits.pred || ftb_entry.always_taken(i)}
+    when(t.io.resp.valid) { resp_s2.preds.taken_mask(i) := t.io.resp.bits.pred || ftb_entry.always_taken(i)}
 
-    // resp_meta(i).iumTag := t.io.resp_tag // Update
+    resp_meta(i).iumHit := t.io.resp.valid // Update
+    resp_meta(i).iumPred := t.io.resp.bits.pred // Update
     io.out.resp.s2.iumMeta(i).tag := t.io.resp_tag // Redirect
 
     val cfi = io.redirect.bits.cfiUpdate
@@ -331,6 +334,13 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
       XSDebug(p"ium_bank${i} enq: ${t.io.enq_data.valid}, enq_data: ${s2_tageTakens(i)}\n")
 
       XSPerfAccumulate(f"ium_bank${i}_hit", t.io.resp.valid && RegNext(io.s1_fire))
+      XSPerfAccumulate(f"ium_bank${i}_ium_hit_mispred", io.update.valid && io.update.bits.mispred_mask(i) && updateMetas(i).iumHit.asBool)
+      XSPerfAccumulate(f"ium_bank${i}_ium_no_hit_mispred", io.update.valid && io.update.bits.mispred_mask(i) && !updateMetas(i).iumHit.asBool)
+
+      XSPerfAccumulate(f"ium_bank${i}_ium_misp_but_tage_corr", io.update.valid && io.update.bits.mispred_mask(i) && updateMetas(i).iumHit.asBool &&
+        updateMetas(i).iumPred =/= Mux(updateMetas(i).scMeta.scCovered.asBool, updateMetas(i).scMeta.scPred, updateMetas(i).scMeta.tageTaken)) // TODO: Add SC result
+      XSPerfAccumulate(f"ium_bank${i}_ium_corr_but_tage_misp", io.update.valid && !io.update.bits.mispred_mask(i) && updateMetas(i).iumHit.asBool &&
+        updateMetas(i).iumPred =/= Mux(updateMetas(i).scMeta.scCovered.asBool, updateMetas(i).scMeta.scPred, updateMetas(i).scMeta.tageTaken)) // TODO: Add SC result
     }
   }
 }
