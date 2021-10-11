@@ -54,9 +54,9 @@ class TLB(Width: Int, q: TLBParameters)(implicit p: Parameters) extends TlbModul
   val vpn = reqAddr.map(_.vpn)
   val cmd = req.map(_.bits.cmd)
   val valid = req.map(_.valid)
+  val refill = ptw.resp.fire() && !sfence.valid
 
   def widthMapSeq[T <: Seq[Data]](f: Int => T) = (0 until Width).map(f)
-
   def widthMap[T <: Data](f: Int => T) = (0 until Width).map(f)
 
   // Normal page && Super page
@@ -97,7 +97,6 @@ class TLB(Width: Int, q: TLBParameters)(implicit p: Parameters) extends TlbModul
     )
   }
 
-
   normalPage.victim.in <> superPage.victim.out
   normalPage.victim.out <> superPage.victim.in
   normalPage.sfence <> io.sfence
@@ -108,14 +107,32 @@ class TLB(Width: Int, q: TLBParameters)(implicit p: Parameters) extends TlbModul
     val (super_hit, super_ppn, super_perm, super_hitVec) = superPage.r_resp_apply(i)
     assert(!(normal_hit && super_hit && vmEnable && RegNext(req(i).valid, init = false.B)))
 
-    val hit = normal_hit || super_hit
-    val ppn = Mux(normal_hit, normal_ppn, super_ppn)
-    val perm = Mux(normal_hit, normal_perm, super_perm)
+    val hit_tmp = normal_hit || super_hit
+    val ppn_tmp = Mux(normal_hit, normal_ppn, super_ppn)
+    val perm_tmp = Mux(normal_hit, normal_perm, super_perm)
 
+    // manage decoupleIO here
+    val in_valid = valid(i)
+    val in_ready = Wire(Bool())
+    val in_fire = in_valid && in_ready
+
+    val out_ready = resp(i).ready
+    val out_fire = resp(i).fire()
+    val out_valid = if (q.sameCycle) valid(i) else ValidHold(in_fire, out_fire, sfence.valid)
+    val data_valid = OneCycleValid(in_fire, sfence.valid)
+    in_ready := !out_valid || out_fire
+
+    // tlb storage resp
+    val hit = if (q.sameCycle) hit_tmp else DataHoldBypass(hit_tmp, data_valid).asBool()
+    val ppn = if (q.sameCycle) ppn_tmp else DataHoldBypass(ppn_tmp, data_valid)
+    val perm = if (q.sameCycle) perm_tmp else DataHoldBypass(perm_tmp.asUInt, data_valid).asTypeOf(new TlbPermBundle())
+    val vaddr = if (q.sameCycle) req(i).bits.vaddr else DataHoldBypass(req(i).bits.vaddr, data_valid)
     val pf = perm.pf && hit
-    val cmdReg = if (!q.sameCycle) RegNext(cmd(i)) else cmd(i)
-    val validReg = if (!q.sameCycle) RegNext(valid(i)) else valid(i)
-    val offReg = if (!q.sameCycle) RegNext(reqAddr(i).off) else reqAddr(i).off
+
+    // ctrl signal
+    val validReg = out_valid
+    val cmdReg = if (!q.sameCycle) DataHoldBypass(cmd(i), data_valid) else cmd(i)
+    val offReg = if (!q.sameCycle) DataHoldBypass(reqAddr(i).off, data_valid) else reqAddr(i).off
 
     /** *************** next cycle when two cycle is false******************* */
     val miss = !hit && vmEnable
@@ -125,11 +142,11 @@ class TLB(Width: Int, q: TLBParameters)(implicit p: Parameters) extends TlbModul
     XSDebug(validReg, p"(${i.U}) hit:${hit} miss:${miss} ppn:${Hexadecimal(ppn)} perm:${perm}\n")
 
     val paddr = Cat(ppn, offReg)
-    val vaddr = SignExt(req(i).bits.vaddr, PAddrBits)
+    val vaddr_ext = SignExt(vaddr, PAddrBits)
 
     req(i).ready := resp(i).ready
     resp(i).valid := validReg
-    resp(i).bits.paddr := Mux(vmEnable, paddr, if (!q.sameCycle) RegNext(vaddr) else vaddr)
+    resp(i).bits.paddr := Mux(vmEnable, paddr, vaddr_ext)
     resp(i).bits.miss := miss
     resp(i).bits.ptwBack := io.ptw.resp.fire()
 
@@ -156,6 +173,9 @@ class TLB(Width: Int, q: TLBParameters)(implicit p: Parameters) extends TlbModul
       resp(i).bits.excp.af.st := Mux(TlbCmd.isAtom(cmdReg), !PMAMode.atomic(pmaMode), !PMAMode.write(pmaMode)) && TlbCmd.isWrite(cmdReg)
       resp(i).bits.excp.af.instr := Mux(TlbCmd.isAtom(cmdReg), false.B, !PMAMode.execute(pmaMode))
     }
+
+    io.ptw.req(i).valid := resp(i).fire() && !hit && !(if (q.sameCycle) refill else DataHoldBypass(RegNext(refill), data_valid))
+    io.ptw.req(i).bits.vpn := vaddr.asTypeOf(new VaBundle).vpn
 
     (hit, miss, normal_hitVec, super_hitVec, validReg)
   }
@@ -204,7 +224,6 @@ class TLB(Width: Int, q: TLBParameters)(implicit p: Parameters) extends TlbModul
     re.way
   }
 
-  val refill = ptw.resp.fire() && !sfence.valid
   normalPage.w_apply(
     valid = { if (q.normalAsVictim) false.B
     else refill && ptw.resp.bits.entry.level.get === 2.U },
@@ -217,11 +236,6 @@ class TLB(Width: Int, q: TLBParameters)(implicit p: Parameters) extends TlbModul
     wayIdx = super_refill_idx,
     data = ptw.resp.bits
   )
-
-  for (i <- 0 until Width) {
-    io.ptw.req(i).valid := validRegVec(i) && missVec(i) && !RegNext(refill)
-    io.ptw.req(i).bits.vpn := RegNext(reqAddr(i).vpn)
-  }
   io.ptw.resp.ready := true.B
 
   if (!q.shouldBlock) {
