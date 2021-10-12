@@ -152,7 +152,7 @@ class CtrlSignals(implicit p: Parameters) extends XSBundle {
   val commitType = CommitType()
   val fpu = new FPUCtrlSignals
   val isMove = Bool()
-  val singleStep = Bool()
+  val trigger = new TriggerInfo
   val isFused = UInt(3.W)
   // This inst will flush all the pipe when it is the oldest inst in ROB,
   // then replay from this inst itself
@@ -411,4 +411,13 @@ class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
   val sbuffer_threshold = Output(UInt(4.W))
   // Rename
   val move_elim_enable = Output(Bool())
+}
+
+class TriggerInfo (implicit p: Parameters) extends XSBundle {
+  val triggerVec = UInt(triggerNum.W)
+//  val chain = Bool()
+  val timing = Bool() // 1 if intr after instr
+  def hit = triggerVec.orR
+  def hit_before = hit && !timing
+  def hit_after = hit && timing
 }

@@ -454,6 +454,30 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   tlbBundle.satp := satp.asTypeOf(new SatpStruct)
   csrio.tlb := tlbBundle
 
+  // TODO Trigger CSRs
+  val tselect = Reg(UInt(XLEN.W))
+  def tselect_wfn(wdata: UInt): UInt = {
+    when(wdata >= triggerNum.U) {
+      (triggerNum-1).U
+    } .otherwise{
+      wdata
+    }
+  }
+  val tselectMask = Fill(log2Ceil(triggerNum+1), 1.U(1.W)).asUInt()
+
+  val tcontrol = RegInit("b00001000".U(XLEN.W))
+
+  /* to fit into current csr mapping we merge all tdatas to 1 long reg
+   * mcontrol:
+   *
+   */
+
+  val tdata1 = Reg(UInt())
+  val tdata2Vec = Reg(Vec(triggerNum, UInt(XLEN.W)))
+  val tinfoVec = Reg(Vec(triggerNum, UInt(XLEN.W)))
+
+
+
   // User-Level CSRs
   val uepc = Reg(UInt(XLEN.W))
 
@@ -625,6 +649,13 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     MaskedRegMap(Mcause, mcause),
     MaskedRegMap(Mtval, mtval),
     MaskedRegMap(Mip, mip.asUInt, 0.U(XLEN.W), MaskedRegMap.Unwritable),
+
+    //--- Trigger Module ---
+    MaskedRegMap(Tselect, tselect, tselectMask, tselect_wfn),
+    MaskedRegMap(Tdata1, tdata1),
+    MaskedRegMap(Tdata2, tdata2),
+    MaskedRegMap(Tinfo, tinfo, 0.U(XLEN.W), MaskedRegMap.Unwritable),
+    MaskedRegMap(Tcontrol, tcontrol),
 
     //--- Debug Mode ---
     MaskedRegMap(Dcsr, dcsr, dcsrMask, dcsrUpdateSideEffect),
@@ -902,6 +933,11 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   val hasStoreAccessFault = csrio.exception.bits.uop.cf.exceptionVec(storeAccessFault) && raiseException
   val hasbreakPoint = csrio.exception.bits.uop.cf.exceptionVec(breakPoint) && raiseException
   val hasSingleStep = csrio.exception.bits.uop.cf.exceptionVec(singleStep) && raiseException
+
+  // trigger exceptions
+  val triggerException = csrio.exception.bits.uop.ctrl.trigger.hit && raiseException
+
+  val triggerHitVec = csrio.exception.bits.uop.ctrl.trigger.triggerVec
 
   val raiseExceptionVec = csrio.exception.bits.uop.cf.exceptionVec
   val exceptionNO = ExcPriority.foldRight(0.U)((i: Int, sum: UInt) => Mux(raiseExceptionVec(i), i.U, sum))

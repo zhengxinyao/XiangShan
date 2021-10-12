@@ -180,11 +180,15 @@ class RobExceptionInfo(implicit p: Parameters) extends XSBundle {
   val exceptionVec = ExceptionVec()
   val flushPipe = Bool()
   val replayInst = Bool() // redirect to that inst itself
-  val singleStep = Bool()
+  val trigger = new TriggerInfo
 
-  def has_exception = exceptionVec.asUInt.orR || flushPipe || singleStep || replayInst
+  def trigger_exception = trigger.triggerVec.orR
+  def trigger_before = trigger_exception && !trigger.timing
+  def trigger_after = trigger_exception && trigger.timing
+
+  def has_exception = exceptionVec.asUInt.orR || flushPipe || trigger_exception || replayInst
   // only exceptions are allowed to writeback when enqueue
-  def can_writeback = exceptionVec.asUInt.orR || singleStep
+  def can_writeback = exceptionVec.asUInt.orR || trigger_before
 }
 
 class ExceptionGen(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
@@ -243,7 +247,7 @@ class ExceptionGen(implicit p: Parameters) extends XSModule with HasCircularQueu
         current.bits.exceptionVec := (s1_out_bits.exceptionVec.asUInt | current.bits.exceptionVec.asUInt).asTypeOf(ExceptionVec())
         current.bits.flushPipe := s1_out_bits.flushPipe || current.bits.flushPipe
         current.bits.replayInst := s1_out_bits.replayInst || current.bits.replayInst
-        current.bits.singleStep := s1_out_bits.singleStep || current.bits.singleStep
+        current.bits.trigger := s1_out_bits.trigger || current.bits.trigger // TODO
       }
     }
   }.elsewhen (s1_out_valid && !s1_flush) {
@@ -428,11 +432,15 @@ class Rob(numWbPorts: Int)(implicit p: Parameters) extends XSModule with HasCirc
   val intrBitSetReg = RegNext(io.csr.intrBitSet)
   val intrEnable = intrBitSetReg && !hasNoSpecExec && !CommitType.isLoadStore(deqDispatchData.commitType)
   val deqHasExceptionOrFlush = exceptionDataRead.valid && exceptionDataRead.bits.robIdx === deqPtr
-  val deqHasException = deqHasExceptionOrFlush && exceptionDataRead.bits.exceptionVec.asUInt.orR
+  val deqHasTriggerHit = deqHasExceptionOrFlush && exceptionDataRead.bits.trigger.hit
+  val deqHasTriggerHitBefore = deqHasExceptionOrFlush && exceptionDataRead.bits.trigger.hit_before
+  val deqHasTriggerHitAfter = deqHasExceptionOrFlush && exceptionDataRead.bits.trigger.hit_after
+  val deqHasException = (deqHasExceptionOrFlush && exceptionDataRead.bits.exceptionVec.asUInt.orR) || deqHasTriggerHit
   val deqHasFlushPipe = deqHasExceptionOrFlush && exceptionDataRead.bits.flushPipe
   val deqHasReplayInst = deqHasExceptionOrFlush && exceptionDataRead.bits.replayInst
-  val exceptionEnable = writebacked(deqPtr.value) && deqHasException
-  val isFlushPipe = writebacked(deqPtr.value) && (deqHasFlushPipe || deqHasReplayInst)
+
+  val exceptionEnable = writebacked(deqPtr.value) && (deqHasException)
+  val isFlushPipe = writebacked(deqPtr.value) && (deqHasFlushPipe || deqHasReplayInst || deqHasTriggerHitAfter)
 
   io.flushOut.valid := (state === s_idle) && valid(deqPtr.value) && (intrEnable || exceptionEnable || isFlushPipe)
   io.flushOut.bits.ftqIdx := deqDispatchData.ftqIdx
@@ -448,7 +456,7 @@ class Rob(numWbPorts: Int)(implicit p: Parameters) extends XSModule with HasCirc
   io.exception.bits.uop := RegEnable(debug_deqUop, exceptionHappen)
   io.exception.bits.uop.ctrl.commitType := RegEnable(deqDispatchData.commitType, exceptionHappen)
   io.exception.bits.uop.cf.exceptionVec := RegEnable(exceptionDataRead.bits.exceptionVec, exceptionHappen)
-  io.exception.bits.uop.ctrl.singleStep := RegEnable(exceptionDataRead.bits.singleStep, exceptionHappen)
+  io.exception.bits.uop.ctrl.trigger := RegEnable(exceptionDataRead.bits.trigger, exceptionHappen)
   io.exception.bits.uop.cf.crossPageIPFFix := RegEnable(deqDispatchData.crossPageIPFFix, exceptionHappen)
   io.exception.bits.isInterrupt := RegEnable(intrEnable, exceptionHappen)
 
@@ -780,7 +788,7 @@ class Rob(numWbPorts: Int)(implicit p: Parameters) extends XSModule with HasCirc
     exceptionGen.io.enq(i).bits.flushPipe := io.enq.req(i).bits.ctrl.flushPipe
     exceptionGen.io.enq(i).bits.replayInst := io.enq.req(i).bits.ctrl.replayInst
     assert(exceptionGen.io.enq(i).bits.replayInst === false.B)
-    exceptionGen.io.enq(i).bits.singleStep := io.enq.req(i).bits.ctrl.singleStep
+    exceptionGen.io.enq(i).bits.trigger := io.enq.req(i).bits.ctrl.trigger
   }
 
   // TODO: don't hard code these idxes
@@ -812,7 +820,7 @@ class Rob(numWbPorts: Int)(implicit p: Parameters) extends XSModule with HasCirc
     exceptionGen.io.wb(index).bits.exceptionVec := selectFunc(io.exeWbResults(wb_index).bits.uop.cf.exceptionVec, false, true)
     exceptionGen.io.wb(index).bits.flushPipe    := io.exeWbResults(wb_index).bits.uop.ctrl.flushPipe
     exceptionGen.io.wb(index).bits.replayInst   := io.exeWbResults(wb_index).bits.uop.ctrl.replayInst
-    exceptionGen.io.wb(index).bits.singleStep   := false.B
+    exceptionGen.io.wb(index).bits.trigger      := io.exeWbResults(wb_index).bits.uop.ctrl.trigger
   }
 
   // 4 fmac + 2 fmisc + 1 i2f
