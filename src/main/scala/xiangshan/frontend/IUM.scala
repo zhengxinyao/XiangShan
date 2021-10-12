@@ -284,7 +284,7 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
       }
   }
 
-  val bank_IUMTables = Seq.fill(2)(Module(new IUMTable(nRows, tableSize, maxSetIdxBits))) // tableSize = 6, maxSetIdxBits = 11
+  val bank_IUMTables = Seq.fill(numBr)(Module(new IUMTable(nRows, tableSize, maxSetIdxBits))) // tableSize = 6, maxSetIdxBits = 11
   println(s"IUM_Argument: tableSize = $tableSize")
   println(s"IUM_Argument: maxSetIdxBits = $maxSetIdxBits\n")
 
@@ -297,7 +297,7 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
     when(t.io.resp.valid) { resp_s2.preds.taken_mask(i) := t.io.resp.bits.pred || ftb_entry.always_taken(i)}
 
     resp_meta(i).iumHit := t.io.resp.valid // Update
-    resp_meta(i).iumPred := t.io.resp.bits.pred // Update
+    resp_meta(i).iumPred := t.io.resp.bits.pred || ftb_entry.always_taken(i)// Update
     io.out.resp.s2.iumMeta(i).tag := t.io.resp_tag // Redirect
 
     val cfi = io.redirect.bits.cfiUpdate
@@ -333,14 +333,14 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
       XSDebug(p"ium_bank${i} hit: ${t.io.resp.valid}, pred: ${t.io.resp.bits.pred}\n")
       XSDebug(p"ium_bank${i} enq: ${t.io.enq_data.valid}, enq_data: ${s2_tageTakens(i)}\n")
 
-      XSPerfAccumulate(f"ium_bank${i}_hit", t.io.resp.valid && RegNext(io.s1_fire))
+      XSPerfAccumulate(f"ium_bank${i}_hit", t.io.resp.valid && io.s2_fire)
       XSPerfAccumulate(f"ium_bank${i}_ium_hit_mispred", io.update.valid && io.update.bits.mispred_mask(i) && updateMetas(i).iumHit.asBool)
       XSPerfAccumulate(f"ium_bank${i}_ium_no_hit_mispred", io.update.valid && io.update.bits.mispred_mask(i) && !updateMetas(i).iumHit.asBool)
 
-      XSPerfAccumulate(f"ium_bank${i}_ium_misp_but_tage_corr", io.update.valid && io.update.bits.mispred_mask(i) && updateMetas(i).iumHit.asBool &&
-        updateMetas(i).iumPred =/= Mux(updateMetas(i).scMeta.scCovered.asBool, updateMetas(i).scMeta.scPred, updateMetas(i).scMeta.tageTaken)) // TODO: Add SC result
-      XSPerfAccumulate(f"ium_bank${i}_ium_corr_but_tage_misp", io.update.valid && !io.update.bits.mispred_mask(i) && updateMetas(i).iumHit.asBool &&
-        updateMetas(i).iumPred =/= Mux(updateMetas(i).scMeta.scCovered.asBool, updateMetas(i).scMeta.scPred, updateMetas(i).scMeta.tageTaken)) // TODO: Add SC result
+      XSPerfAccumulate(f"ium_bank${i}_ium_misp_but_tage_corr", io.update.valid && io.update.bits.mispred_mask(i) && io.update.bits.ftb_entry.brValids(i) && updateMetas(i).iumHit.asBool &&
+        updateMetas(i).iumPred =/= Mux(updateMetas(i).scMeta.scCovered.asBool, updateMetas(i).scMeta.scPred, updateMetas(i).scMeta.tageTaken))
+      XSPerfAccumulate(f"ium_bank${i}_ium_corr_but_tage_misp", io.update.valid && !io.update.bits.mispred_mask(i) && io.update.bits.ftb_entry.brValids(i) && updateMetas(i).iumHit.asBool &&
+        updateMetas(i).iumPred =/= Mux(updateMetas(i).scMeta.scCovered.asBool, updateMetas(i).scMeta.scPred, updateMetas(i).scMeta.tageTaken))
     }
   }
 }

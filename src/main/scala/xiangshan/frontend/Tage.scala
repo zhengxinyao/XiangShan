@@ -592,7 +592,9 @@ class Tage(implicit p: Parameters) extends BaseTage {
   updateU       := DontCare
 
   // val updateMisPreds = update.mispred_mask
-  val updateMisPreds = update.preds.taken_mask.zip(updateMetas.map(_.scMeta)).map{case (taken, scMeta) => taken =/= Mux(scMeta.scCovered.asBool, scMeta.scPred, scMeta.tageTaken)}
+  val updateMisPreds = update.preds.taken_mask.zip(updateMetas.map(_.scMeta)).map{case (taken, scMeta) =>
+    taken =/= Mux(scMeta.scCovered.asBool, scMeta.scPred, scMeta.tageTaken)
+  }
 
   // access tag tables and output meta info
   for (w <- 0 until TageBanks) {
@@ -618,7 +620,7 @@ class Tage(implicit p: Parameters) extends BaseTage {
       s1_provider = Mux(hit, i.U, s1_provider)  // Use the last hit as provider
       s1_altPred = Mux(hit, ctr(2), s1_altPred) // Save current pred as potential altpred
       s1_altprednum = Mux(hit,s1_prednum,s1_altprednum)      // get altpredict table number
-      s1_prednum = Mux(hit,i.U,s1_prednum)      // get predict table number
+      s1_prednum = Mux(hit,i.U,s1_prednum)      // get predict table number // Euqal s1_provider
     }
     s1_provideds(w)      := s1_provided
     s1_basecnts(w)       := bt.io.s1_cnt(w)
@@ -719,7 +721,9 @@ class Tage(implicit p: Parameters) extends BaseTage {
     }
     updatebcnt(w) := updateMeta.basecnt
 
-    when (updateValid && updateMisPred && ~((((updateMeta.predcnt === 3.U && (~isUpdateTaken))) || ((updateMeta.predcnt === 4.U && isUpdateTaken))) && updateMeta.provider.valid)) {
+    when (updateValid && updateMisPred &&
+      ~((((updateMeta.predcnt === 3.U && (~isUpdateTaken))) || ((updateMeta.predcnt === 4.U && isUpdateTaken))) &&
+      updateMeta.provider.valid)) {
     //when (updateValid && updateMisPred) {
       val allocate = updateMeta.allocate
       when (allocate.valid) {

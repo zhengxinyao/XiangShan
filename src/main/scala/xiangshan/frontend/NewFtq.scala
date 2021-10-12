@@ -297,7 +297,7 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBackendRedire
   init_entry.brOffset(0) := io.cfiIndex.bits
   init_entry.setByBrTarget(0, io.start_addr, io.target)
   init_entry.always_taken(0) := cfi_is_br // set to always taken on init
-  init_entry.always_taken(1) := false.B
+  for(i <- 1 until numBr) { init_entry.always_taken(i) := false.B }
   init_entry.jmpOffset := pd.jmpOffset
   init_entry.jmpValid := new_jmp_is_jal || new_jmp_is_jalr
   init_entry.setByJmpTarget(io.start_addr, Mux(cfi_is_jalr, io.target, pd.jalTarget))
