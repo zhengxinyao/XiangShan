@@ -131,6 +131,7 @@ class TageMeta(val bank: Int)(implicit p: Parameters)
   val scMeta = new SCMeta(EnableSC, BankSCNTables(bank))
   val iumHit = if(EnableIUM) Bool() else UInt(0.W)
   val iumPred = if(EnableIUM) Bool() else UInt(0.W)
+  val iumCtrs = if(EnableIUM) UInt(2.W) else UInt(0.W)
   val pred_cycle = UInt(64.W) // TODO: Use Option
 }
 
@@ -669,6 +670,7 @@ class Tage(implicit p: Parameters) extends BaseTage {
 
     resp_meta(w).iumHit := false.B // TODO: Remove this
     resp_meta(w).iumPred := false.B // TODO: Remove this
+    resp_meta(w).iumCtrs := 0.U // TODO: Remove this
 
     // Update in loop
     val updateValid = updateValids(w)

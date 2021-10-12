@@ -51,6 +51,7 @@ class IUMMeta(val useIUM: Boolean)(implicit p: Parameters) extends XSBundle with
   // val ium_enq = if (useIUM) Bool() else UInt(0.W)
   // val r_mask = if (useIUM) UInt(nRows.W) else UInt(0.W)
   val tag = if (useIUM) UInt(15.W) else UInt(0.W)
+  val ctrs = if (useIUM) UInt(3.W) else UInt(0.W)
 }
 
 @chiselName
@@ -70,14 +71,15 @@ class IUMTable(val nRows: Int, tableSize: Int, maxSetIdxBits: Int)(implicit p: P
   }
 
   class IUMData extends XSBundle {
-    val pred = Bool()
+    // val pred = Bool()
+    val ctrs = UInt(TageCtrBits.W)
     val ftq_ptr = new FtqPtr()
   }
 
   object IUMData {
-    def apply(d: Bool, ptr: FtqPtr): IUMData = {
+    def apply(c: UInt, ptr: FtqPtr): IUMData = {
       val data = Wire(new IUMData)
-      data.pred := d
+      data.ctrs := c
       data.ftq_ptr := ptr
       data
     }
@@ -294,11 +296,13 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
     t.io.provider.valid := s2_provideds(i)
     t.io.provider.bits := s2_providers(i)
     // use ium returen data
-    when(t.io.resp.valid) { resp_s2.preds.taken_mask(i) := t.io.resp.bits.pred || ftb_entry.always_taken(i)}
+    when(t.io.resp.valid) { resp_s2.preds.taken_mask(i) := t.io.resp.bits.ctrs(2) || ftb_entry.always_taken(i)}
 
     resp_meta(i).iumHit := t.io.resp.valid // Update
-    resp_meta(i).iumPred := t.io.resp.bits.pred || ftb_entry.always_taken(i)// Update
+    resp_meta(i).iumPred := t.io.resp.bits.ctrs(2) || ftb_entry.always_taken(i)// Update
+    resp_meta(i).iumCtrs := t.io.resp.bits.ctrs
     io.out.resp.s2.iumMeta(i).tag := t.io.resp_tag // Redirect
+    io.out.resp.s2.iumMeta(i).ctrs := Mux(t.io.resp.valid, t.io.resp.bits.ctrs, s2_providerCtrs(i)) // Redirect
 
     val cfi = io.redirect.bits.cfiUpdate
 
@@ -307,7 +311,7 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
       cfi.bankIdx.valid && cfi.bankIdx.bits === i.U
 
     t.io.enq_data.valid := needEnq
-    t.io.enq_data.bits.pred := cfi.taken
+    t.io.enq_data.bits.ctrs := satUpdate(cfi.iumMeta(i).ctrs, 3, cfi.taken)
     t.io.enq_data.bits.ftq_ptr := io.redirect.bits.ftqIdx
     t.io.enq_tag := cfi.iumMeta(i).tag
 
@@ -330,7 +334,8 @@ trait HasIUM extends HasIUMParameter { this: Tage =>
 
     if (BPUDebug && debug) {
       XSDebug(p"ium_bank${i} provided: ${s2_provideds(i)},provider: ${s2_providers(i)} \n")
-      XSDebug(p"ium_bank${i} hit: ${t.io.resp.valid}, pred: ${t.io.resp.bits.pred}\n")
+      // XSDebug(p"ium_bank${i} hit: ${t.io.resp.valid}, pred: ${t.io.resp.bits.pred}\n")
+      XSDebug(p"ium_bank${i} hit: ${t.io.resp.valid}, ctrs: ${t.io.resp.bits.ctrs}\n")
       XSDebug(p"ium_bank${i} enq: ${t.io.enq_data.valid}, enq_data: ${s2_tageTakens(i)}\n")
 
       XSPerfAccumulate(f"ium_bank${i}_hit", t.io.resp.valid && io.s2_fire)
