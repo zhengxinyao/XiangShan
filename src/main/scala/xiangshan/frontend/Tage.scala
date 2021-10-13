@@ -597,6 +597,10 @@ class Tage(implicit p: Parameters) extends BaseTage {
     taken =/= Mux(scMeta.scCovered.asBool, scMeta.scPred, scMeta.tageTaken)
   }
 
+  XSPerfAccumulate("Tage_misp", PopCount(updateValids.zip(updateMisPreds).map{case (v, m) => v && m}))
+  XSPerfAccumulate("Tage_misp_provider_valid", PopCount(updateValids.zip(updateMisPreds).zip(updateMetas).map{
+    case ((v, m), meta) => v && m && meta.provider.valid }))
+
   // access tag tables and output meta info
   for (w <- 0 until TageBanks) {
     val s1_tageTaken     = WireInit(bt.io.s1_cnt(w)(1))
@@ -840,5 +844,5 @@ class Tage(implicit p: Parameters) extends BaseTage {
 }
 
 
-class Tage_SC(implicit p: Parameters) extends Tage with HasSC with HasIUM {}
-// class Tage_SC(implicit p: Parameters) extends Tage with HasSC {}
+// class Tage_SC(implicit p: Parameters) extends Tage with HasSC with HasIUM {}
+class Tage_SC(implicit p: Parameters) extends Tage with HasSC {}
