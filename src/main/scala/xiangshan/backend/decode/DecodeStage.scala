@@ -56,7 +56,7 @@ class DecodeStage(implicit p: Parameters) extends XSModule {
     ssit.io.raddr(i) := io.in(i).bits.foldpc
     decoders(i).io.enq.ctrl_flow.storeSetHit := ssit.io.rdata(i).valid
     decoders(i).io.enq.ctrl_flow.ssid := ssit.io.rdata(i).ssid
-    decoders(i).singlestep := if (i == 1) icountTrigger else false.B
+    if (i == 1) decoders(i).singlestep := icountTrigger else decoders(i).singlestep := false.B
 
     io.out(i).valid      := io.in(i).valid
     io.out(i).bits       := decoders(i).io.deq.cf_ctrl

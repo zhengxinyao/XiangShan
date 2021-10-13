@@ -25,6 +25,7 @@ import xiangshan.backend._
 import xiangshan.frontend.BPUCtrl
 import xiangshan.backend.fu.util._
 import difftest._
+import firrtl.transforms.DontTouchAnnotation
 
 trait HasExceptionNO {
   def instrAddrMisaligned = 0
@@ -290,7 +291,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   val dscratch1 = Reg(UInt(64.W))
   val debugMode = RegInit(false.B)
   val debugIntrEnable = RegInit(true.B)
-  csrio.debugMode := debugMode
+//  csrio.debugMode := debugMode
 
   val dpcPrev = RegNext(dpc)
   XSDebug(dpcPrev =/= dpc, "Debug Mode: dpc is altered! Current is %x, previous is %x.", dpc, dpcPrev)
@@ -470,14 +471,10 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   // TODO Trigger CSRs
   val tselect = Reg(UInt(XLEN.W))
   def tselect_wfn(wdata: UInt): UInt = {
-    when(wdata >= triggerNum.U) {
-      (triggerNum-1).U
-    } .otherwise{
-      wdata
-    }
+    Mux(wdata >= (triggerNum-1).U, (triggerNum-1).U(XLEN.W), wdata)
   }
-  val tselectMask = Fill(log2Ceil(triggerNum+1), 1.U(1.W)).asUInt()
-  val IcountMask = "h1fffec01".U
+  val tselectMask = Fill(log2Ceil(triggerNum+1), true.B).asUInt().litValue.U(XLEN.W) // TODO
+  val IcountMask = "h1fffec01".U(XLEN.W)
   val tcontrol = RegInit("b00001000".U(XLEN.W))
 
 //  val tdata1 = Reg(Vec(triggerNum, UInt(XLEN.W)))
@@ -487,17 +484,12 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
 //  val tdata1Wire = Wire(UInt(XLEN.W))
 //  val tdata2Wire = Wire(UInt(XLEN.W))
 //  val tinfoWire = Wire(UInt(XLEN.W))
-  val tdata1 = RegInit(Cat("h3".U(4.W), 0.U((XLEN-4).W)))
+  val tdata1 = RegInit("h3000000000000000".U(XLEN.W)) // TODO Fix this dirty solution
 //  val tdata2 = Reg(UInt(XLEN.W))
   val tinfo = RegInit("b1000".U(XLEN.W))
-  val tcontrol = RegInit(0.U(XLEN.W))
 
   // single step
   val icount = tdata1.asTypeOf(new IcountStruct)
-  csrio.customCtrl.icount_enable := (icount.m && priviledgeMode === ModeM && tcontrol(3) ||
-    icount.s && priviledgeMode === ModeS ||
-    icount.u && priviledgeMode === ModeU
-    ) && !debugMode
 
   // User-Level CSRs
   val uepc = Reg(UInt(XLEN.W))
@@ -676,7 +668,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     MaskedRegMap(Tdata1, tdata1, IcountMask),
 //    MaskedRegMap(Tdata2, tdata2, MaskedRegMap.WritableMask, tdata2_wfn),
     MaskedRegMap(Tinfo, tinfo, 0.U(XLEN.W), MaskedRegMap.Unwritable),
-    MaskedRegMap(Tcontrol, tcontrol, "h88".U, MaskedRegMap.NoSideEffect, "h88".U, MaskedRegMap.NoSideEffect),
+    MaskedRegMap(Tcontrol, tcontrol, "h88".U(XLEN.W), MaskedRegMap.NoSideEffect, "h88".U(XLEN.W), MaskedRegMap.NoSideEffect),
 
     //--- Debug Mode ---
     MaskedRegMap(Dcsr, dcsr, dcsrMask, dcsrUpdateSideEffect),
@@ -802,6 +794,11 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
 
   XSDebug(wen, "csr write: pc %x addr %x rdata %x wdata %x func %x\n", cfIn.pc, addr, rdata, wdata, func)
   XSDebug(wen, "pc %x mstatus %x mideleg %x medeleg %x mode %x\n", cfIn.pc, mstatus, mideleg , medeleg, priviledgeMode)
+
+  csrio.customCtrl.icount_enable := (icount.m && priviledgeMode === ModeM && tcontrol(3) ||
+    icount.s && priviledgeMode === ModeS ||
+    icount.u && priviledgeMode === ModeU
+    ) && !debugMode
 
   // Illegal priviledged operation list
   val illegalSModeSret = valid && isSret && priviledgeMode === ModeS && mstatusStruct.tsr.asBool

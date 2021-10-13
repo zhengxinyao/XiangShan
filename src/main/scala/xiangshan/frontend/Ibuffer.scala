@@ -119,6 +119,8 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
     io.out(i).bits.exceptionVec := 0.U.asTypeOf(Vec(16, Bool()))
     io.out(i).bits.exceptionVec(instrPageFault) := outWire.ipf
     io.out(i).bits.exceptionVec(instrAccessFault) := outWire.acf
+    io.out(i).bits.trigger.timing := false.B
+    io.out(i).bits.trigger.triggerVec := 0.U
     io.out(i).bits.pd := outWire.pd
     io.out(i).bits.pred_taken := outWire.pred_taken
     io.out(i).bits.ftqPtr := outWire.ftqPtr

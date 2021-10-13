@@ -308,7 +308,7 @@ class CtrlBlock(implicit p: Parameters) extends XSModule
   dispatch.io.allocPregs <> io.allocPregs
   dispatch.io.csrCtrl <> io.csrCtrl
   dispatch.io.storeIssue <> io.stIn
-  dispatch.io.singleStep := false.B
+//  dispatch.io.singleStep := false.B
 
   intDq.io.redirect <> stage2Redirect
   intDq.io.flush <> flushReg
