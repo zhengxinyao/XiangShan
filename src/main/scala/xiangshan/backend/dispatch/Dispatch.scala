@@ -80,7 +80,7 @@ class Dispatch(implicit p: Parameters) extends XSModule with HasExceptionNO {
     // LFST state sync
     val storeIssue = Vec(StorePipelineWidth, Flipped(Valid(new ExuInput)))
     // singleStep
-    val singleStep = Input(Bool())
+//    val singleStep = Input(Bool())
   })
 
 
@@ -118,12 +118,12 @@ class Dispatch(implicit p: Parameters) extends XSModule with HasExceptionNO {
     *   Update commitType, psrc(0), psrc(1), psrc(2), old_pdest, robIdx, lqIdx, sqIdx and singlestep for the uops
     */
 
-  val singleStepStatus = RegInit(false.B)
-  when (io.flush) {
-    singleStepStatus := false.B
-  }.elsewhen (io.singleStep && io.fromRename(0).fire()) {
-    singleStepStatus := true.B
-  }
+//  val singleStepStatus = RegInit(false.B)
+//  when (io.flush) {
+//    singleStepStatus := false.B
+//  }.elsewhen (io.singleStep && io.fromRename(0).fire()) {
+//    singleStepStatus := true.B
+//  }
   val updatedUop = Wire(Vec(RenameWidth, new MicroOp))
   val updatedCommitType = Wire(Vec(RenameWidth, CommitType()))
   val updatedPsrc1 = Wire(Vec(RenameWidth, UInt(PhyRegIdxWidth.W)))
@@ -198,7 +198,7 @@ class Dispatch(implicit p: Parameters) extends XSModule with HasExceptionNO {
     io.lfst(i).bits.ssid := updatedUop(i).cf.ssid
 
     // update singleStep
-    updatedUop(i).ctrl.singleStep := io.singleStep && (if (i == 0) singleStepStatus else true.B)
+//    updatedUop(i).ctrl.singleStep := io.singleStep && (if (i == 0) singleStepStatus else true.B)
   }
 
   // store set perf count

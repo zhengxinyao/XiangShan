@@ -204,7 +204,8 @@ case class XSCoreParameters
   L2NBanks: Int = 1,
   usePTWRepeater: Boolean = false,
   softPTW: Boolean = false, // dpi-c debug only
-  triggerNum: Int = 1
+  triggerNum: Int = 1,
+  mcontrolNum: Int =0
 ){
   val loadExuConfigs = Seq.fill(exuParameters.LduCnt)(LdExeUnitCfg)
   val storeExuConfigs = Seq.fill(exuParameters.StuCnt)(StaExeUnitCfg) ++ Seq.fill(exuParameters.StuCnt)(StdExeUnitCfg)
@@ -357,5 +358,5 @@ trait HasXSParameter {
   val exuConfigs = coreParams.exuConfigs
 
   val triggerNum = coreParams.triggerNum
-
+  val mmontrolNum = coreParams.mcontrolNum
 }

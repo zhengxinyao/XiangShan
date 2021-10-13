@@ -41,6 +41,10 @@ class DecodeStage(implicit p: Parameters) extends XSModule {
   // store set load violation predictor stage 1: SSIT look up
   val ssit = Module(new SSIT)
 
+  val icount = Wire(Bool())
+  val icountTrigger = RegEnable(icount, io.csrCtrl.icount_enable)
+  icount := Mux(io.csrCtrl.icount_enable, Mux(icountTrigger, false.B, true.B), false.B)
+
   for (i <- 0 until DecodeWidth) {
     decoders(i).io.enq.ctrl_flow <> io.in(i).bits
 
@@ -52,6 +56,7 @@ class DecodeStage(implicit p: Parameters) extends XSModule {
     ssit.io.raddr(i) := io.in(i).bits.foldpc
     decoders(i).io.enq.ctrl_flow.storeSetHit := ssit.io.rdata(i).valid
     decoders(i).io.enq.ctrl_flow.ssid := ssit.io.rdata(i).ssid
+    decoders(i).singlestep := if (i == 1) icountTrigger else false.B
 
     io.out(i).valid      := io.in(i).valid
     io.out(i).bits       := decoders(i).io.deq.cf_ctrl

@@ -788,7 +788,7 @@ class Rob(numWbPorts: Int)(implicit p: Parameters) extends XSModule with HasCirc
     exceptionGen.io.enq(i).bits.flushPipe := io.enq.req(i).bits.ctrl.flushPipe
     exceptionGen.io.enq(i).bits.replayInst := io.enq.req(i).bits.ctrl.replayInst
     assert(exceptionGen.io.enq(i).bits.replayInst === false.B)
-    exceptionGen.io.enq(i).bits.trigger := io.enq.req(i).bits.ctrl.trigger
+    exceptionGen.io.enq(i).bits.trigger := io.enq.req(i).bits.cf.trigger
   }
 
   // TODO: don't hard code these idxes
@@ -820,7 +820,7 @@ class Rob(numWbPorts: Int)(implicit p: Parameters) extends XSModule with HasCirc
     exceptionGen.io.wb(index).bits.exceptionVec := selectFunc(io.exeWbResults(wb_index).bits.uop.cf.exceptionVec, false, true)
     exceptionGen.io.wb(index).bits.flushPipe    := io.exeWbResults(wb_index).bits.uop.ctrl.flushPipe
     exceptionGen.io.wb(index).bits.replayInst   := io.exeWbResults(wb_index).bits.uop.ctrl.replayInst
-    exceptionGen.io.wb(index).bits.trigger      := io.exeWbResults(wb_index).bits.uop.ctrl.trigger
+    exceptionGen.io.wb(index).bits.trigger      := io.exeWbResults(wb_index).bits.uop.cf.trigger
   }
 
   // 4 fmac + 2 fmisc + 1 i2f

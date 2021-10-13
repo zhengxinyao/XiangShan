@@ -42,11 +42,11 @@ trait HasExceptionNO {
   def loadPageFault       = 13
   def storePageFault      = 15
 
-  def singleStep          = 14
+//  def singleStep          = 14
 
   val ExcPriority = Seq(
     breakPoint, // TODO: different BP has different priority
-    singleStep,
+//    singleStep,
     instrPageFault,
     instrAccessFault,
     illegalInstr,
@@ -181,8 +181,8 @@ class CSRFileIO(implicit p: Parameters) extends XSBundle {
   // TLB
   val tlb = Output(new TlbCsrBundle)
   // Debug Mode
-  val singleStep = Output(Bool())
-  val debugMode = Output(Bool())
+//  val singleStep = Output(Bool())
+//  val debugMode = Output(Bool())
   // Custom microarchiture ctrl signal
   val customCtrl = Output(new CustomCSRCtrlIO)
   // to Fence to disable sfence
@@ -231,6 +231,19 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     val zero1 = Output(UInt(3.W))
     val step = Output(Bool())
     val prv = Output(UInt(2.W))
+  }
+
+  class IcountStruct extends Bundle {
+    val t = UInt(4.W)
+    val dmode = Bool()
+    val zero = UInt((XLEN-30).W)
+    val hit = Bool()
+    val count = UInt(14.W)
+    val m = Bool()
+    val zero1 = Bool()
+    val s = Bool()
+    val u = Bool()
+    val action = UInt(6.W)
   }
 
   class MstatusStruct extends Bundle {
@@ -308,7 +321,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     val dcsrNew = dcsr | (dcsrOld.prv(0) | dcsrOld.prv(1)).asUInt // turn 10 priv into 11
     dcsrNew
   }
-  csrio.singleStep := dcsrData.step
+//  csrio.singleStep := dcsrData.step
 
   // Machine-Level CSRs
 
@@ -464,19 +477,27 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     }
   }
   val tselectMask = Fill(log2Ceil(triggerNum+1), 1.U(1.W)).asUInt()
-
+  val IcountMask = "h1fffec01".U
   val tcontrol = RegInit("b00001000".U(XLEN.W))
 
-  /* to fit into current csr mapping we merge all tdatas to 1 long reg
-   * mcontrol:
-   *
-   */
+//  val tdata1 = Reg(Vec(triggerNum, UInt(XLEN.W)))
+//  val tdata2 = Reg(Vec(mcontrolNum, UInt(XLEN.W)))
+//  val tinfo = Reg(Vec(triggerNum, UInt(XLEN.W)))
+//  // Dummy Wire
+//  val tdata1Wire = Wire(UInt(XLEN.W))
+//  val tdata2Wire = Wire(UInt(XLEN.W))
+//  val tinfoWire = Wire(UInt(XLEN.W))
+  val tdata1 = RegInit(Cat("h3".U(4.W), 0.U((XLEN-4).W)))
+//  val tdata2 = Reg(UInt(XLEN.W))
+  val tinfo = RegInit("b1000".U(XLEN.W))
+  val tcontrol = RegInit(0.U(XLEN.W))
 
-  val tdata1 = Reg(UInt())
-  val tdata2Vec = Reg(Vec(triggerNum, UInt(XLEN.W)))
-  val tinfoVec = Reg(Vec(triggerNum, UInt(XLEN.W)))
-
-
+  // single step
+  val icount = tdata1.asTypeOf(new IcountStruct)
+  csrio.customCtrl.icount_enable := (icount.m && priviledgeMode === ModeM && tcontrol(3) ||
+    icount.s && priviledgeMode === ModeS ||
+    icount.u && priviledgeMode === ModeU
+    ) && !debugMode
 
   // User-Level CSRs
   val uepc = Reg(UInt(XLEN.W))
@@ -651,11 +672,11 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     MaskedRegMap(Mip, mip.asUInt, 0.U(XLEN.W), MaskedRegMap.Unwritable),
 
     //--- Trigger Module ---
-    MaskedRegMap(Tselect, tselect, tselectMask, tselect_wfn),
-    MaskedRegMap(Tdata1, tdata1),
-    MaskedRegMap(Tdata2, tdata2),
+    MaskedRegMap(Tselect, tselect, tselectMask, tselect_wfn, tselectMask),
+    MaskedRegMap(Tdata1, tdata1, IcountMask),
+//    MaskedRegMap(Tdata2, tdata2, MaskedRegMap.WritableMask, tdata2_wfn),
     MaskedRegMap(Tinfo, tinfo, 0.U(XLEN.W), MaskedRegMap.Unwritable),
-    MaskedRegMap(Tcontrol, tcontrol),
+    MaskedRegMap(Tcontrol, tcontrol, "h88".U, MaskedRegMap.NoSideEffect, "h88".U, MaskedRegMap.NoSideEffect),
 
     //--- Debug Mode ---
     MaskedRegMap(Dcsr, dcsr, dcsrMask, dcsrUpdateSideEffect),
@@ -845,12 +866,15 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   when (valid && isMret) {
     val mstatusOld = WireInit(mstatus.asTypeOf(new MstatusStruct))
     val mstatusNew = WireInit(mstatus.asTypeOf(new MstatusStruct))
+    val tcontrolOld = WireInit(tcontrol)
+    val tcontrolNew = tcontrolOld(7) << 3
     mstatusNew.ie.m := mstatusOld.pie.m
     priviledgeMode := mstatusOld.mpp
     mstatusNew.pie.m := true.B
     mstatusNew.mpp := ModeU
     when (mstatusOld.mpp =/= ModeM) { mstatusNew.mprv := 0.U }
     mstatus := mstatusNew.asUInt
+    tcontrol := tcontrolNew
     // lr := false.B
     retTarget := mepc(VAddrBits-1, 0)
   }
@@ -932,12 +956,12 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
   val hasLoadAccessFault = csrio.exception.bits.uop.cf.exceptionVec(loadAccessFault) && raiseException
   val hasStoreAccessFault = csrio.exception.bits.uop.cf.exceptionVec(storeAccessFault) && raiseException
   val hasbreakPoint = csrio.exception.bits.uop.cf.exceptionVec(breakPoint) && raiseException
-  val hasSingleStep = csrio.exception.bits.uop.cf.exceptionVec(singleStep) && raiseException
 
   // trigger exceptions
-  val triggerException = csrio.exception.bits.uop.ctrl.trigger.hit && raiseException
-
-  val triggerHitVec = csrio.exception.bits.uop.ctrl.trigger.triggerVec
+  val triggerException = csrio.exception.bits.uop.cf.trigger.hit && raiseException
+  val triggerHitVec = csrio.exception.bits.uop.cf.trigger.triggerVec
+  val triggerEnterDebug = triggerException && icount.action(0)
+  val triggerEnterMmode = triggerException && !icount.action(0)
 
   val raiseExceptionVec = csrio.exception.bits.uop.cf.exceptionVec
   val exceptionNO = ExcPriority.foldRight(0.U)((i: Int, sum: UInt) => Mux(raiseExceptionVec(i), i.U, sum))
@@ -945,7 +969,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
 
   val raiseExceptionIntr = csrio.exception.valid
 
-  val raiseDebugExceptionIntr = !debugMode && hasbreakPoint || raiseDebugIntr || hasSingleStep
+  val raiseDebugExceptionIntr = !debugMode && hasbreakPoint || raiseDebugIntr || triggerEnterDebug
   val ebreakEnterParkLoop = debugMode && raiseExceptionIntr // exception in debug mode (except ebrk) changes cmderr. how ???
 
   XSDebug(raiseExceptionIntr, "int/exc: pc %x int (%d):%x exc: (%d):%x\n",
@@ -1011,6 +1035,8 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
     val mstatusNew = WireInit(mstatus.asTypeOf(new MstatusStruct))
     val dcsrNew = WireInit(dcsr.asTypeOf(new DcsrStruct))
     val debugModeNew = WireInit(debugMode)
+    val tcontrolOld = WireInit(tcontrol)
+    val tcontrolNew = WireInit(tcontrol)
 
     when (raiseDebugExceptionIntr) {
       when (raiseDebugIntr) {
@@ -1021,7 +1047,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
         dcsrNew.prv := priviledgeMode
         priviledgeMode := ModeM
         XSDebug(raiseDebugIntr, "Debug Mode: Trap to %x at pc %x\n", debugTrapTarget, dpc)
-      }.elsewhen ((hasbreakPoint || hasSingleStep) && !debugMode) {
+      }.elsewhen ((hasbreakPoint || triggerEnterDebug) && !debugMode) {
         // ebreak or ss in running hart
         debugModeNew := true.B
         dpc := SignExt(csrio.exception.bits.uop.cf.pc, XLEN)
@@ -1048,9 +1074,11 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst
       mstatusNew.ie.m := false.B
       priviledgeMode := ModeM
       when (tvalWen) { mtval := 0.U }
+      tcontrolNew := tcontrolOld(3) << 7
     }
     mstatus := mstatusNew.asUInt
     debugMode := debugModeNew
+    tcontrol := tcontrolNew
   }
 
   XSDebug(raiseExceptionIntr && delegS, "sepc is writen!!! pc:%x\n", cfIn.pc)

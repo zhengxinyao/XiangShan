@@ -490,6 +490,7 @@ class DecodeUnitIO(implicit p: Parameters) extends XSBundle {
  */
 class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstants {
   val io = IO(new DecodeUnitIO)
+  val singlestep = IO(Input(Bool()))
 
   val ctrl_flow = Wire(new CtrlFlow) // input with RVC Expanded
   val cf_ctrl = Wire(new CfCtrl)
@@ -524,6 +525,10 @@ class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstan
   cf_ctrl.cf.exceptionVec := io.enq.ctrl_flow.exceptionVec
   cf_ctrl.cf.exceptionVec(illegalInstr) := cs.selImm === SelImm.INVALID_INSTR
 
+  // singlestep
+  cf_ctrl.cf.trigger.triggerVec(0) := singlestep
+  cf_ctrl.cf.trigger.timing := false.B
+
   // fix frflags
   //                           fflags    zero csrrs rd    csr
   val isFrflags = BitPat("b000000000001_00000_010_?????_1110011") === ctrl_flow.instr
@@ -545,6 +550,10 @@ class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstan
   ))
 
   cf_ctrl.ctrl := cs
+
+  // ICOUNT Trigger
+
+  // TODO: Instr Match Trigger
 
   // TODO: do we still need this?
   // fix ret and call

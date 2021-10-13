@@ -114,6 +114,7 @@ class CtrlFlow(implicit p: Parameters) extends XSBundle {
   // This inst will flush all the pipe when it is the oldest inst in ROB,
   // then replay from this inst itself
   val replayInst = Bool()
+  val trigger = new TriggerInfo
 }
 
 class FPUCtrlSignals(implicit p: Parameters) extends XSBundle {
@@ -152,7 +153,6 @@ class CtrlSignals(implicit p: Parameters) extends XSBundle {
   val commitType = CommitType()
   val fpu = new FPUCtrlSignals
   val isMove = Bool()
-  val trigger = new TriggerInfo
   val isFused = UInt(3.W)
   // This inst will flush all the pipe when it is the oldest inst in ROB,
   // then replay from this inst itself
@@ -411,6 +411,8 @@ class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
   val sbuffer_threshold = Output(UInt(4.W))
   // Rename
   val move_elim_enable = Output(Bool())
+  // Triggers
+  val icount_enable = Output(Bool())
 }
 
 class TriggerInfo (implicit p: Parameters) extends XSBundle {
@@ -420,4 +422,9 @@ class TriggerInfo (implicit p: Parameters) extends XSBundle {
   def hit = triggerVec.orR
   def hit_before = hit && !timing
   def hit_after = hit && timing
+}
+
+class IcountIO(implicit p: Parameters) extends XSBundle {
+  val enable = Output(Bool())
+//  val
 }
