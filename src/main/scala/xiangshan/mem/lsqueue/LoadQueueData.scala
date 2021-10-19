@@ -281,6 +281,10 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int)(implicit p: Para
       val mask = Input(UInt(8.W))
       val violationMask = Output(Vec(size, Bool()))
     })
+    val commit_data = new Bundle {
+      val raddr = Input(Vec(CommitWidth, UInt(log2Up(size).W)))
+      val rdata = Output(Vec(CommitWidth, UInt(XLEN.W)))
+    }
     val debug = Output(Vec(size, new LQDataEntry))
 
     def wbWrite(channel: Int, waddr: UInt, wdata: LQDataEntry): Unit = {
@@ -305,7 +309,7 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int)(implicit p: Para
   // data module
   val paddrModule = Module(new LQPaddrModule(size, numRead = 3, numWrite = 2))
   val maskModule = Module(new MaskModule(size, numRead = 3, numWrite = 2))
-  val coredataModule = Module(new CoredataModule(size, numRead = 3, numWrite = 3))
+  val coredataModule = Module(new CoredataModule(size, numRead = 3 + CommitWidth, numWrite = 3))
 
   // read data
   // read port 0 -> wbNumRead-1
@@ -318,6 +322,11 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int)(implicit p: Para
     io.wb.rdata(i).mask := maskModule.io.rdata(i)
     io.wb.rdata(i).data := coredataModule.io.rdata(i)
     io.wb.rdata(i).fwdMask := DontCare
+  })
+
+  (0 until CommitWidth).map(i => {
+    coredataModule.io.raddr(i + wbNumRead) := io.commit_data.raddr(i)
+    io.commit_data.rdata(i) := coredataModule.io.rdata(i + wbNumRead)
   })
 
   // read port wbNumRead

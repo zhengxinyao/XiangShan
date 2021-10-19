@@ -96,6 +96,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val uncache = new DCacheWordIO
     val exceptionAddr = new ExceptionAddrIO
     val lqFull = Output(Bool())
+    val commitMemAccessInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
   })
 
   println("LoadQueue: size:" + LoadQueueSize)
@@ -116,6 +117,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 
   val debug_mmio = Reg(Vec(LoadQueueSize, Bool())) // mmio: inst is an mmio inst
   val debug_paddr = Reg(Vec(LoadQueueSize, UInt(PAddrBits.W))) // mmio: inst is an mmio inst
+  val debug_vaddr = Reg(Vec(LoadQueueSize, UInt(VAddrBits.W))) // mmio: inst is an mmio inst
 
   val enqPtrExt = RegInit(VecInit((0 until RenameWidth).map(_.U.asTypeOf(new LqPtr))))
   val deqPtrExt = RegInit(0.U.asTypeOf(new LqPtr))
@@ -210,6 +212,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 
       debug_mmio(loadWbIndex) := io.loadIn(i).bits.mmio
       debug_paddr(loadWbIndex) := io.loadIn(i).bits.paddr
+      debug_vaddr(loadWbIndex) := io.loadIn(i).bits.vaddr
 
       val dcacheMissed = io.loadIn(i).bits.miss && !io.loadIn(i).bits.mmio
       miss(loadWbIndex) := dcacheMissed && !io.loadDataForwarded(i) && !io.needReplayFromRS(i)
@@ -674,6 +677,20 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   val validCount = distanceBetween(enqPtrExt(0), deqPtrExt)
 
   allowEnqueue := validCount + enqNumber <= (LoadQueueSize - RenameWidth).U
+
+  /**
+    * provide info for prefetch
+    */
+
+  (0 until CommitWidth).map(i => {
+    dataModule.io.commit_data.raddr(i) := deqPtrExtNext.value + i.U
+
+    io.commitMemAccessInfo(i).valid := commitCount > i.U
+    io.commitMemAccessInfo(i).bits.vaddr := debug_vaddr(deqPtrExt.value + i.U)
+    io.commitMemAccessInfo(i).bits.paddr := debug_paddr(deqPtrExt.value + i.U)
+    io.commitMemAccessInfo(i).bits.data := dataModule.io.commit_data.rdata(i)
+    io.commitMemAccessInfo(i).bits.uop := uop(deqPtrExt.value + i.U)
+  })
 
   /**
     * misc

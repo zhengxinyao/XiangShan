@@ -125,3 +125,12 @@ class MemWaitUpdateReq(implicit p: Parameters) extends XSBundle {
   val staIssue = Vec(exuParameters.StuCnt, ValidIO(new ExuInput))
   val stdIssue = Vec(exuParameters.StuCnt, ValidIO(new ExuInput))
 }
+
+// Bundle for prefetch hint
+class CommitMemAccessInfo(implicit p: Parameters) extends XSBundle {
+  val vaddr = UInt(VAddrBits.W)
+  val paddr = UInt(PAddrBits.W)
+  val data  = UInt(XLEN.W)
+  // val mask  = UInt((XLEN/8).W)
+  val uop = new MicroOp
+}

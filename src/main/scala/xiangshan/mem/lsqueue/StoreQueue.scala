@@ -67,6 +67,7 @@ class StoreQueue(implicit p: Parameters) extends XSModule with HasDCacheParamete
     val sqempty = Output(Bool())
     val issuePtrExt = Output(new SqPtr) // used to wake up delayed load/store
     val sqFull = Output(Bool())
+    val commitMemAccessInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
   })
 
   println("StoreQueue: size:" + StoreQueueSize)
@@ -542,6 +543,18 @@ class StoreQueue(implicit p: Parameters) extends XSModule with HasDCacheParamete
   // When sbuffer need to check if it is empty, the pipeline is blocked, which means delay io.sqempty
   // for 1 cycle will also promise that sq is empty in that cycle
   io.sqempty := RegNext(enqPtrExt(0).value === deqPtrExt(0).value && enqPtrExt(0).flag === deqPtrExt(0).flag)
+
+  /**
+    * provide info for prefetch
+    */
+  (0 until CommitWidth).map(i => {
+    io.commitMemAccessInfo(i).valid := commitCount > i.U
+    io.commitMemAccessInfo(i).bits.vaddr := debug_vaddr(cmtPtrExt(i).value)
+    io.commitMemAccessInfo(i).bits.paddr := debug_paddr(cmtPtrExt(i).value)
+    io.commitMemAccessInfo(i).bits.data := debug_data(cmtPtrExt(i).value)
+    io.commitMemAccessInfo(i).bits.uop := uop(cmtPtrExt(i).value)
+  })
+
 
   // perf counter
   QueuePerf(StoreQueueSize, validCount, !allowEnqueue)
