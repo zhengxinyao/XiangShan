@@ -22,7 +22,7 @@ import chipsalliance.rocketchip.config.Parameters
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp}
 import xiangshan._
 import xiangshan.cache._
-import xiangshan.cache.mmu.{TlbRequestIO, TlbPtwIO,TLB}
+import xiangshan.cache.mmu.{TLB, TlbPtwIO, TlbReq, TlbRequestIO}
 import xiangshan.backend.fu.{HasExceptionNO, PMP, PMPChecker}
 
 
@@ -38,10 +38,11 @@ class Frontend()(implicit p: Parameters) extends LazyModule with HasXSParameter{
 class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   with HasXSParameter
   with HasExceptionNO
+  with HasIPredfetchConst
 {
   val io = IO(new Bundle() {
     val fencei = Input(Bool())
-    val ptw = new TlbPtwIO(2)
+    val ptw = new TlbPtwIO(3)
     val backend = new FrontendToCtrlIO
     val sfence = Input(new SfenceBundle)
     val tlbCsr = Input(new TlbCsrBundle)
@@ -62,6 +63,30 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   val ibuffer =  Module(new Ibuffer)
   val ftq = Module(new Ftq)
   //icache
+  //TODO: modules need to be removed
+  val instrUncache = outer.instrUncache.module
+  val icache       = outer.icache.module
+
+  val iprefetch = Module(new IPrefetch)
+
+  icache.io.prefetch.metaRead.req <> iprefetch.io.toIMeta
+  iprefetch.io.fromIMeta <> icache.io.metaRead.resp
+
+  iprefetch.io.flush := ifu.io.ftqInter.fromFtq.redirect.valid || (ifu.io.ftqInter.toFtq.pdWb.valid && ifu.io.ftqInter.toFtq.pdWb.bits.misOffset.valid)
+
+  //tempararrily
+  iprefetch.io.fromFtq.req <> ftq.io.toPrefetch.req
+
+  iprefetch.io.fromMissQueue.pref_meta_write <> icache.io.prefetch.pfbuffer_meta_write
+  iprefetch.io.fromMissQueue.pref_data_write <> icache.io.prefetch.pfbuffer_data_write
+
+  icache.io.prefetch.piq_req <> iprefetch.io.toMissQueue.enqReq
+  icache.io.prefetch.freeReq <> iprefetch.io.toMissQueue.freeReq
+
+  ifu.io.icacheInter.Prefetch.prefetch_resp <> iprefetch.io.ifuInter.prefetch_resp
+  ifu.io.icacheInter.Prefetch.prefetch_req <> iprefetch.io.ifuInter.prefetch_req
+  ifu.io.icacheInter.Prefetch.ifu_move     <> iprefetch.io.ifuInter.ifu_move
+
 
   // pmp
   val pmp = Module(new PMP())
@@ -73,18 +98,14 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
     pmp_check(i).req <> ifu.io.pmp(i).req
     ifu.io.pmp(i).resp <> pmp_check(i).resp
   }
-
   io.ptw <> TLB(
-    in = Seq(ifu.io.iTLBInter(0), ifu.io.iTLBInter(1)),
+    in = Seq(ifu.io.iTLBInter(0), ifu.io.iTLBInter(1), iprefetch.io.iTLBInter),
     sfence = io.sfence,
     csr = io.tlbCsr,
-    width = 2,
+    width = 3,
     shouldBlock = true,
     itlbParams
   )
-  //TODO: modules need to be removed
-  val instrUncache = outer.instrUncache.module
-  val icache       = outer.icache.module
 
   icache.io.fencei := RegNext(io.fencei)
 
@@ -96,7 +117,7 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   bpu.io.ftq_to_bpu       <> ftq.io.toBpu
   ftq.io.fromBpu          <> bpu.io.bpu_to_ftq
   //IFU-ICache
-  ifu.io.icacheInter.toIMeta    <>      icache.io.metaRead.req
+  icache.io.metaRead.req   <>      ifu.io.icacheInter.toIMeta
   ifu.io.icacheInter.fromIMeta  <>      icache.io.metaRead.resp
   ifu.io.icacheInter.toIData    <>      icache.io.dataRead.req
   ifu.io.icacheInter.fromIData  <>      icache.io.dataRead.resp

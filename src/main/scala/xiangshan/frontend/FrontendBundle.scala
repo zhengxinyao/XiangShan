@@ -62,6 +62,36 @@ class FetchRequestBundle(implicit p: Parameters) extends XSBundle {
   }
 }
 
+// Ftq send req to Prefetch
+class PrefetchRequest(implicit p:Parameters) extends IPrefetchBundle {
+  val target          = UInt(VAddrBits.W)
+
+  def firstBlockAddr = align(target, blockBytes)
+  def nextBlockAddr  = align(target, blockBytes) + 64.U
+}
+
+class FtqPrefechBundle(implicit p:Parameters) extends IPrefetchBundle {
+  val req = DecoupledIO(new PrefetchRequest)
+}
+
+//IFU to/from prefetch
+class IfuPrefechBundle(implicit p:Parameters) extends IPrefetchBundle{
+  val prefetch_req  = Flipped(Decoupled(new ICacheReadBundle))
+  val prefetch_resp = ValidIO(new PrefetchResp)
+  val ifu_move     = Flipped(ValidIO(new IFUCheckBundle))
+}
+
+class PrefetchResp(implicit p:Parameters) extends IPrefetchBundle{
+  val prefetch_meta_resp    = Vec(PIQEntries,UInt(tagBits.W))
+  val prefetch_meta_vindex    = Vec(PIQEntries,UInt(idxBits.W))
+  val prefetch_meta_valids  = Vec(PIQEntries, Bool())
+  val prefetch_data_resp    = Vec(PIQEntries, UInt(blockBits.W))
+}
+
+class IFUCheckBundle(implicit p:Parameters) extends IPrefetchBundle{
+  val move_idx  = UInt(log2Ceil(PIQEntries).W)
+}
+
 class PredecodeWritebackBundle(implicit p:Parameters) extends XSBundle {
   val pc           = Vec(PredictWidth, UInt(VAddrBits.W))
   val pd           = Vec(PredictWidth, new PreDecodeInfo) // TODO: redefine Predecode
@@ -74,9 +104,6 @@ class PredecodeWritebackBundle(implicit p:Parameters) extends XSBundle {
   val instrRange   = Vec(PredictWidth, Bool())
 }
 
-class Exception(implicit p: Parameters) extends XSBundle {
-
-}
 
 class FetchToIBuffer(implicit p: Parameters) extends XSBundle {
   val instrs    = Vec(PredictWidth, UInt(32.W))

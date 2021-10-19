@@ -34,6 +34,8 @@ case class ICacheParameters(
     dataECC: Option[String] = None,
     replacer: Option[String] = Some("random"),
     nMissEntries: Int = 1,
+    nPIQEntries: Int = 4,
+    nPrefetchLine: Int = 2,
     nMMIOs: Int = 1,
     blockBytes: Int = 64
 )extends L1CacheParameters {
@@ -382,17 +384,26 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     val flush       = Input(Bool())
     val fencei       = Input(Bool())
 
+    //prefetch bundle
+    val piq_req         = Flipped(DecoupledIO(new PIQReq))
+
+    //write back to Prefetch Buffer
+    val pfbuffer_data_write  = Vec(cacheParams.nPIQEntries, ValidIO(new PIQDataWrite))
+    val pfbuffer_meta_write  = Vec(cacheParams.nPIQEntries, ValidIO(new PIQMetaWrite))
+
+    //hit in prefetch buffer
+    val freeReq = Flipped(new PIQFreeReq)
   })
 
   // assign default values to output signals
   io.mem_grant.ready := false.B
 
-  val meta_write_arb = Module(new Arbiter(new ICacheMetaWriteBundle,  2))
-  val refill_arb     = Module(new Arbiter(new ICacheDataWriteBundle,  2))
+  val meta_write_arb = Module(new Arbiter(new ICacheMetaWriteBundle,  2 + cacheParams.nPIQEntries))
+  val refill_arb     = Module(new Arbiter(new ICacheDataWriteBundle,  2 + cacheParams.nPIQEntries))
 
   io.mem_grant.ready := true.B
 
-  val entries = (0 until 2) map { i =>
+  val miss_entries = (0 until 2) map { i =>
     val entry = Module(new ICacheMissEntry(edge))
 
     entry.io.id := i.U(1.W)
@@ -427,15 +438,67 @@ class ICacheMissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMis
     entry
   }
 
-  TLArbiter.lowestFromSeq(edge, io.mem_acquire, entries.map(_.io.mem_acquire))
+  val alloc_idx = Wire(UInt())
+  val allocate  = Wire(Bool())
+
+  val piq_entries = (2 until cacheParams.nPIQEntries + 2) map { i =>
+    val entry = Module(new PIQEntry(edge))
+
+    entry.io.id := i.U
+    entry.io.flush := io.flush || io.fencei
+
+    // entry req
+    entry.io.req.valid := (i.U === alloc_idx) && allocate  && io.piq_req.valid
+    entry.io.req.bits  := io.piq_req.bits
+
+    entry.io.hitFree      := io.freeReq.hFreeIdx.valid && (io.freeReq.hFreeIdx.bits === i.U)
+    entry.io.replaceFree  := io.freeReq.rFreeIdx.valid && (io.freeReq.rFreeIdx.bits === i.U)
+
+    // entry resp
+    meta_write_arb.io.in(i)     <>  entry.io.meta_refill
+    refill_arb.io.in(i)         <>  entry.io.data_refill
+
+    io.pfbuffer_data_write(i - 2) <> entry.io.pfbuffer_data_write
+    io.pfbuffer_meta_write(i - 2) <> entry.io.pfbuffer_meta_write
+
+    entry.io.mem_grant.valid := false.B
+    entry.io.mem_grant.bits  := DontCare
+    when (io.mem_grant.bits.source === i.U) {
+      entry.io.mem_grant <> io.mem_grant
+    }
+
+    entry
+  }
+
+  val available_vec = VecInit(piq_entries.map(_.io.req.ready))
+  alloc_idx := PriorityEncoder(available_vec)
+  allocate  := available_vec.reduce(_||_)
+  io.piq_req.ready := allocate
+
+  val entries_mem_acuqire = miss_entries.map(_.io.mem_acquire) ++ piq_entries.map(_.io.mem_acquire)
+  TLArbiter.lowestFromSeq(edge, io.mem_acquire, entries_mem_acuqire)
 
   io.meta_write     <> meta_write_arb.io.out
   io.data_write     <> refill_arb.io.out
 
   (0 until nWays).map{ w =>
-    XSPerfAccumulate("line_0_refill_way_" + Integer.toString(w, 10),  entries(0).io.meta_write.valid && OHToUInt(entries(0).io.meta_write.bits.waymask)  === w.U)
-    XSPerfAccumulate("line_1_refill_way_" + Integer.toString(w, 10),  entries(1).io.meta_write.valid && OHToUInt(entries(1).io.meta_write.bits.waymask)  === w.U)
+    XSPerfAccumulate("line_0_refill_way_" + Integer.toString(w, 10),  miss_entries(0).io.meta_write.valid && OHToUInt(miss_entries(0).io.meta_write.bits.waymask)  === w.U)
+    XSPerfAccumulate("line_1_refill_way_" + Integer.toString(w, 10),  miss_entries(1).io.meta_write.valid && OHToUInt(miss_entries(1).io.meta_write.bits.waymask)  === w.U)
   }
+
+}
+
+class ICachePrefetchBundle(implicit p: Parameters) extends ICacheBundle{
+  //prefetch bundle
+  val piq_req         = Flipped(DecoupledIO(new PIQReq))
+  //hit in prefetch buffer
+  val freeReq = Flipped(new PIQFreeReq)
+
+  //write back to Prefetch Buffer
+  val pfbuffer_data_write  = Vec(cacheParams.nPIQEntries, ValidIO(new PIQDataWrite))
+  val pfbuffer_meta_write  = Vec(cacheParams.nPIQEntries, ValidIO(new PIQMetaWrite))
+
+  val metaRead    = new ICacheCommonReadBundle(isMeta = true)
 
 }
 
@@ -444,6 +507,7 @@ class ICacheIO(implicit p: Parameters) extends ICacheBundle
   val metaRead    = new ICacheCommonReadBundle(isMeta = true)
   val dataRead    = new ICacheCommonReadBundle(isMeta = false)
   val missQueue   = new ICacheMissBundle
+  val prefetch    = new ICachePrefetchBundle
   val fencei      = Input(Bool())
 }
 
@@ -467,14 +531,20 @@ class ICacheImp(outer: ICache) extends LazyModuleImp(outer) with HasICacheParame
   val (bus, edge) = outer.clientNode.out.head
 
   val metaArray      = Module(new ICacheMetaArray)
+  val metaArrayForPrefetch      = Module(new ICacheMetaArray)
   val dataArray      = Module(new ICacheDataArray)
   val missQueue      = Module(new ICacheMissQueue(edge))
 
   metaArray.io.write <> missQueue.io.meta_write
   dataArray.io.write <> missQueue.io.data_write
 
+  metaArrayForPrefetch.io.write <> missQueue.io.meta_write
+
   metaArray.io.read      <> io.metaRead.req
   metaArray.io.readResp  <> io.metaRead.resp
+
+  metaArrayForPrefetch.io.read <> io.prefetch.metaRead.req
+  metaArrayForPrefetch.io.readResp <> io.prefetch.metaRead.resp
 
   dataArray.io.read      <> io.dataRead.req
   dataArray.io.readResp  <> io.dataRead.resp
@@ -489,6 +559,14 @@ class ICacheImp(outer: ICache) extends LazyModuleImp(outer) with HasICacheParame
   metaArray.io.fencei := io.fencei
   bus.a <> missQueue.io.mem_acquire
   missQueue.io.mem_grant      <> bus.d
+
+  metaArrayForPrefetch.io.fencei := io.fencei
+
+  missQueue.io.freeReq <> io.prefetch.freeReq
+  missQueue.io.piq_req <> io.prefetch.piq_req
+
+  io.prefetch.pfbuffer_meta_write <> missQueue.io.pfbuffer_meta_write
+  io.prefetch.pfbuffer_data_write <> missQueue.io.pfbuffer_data_write
 
   bus.b.ready := false.B
   bus.c.valid := false.B
