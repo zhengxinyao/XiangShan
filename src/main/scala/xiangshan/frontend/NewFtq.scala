@@ -413,6 +413,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
     val toIfu = new FtqToIfuIO
     val toBackend = new FtqToCtrlIO
 
+    val toPrefetch = new FtqPrefechBundle
+
     val bpuInfo = new Bundle {
       val bpRight = Output(UInt(XLEN.W))
       val bpWrong = Output(UInt(XLEN.W))
@@ -435,7 +437,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   allowBpuIn := !ifuFlush && !robFlush.valid && !stage2Redirect.valid && !stage3Redirect.valid
   allowToIfu := !ifuFlush && !robFlush.valid && !stage2Redirect.valid && !stage3Redirect.valid
 
-  val bpuPtr, ifuPtr, ifuWbPtr, commPtr = RegInit(FtqPtr(false.B, 0.U))
+  val bpuPtr, ifuPtr, ifuWbPtr, commPtr, prefetchPtr = RegInit(FtqPtr(false.B, 0.U))
   val validEntries = distanceBetween(bpuPtr, commPtr)
 
   // **********************************************************************
@@ -513,6 +515,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   bpuPtr := bpuPtr + enq_fire
   ifuPtr := ifuPtr + io.toIfu.req.fire
+  prefetchPtr := prefetchPtr + io.toPrefetch.req.fire()
 
   // only use ftb result to assign hit status
   when (bpu_s2_resp.valid) {
@@ -562,6 +565,10 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   toIfuReq.bits.target := update_target(ifuPtr.value)
   toIfuReq.bits.ftqOffset := cfiIndex_vec(ifuPtr.value)
   toIfuReq.bits.fallThruError  := false.B
+
+  io.toPrefetch.req.valid := allowToIfu && prefetchPtr =/= bpuPtr && entry_fetch_status(prefetchPtr.value) === f_to_send//isAfter(preftchPtr, bpuPtr) && isBefore(preftchPtr, ifuPtr)
+  io.toPrefetch.req.bits.target := update_target(prefetchPtr.value)
+
 
   when (last_cycle_bpu_in && bpu_in_bypass_ptr === ifuPtr) {
     toIfuReq.bits.fromFtqPcBundle(bpu_in_bypass_buf)

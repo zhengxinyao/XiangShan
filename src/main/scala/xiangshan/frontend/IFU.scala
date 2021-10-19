@@ -56,6 +56,7 @@ class ICacheInterface(implicit p: Parameters) extends XSBundle {
   val fromIMeta     = Input(new ICacheMetaRespBundle)
   val fromIData     = Input(new ICacheDataRespBundle)
   val fromMissQueue = Vec(2,Flipped(Decoupled(new ICacheMissResp)))
+  val Prefetch      = Flipped(new IfuPrefechBundle)
 }
 
 class NewIFUIO(implicit p: Parameters) extends XSBundle {
@@ -100,6 +101,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val (toMeta, toData, meta_resp, data_resp) =  (io.icacheInter.toIMeta, io.icacheInter.toIData, io.icacheInter.fromIMeta, io.icacheInter.fromIData)
   val (toMissQueue, fromMissQueue) = (io.icacheInter.toMissQueue, io.icacheInter.fromMissQueue)
   val (toITLB, fromITLB) = (VecInit(io.iTLBInter.map(_.req)), VecInit(io.iTLBInter.map(_.resp)))
+  val (toPrefetch, fromPrefetch) = (io.icacheInter.Prefetch.prefetch_req, io.icacheInter.Prefetch.prefetch_resp)
   val fromPMP = io.pmp.map(_.resp)
 
   def isCrossLineReq(start: UInt, end: UInt): Bool = start(blockOffBits) ^ end(blockOffBits)
@@ -141,6 +143,10 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
     fetch_req(i).bits.isDoubleLine := f0_doubleLine
     fetch_req(i).bits.vSetIdx := f0_vSetIdx
   }
+  //fetch: send addr to Prefetch Buffer
+  toPrefetch.valid := f0_fire
+  toPrefetch.bits.isDoubleLine := f0_doubleLine
+  toPrefetch.bits.vSetIdx      := f0_vSetIdx
 
   fromFtq.req.ready := fetch_req(0).ready && fetch_req(1).ready && f1_ready && GTimer() > 500.U
 
@@ -205,15 +211,18 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val (tlbExcpPF,    tlbExcpAF)    = (fromITLB.map(port => port.bits.excp.pf.instr && port.valid),
     fromITLB.map(port => (port.bits.excp.af.instr) && port.valid)) //TODO: Temp treat mmio req as access fault
 
-
   tlbRespAllValid := tlbRespValid(0)  && (tlbRespValid(1) || !f1_doubleLine)
+
+  //ICache meta hit check
+  val bank0_hit,bank1_hit = WireInit(false.B)
 
   val f1_pAddrs             = tlbRespPAddr   //TODO: Temporary assignment
   val f1_pTags              = VecInit(f1_pAddrs.map(get_phy_tag(_)))
   val (f1_tags, f1_cacheline_valid, f1_datas)   = (meta_resp.tags, meta_resp.valid, data_resp.datas)
   val bank0_hit_vec         = VecInit(f1_tags(0).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(0)(i) && way_tag ===  f1_pTags(0) })
   val bank1_hit_vec         = VecInit(f1_tags(1).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(1)(i) && way_tag ===  f1_pTags(1) })
-  val (bank0_hit,bank1_hit) = (ParallelOR(bank0_hit_vec) && !tlbExcpPF(0) && !tlbExcpAF(0), ParallelOR(bank1_hit_vec) && !tlbExcpPF(1) && !tlbExcpAF(1))
+    bank0_hit  := ParallelOR(bank0_hit_vec) && !tlbExcpPF(0) && !tlbExcpAF(0)
+    bank1_hit  :=ParallelOR(bank1_hit_vec) && !tlbExcpPF(1) && !tlbExcpAF(1)
   val f1_hit                = (bank0_hit && bank1_hit && f1_valid && f1_doubleLine) || (f1_valid && !f1_doubleLine && bank0_hit)
   val f1_bank_hit_vec       = VecInit(Seq(bank0_hit_vec, bank1_hit_vec))
   val f1_bank_hit           = VecInit(Seq(bank0_hit, bank1_hit))
@@ -224,12 +233,36 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val touch_sets = Seq.fill(2)(Wire(Vec(2, UInt(log2Ceil(nSets/2).W))))
   val touch_ways = Seq.fill(2)(Wire(Vec(2, Valid(UInt(log2Ceil(nWays).W)))) )
 
+  //Prefetch buffer hit check
+  val f1_prf_tags   = fromPrefetch.bits.prefetch_meta_resp
+  val f1_prf_vindex = fromPrefetch.bits.prefetch_meta_vindex
+  val f1_prf_valids = fromPrefetch.bits.prefetch_meta_valids
+  val f1_prf_datas  = fromPrefetch.bits.prefetch_data_resp
+
+  val f1_prf_hit0_vec = VecInit((0 until cacheParams.nPIQEntries).map( e => f1_prf_tags(e) === f1_pTags(0) && f1_prf_vindex(e) === f1_vSetIdx(0) &&  f1_prf_valids(e) ))
+  val f1_prf_hit1_vec = VecInit((0 until cacheParams.nPIQEntries).map( e => f1_prf_tags(e) === f1_pTags(1) && f1_prf_vindex(e) === f1_vSetIdx(1) &&  f1_prf_valids(e) ))
+
+  val (f1_prf_hit0, f1_prf_hit1) = (f1_prf_hit0_vec.reduce(_||_), f1_prf_hit1_vec.reduce(_||_))
+
+  io.icacheInter.Prefetch.ifu_move.valid := (f1_prf_hit0 && !ParallelOR(bank0_hit_vec)) || (f1_prf_hit1 && !ParallelOR(bank1_hit_vec))
+  io.icacheInter.Prefetch.ifu_move.bits.move_idx  := PriorityEncoder(f1_prf_hit0 || f1_prf_hit1)
+
   ((replacers zip touch_sets) zip touch_ways).map{case ((r, s),w) => r.access(s,w)}
 
   val f1_hit_data      =  VecInit(f1_datas.zipWithIndex.map { case(bank, i) =>
     val bank_hit_data = Mux1H(f1_bank_hit_vec(i).asUInt, bank)
     bank_hit_data
   })
+
+  when(f1_prf_hit0){
+    bank0_hit      := !tlbExcpPF(0) && !tlbExcpAF(0)
+    f1_hit_data(0) := f1_prf_datas(PriorityEncoder(f1_prf_hit0_vec))
+  }
+
+  when(f1_prf_hit1){
+    bank1_hit      := !tlbExcpPF(1) && !tlbExcpAF(1)
+    f1_hit_data(1) := f1_prf_datas(PriorityEncoder(f1_prf_hit1_vec))
+  }
 
   (0 until nWays).map{ w =>
     XSPerfAccumulate("line_0_hit_way_" + Integer.toString(w, 10),  f1_fire && f1_bank_hit(0) && OHToUInt(f1_bank_hit_vec(0))  === w.U)
@@ -266,9 +299,9 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   f2_ready := (f3_ready && f2_fetchFinish) || !f2_valid
 
-  when(f2_flush)                  {f2_valid := false.B}
-  .elsewhen(f1_fire && !f1_flush) {f2_valid := true.B }
-  .elsewhen(f2_fire)              {f2_valid := false.B}
+  when(f2_flush)                  {   f2_valid := false.B   }
+  .elsewhen(f1_fire && !f1_flush) {   f2_valid := true.B    }
+  .elsewhen(f2_fire)              {   f2_valid := false.B   }
 
   val pmpExcpAF = fromPMP.map(port => port.instr)
 
