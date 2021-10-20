@@ -183,7 +183,8 @@ case class XSCoreParameters
     tagECC = Some("parity"),
     dataECC = Some("parity"),
     replacer = Some("setplru"),
-    nMissEntries = 2
+    nMissEntries = 2,
+    nPIQEntries = 8
   ),
   dcacheParametersOpt: Option[DCacheParameters] = Some(DCacheParameters(
     tagECC = Some("secded"),
