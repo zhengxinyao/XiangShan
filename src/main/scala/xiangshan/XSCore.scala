@@ -23,6 +23,7 @@ import xiangshan.backend.fu.HasExceptionNO
 import xiangshan.backend.exu.{ExuConfig, WbArbiter}
 import xiangshan.frontend._
 import xiangshan.cache.mmu._
+import xiangshan.mem.CommitMemAccessInfo
 import chipsalliance.rocketchip.config
 import chipsalliance.rocketchip.config.Parameters
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp}
@@ -173,6 +174,8 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
     val hartId = Input(UInt(64.W))
     val l2_pf_enable = Output(Bool())
     val beu_errors = Output(new XSL1BusErrors())
+    val ldCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo))) // only for pointer-chase
+    val stCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
   })
 
   println(s"FPGAPlatform:${env.FPGAPlatform} EnableDebug:${env.EnableDebug}")
@@ -332,6 +335,9 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
 
   // if l2 prefetcher use stream prefetch, it should be placed in XSCore
   io.l2_pf_enable := csrioIn.customCtrl.l2_pf_enable
+
+  io.ldCommitInfo := memBlock.io.ldCommitInfo
+  io.stCommitInfo := memBlock.io.stCommitInfo
 
   val ptw_reset_gen = Module(new ResetGen(2, !debugOpts.FPGAPlatform))
   ptw.reset := ptw_reset_gen.io.out

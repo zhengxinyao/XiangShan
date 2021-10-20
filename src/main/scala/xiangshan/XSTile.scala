@@ -122,6 +122,21 @@ class XSTile()(implicit p: Parameters) extends LazyModule
     core.module.reset := core_reset_gen.io.out
 
     val l2_reset_gen = Module(new ResetGen(1, !debugOpts.FPGAPlatform))
-    l2cache.foreach( _.module.reset := l2_reset_gen.io.out)
+    l2cache.foreach{
+      case l2 =>
+        l2.module.reset := l2_reset_gen.io.out
+        l2.module.io.commit.ld.zip(core.module.io.ldCommitInfo).foreach {
+          case (out, in) =>
+            out.valid := in.valid
+            out.bits.vaddr := in.bits.vaddr
+            out.bits.data := in.bits.data
+        }
+        l2.module.io.commit.st.zip(core.module.io.stCommitInfo).foreach {
+          case (out, in) =>
+            out.valid := in.valid
+            out.bits.vaddr := in.bits.vaddr
+            out.bits.data := in.bits.data
+        }
+    }
   }
 }

@@ -218,11 +218,14 @@ class WithNKBL2
             "dcache",
             sets = 2 * p.dcacheParametersOpt.get.nSets,
             ways = p.dcacheParametersOpt.get.nWays + 2,
-            aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
+            aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt,
+            commitWidth = p.CommitWidth,
+            vaddrBits = p.VAddrBits
           )),
           reqField = Seq(PreferCacheField()),
           echoField = Seq(DirtyField()),
-          prefetch = Some(huancun.prefetch.BOPParameters()),
+//          prefetch = Some(huancun.prefetch.BOPParameters()), // best-offset
+          prefetch = Some(huancun.prefetch.PCParameters()), // pointer-chase
           enablePerf = true
         )
       ), L2NBanks = banks

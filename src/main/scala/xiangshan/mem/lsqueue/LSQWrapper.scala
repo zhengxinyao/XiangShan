@@ -75,6 +75,8 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
     val issuePtrExt = Output(new SqPtr)
     val sqFull = Output(Bool())
     val lqFull = Output(Bool())
+    val ldCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo))) // only for pointer-chase
+    val stCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
   })
 
   val loadQueue = Module(new LoadQueue)
@@ -174,4 +176,7 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
 
   io.lqFull := loadQueue.io.lqFull
   io.sqFull := storeQueue.io.sqFull
+
+  io.ldCommitInfo := loadQueue.io.commitMemAccessInfo
+  io.stCommitInfo := storeQueue.io.commitMemAccessInfo
 }
