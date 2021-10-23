@@ -302,10 +302,16 @@ class DCacheToLsuIO(implicit p: Parameters) extends DCacheBundle {
   val atomics  = Flipped(new DCacheWordIOWithVaddr)  // atomics reqs
 }
 
+class DCacheTriggerPrefetch(implicit p: Parameters) extends DCacheBundle {
+  val vaddr = UInt(VAddrBits.W)
+  val needT = Bool()
+}
+
 class DCacheIO(implicit p: Parameters) extends DCacheBundle {
   val lsu = new DCacheToLsuIO
   val error = new L1CacheErrorInfo
   val mshrFull = Output(Bool())
+  val prefetch = ValidIO(new DCacheTriggerPrefetch())
 }
 
 
@@ -614,6 +620,15 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   }
   val touchSets = replAccessReqs.map(_.bits.set)
   replacer.access(touchSets, touchWays)
+
+  //----------------------------------------
+  // prefetch
+  // Miss queue can merge reqs that share the same block,
+  // but only one req is needed to trigger prefetch in L2.
+  // So make sure we only send prefetch when miss queue allocates an empty slot.
+  io.prefetch.valid := missQueue.io.req.fire && missQueue.io.alloc
+  io.prefetch.bits.vaddr := missQueue.io.req.bits.vaddr
+  io.prefetch.bits.needT := true.B // TODO
 
   //----------------------------------------
   // assertions

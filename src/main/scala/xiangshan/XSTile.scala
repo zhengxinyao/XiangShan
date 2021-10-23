@@ -137,6 +137,9 @@ class XSTile()(implicit p: Parameters) extends LazyModule
             out.bits.vaddr := in.bits.vaddr
             out.bits.data := in.bits.data
         }
+        l2.module.io.miss.valid := core.module.io.ldMissInfo.valid
+        l2.module.io.miss.bits.vaddr := core.module.io.ldMissInfo.bits.vaddr
+        l2.module.io.miss.bits.needT := core.module.io.ldMissInfo.bits.needT
     }
   }
 }

@@ -92,6 +92,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     }
     val ldCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo))) // only for pointer-chase
     val stCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
+    val ldMissInfo = ValidIO(new DCacheTriggerPrefetch)
   })
 
   val dcache = outer.dcache.module
@@ -398,6 +399,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
   io.ldCommitInfo := lsq.io.ldCommitInfo
   io.stCommitInfo := lsq.io.stCommitInfo
+  io.ldMissInfo := dcache.io.prefetch
 
   val ldDeqCount = PopCount(io.issue.take(2).map(_.valid))
   val stDeqCount = PopCount(io.issue.drop(2).map(_.valid))

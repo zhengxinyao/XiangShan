@@ -439,6 +439,8 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
       val idx = UInt(idxBits.W) // vaddr
       val tag = UInt(tagBits.W) // paddr
     }))
+
+    val alloc = Output(Bool()) // for l2 prefetch
   })
   
   // 128KBL1: FIXME: provide vaddr for l2
@@ -515,6 +517,8 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   io.probe_block := Cat(probe_block_vec).orR
 
   io.full := ~Cat(entries.map(_.io.primary_ready)).andR
+
+  io.alloc := alloc
 
   if (!env.FPGAPlatform) {
     val difftest = Module(new DifftestRefillEvent)

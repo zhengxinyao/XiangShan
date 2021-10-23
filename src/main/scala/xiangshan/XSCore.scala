@@ -23,6 +23,7 @@ import xiangshan.backend.fu.HasExceptionNO
 import xiangshan.backend.exu.{ExuConfig, WbArbiter}
 import xiangshan.frontend._
 import xiangshan.cache.mmu._
+import xiangshan.cache.DCacheTriggerPrefetch
 import xiangshan.mem.CommitMemAccessInfo
 import chipsalliance.rocketchip.config
 import chipsalliance.rocketchip.config.Parameters
@@ -174,8 +175,11 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
     val hartId = Input(UInt(64.W))
     val l2_pf_enable = Output(Bool())
     val beu_errors = Output(new XSL1BusErrors())
-    val ldCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo))) // only for pointer-chase
+
+    // pointer-chase prefetch
+    val ldCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
     val stCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
+    val ldMissInfo = ValidIO(new DCacheTriggerPrefetch)
   })
 
   println(s"FPGAPlatform:${env.FPGAPlatform} EnableDebug:${env.EnableDebug}")
@@ -338,6 +342,7 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
 
   io.ldCommitInfo := memBlock.io.ldCommitInfo
   io.stCommitInfo := memBlock.io.stCommitInfo
+  io.ldMissInfo := memBlock.io.ldMissInfo
 
   val ptw_reset_gen = Module(new ResetGen(2, !debugOpts.FPGAPlatform))
   ptw.reset := ptw_reset_gen.io.out
