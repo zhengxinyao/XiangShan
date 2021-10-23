@@ -108,7 +108,7 @@ trait HasTlbConst extends HasXSParameter {
 }
 
 trait HasPtwConst extends HasTlbConst with MemoryOpConstants{
-  val PtwWidth = 2
+  val PtwWidth = 3
   val sourceWidth = { if (l2tlbParams.enablePrefetch) PtwWidth + 1 else PtwWidth}
   val prefetchID = PtwWidth
   val maxPrefetchNum = l2tlbParams.filterSize

@@ -148,6 +148,15 @@ case class XSCoreParameters
     superReplacer = Some("plru"),
     shouldBlock = true
   ),
+  pctlbParameters: TLBParameters = TLBParameters(
+    name = "pc_tlb",
+    sameCycle = true,
+    normalNWays = 32,
+    normalReplacer = Some("plru"),
+    superNWays = 4,
+    superReplacer = Some("plru"),
+    shouldBlock = true
+  ),
   ldtlbParameters: TLBParameters = TLBParameters(
     name = "ldtlb",
     normalNSets = 128,
@@ -313,6 +322,7 @@ trait HasXSParameter {
   val refillBothTlb = coreParams.refillBothTlb
   val useBTlb = coreParams.useBTlb
   val itlbParams = coreParams.itlbParameters
+  val pctlbParams = coreParams.pctlbParameters
   val ldtlbParams = coreParams.ldtlbParameters
   val sttlbParams = coreParams.sttlbParameters
   val btlbParams = coreParams.btlbParameters

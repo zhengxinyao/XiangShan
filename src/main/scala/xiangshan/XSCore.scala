@@ -333,6 +333,7 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   dtlbRepeater.io.sfence <> fenceio.sfence
   ptw.io.tlb(0) <> itlbRepeater.io.ptw
   ptw.io.tlb(1) <> dtlbRepeater.io.ptw
+  ptw.io.tlb(2) <> memBlock.io.ptw_pc
   ptw.io.sfence <> fenceio.sfence
   ptw.io.csr.tlb <> csrioIn.tlb
   ptw.io.csr.distribute_csr <> csrioIn.customCtrl.distribute_csr

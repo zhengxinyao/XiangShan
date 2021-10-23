@@ -24,7 +24,7 @@ import freechips.rocketchip.tile.HasFPUParameters
 import xiangshan._
 import xiangshan.backend.rob.RobLsqIO
 import xiangshan.cache._
-import xiangshan.cache.mmu.{BTlbPtwIO, BridgeTLB, PtwResp, TLB, TlbReplace}
+import xiangshan.cache.mmu.{BTlbPtwIO, BlockTlbRequestIO, BridgeTLB, PrefetchTlbResp, PtwResp, TLB, TlbPtwIO, TlbReplace, TlbReq, TlbRequestIO}
 import xiangshan.mem._
 import xiangshan.backend.fu.{FenceToSbuffer, FunctionUnit, HasExceptionNO, PMP, PMPChecker, PMPModule}
 import utils._
@@ -74,6 +74,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val stOut = Vec(exuParameters.StuCnt, ValidIO(new ExuOutput))
     val memoryViolation = ValidIO(new Redirect)
     val ptw = new BTlbPtwIO(exuParameters.LduCnt + exuParameters.StuCnt)
+    val ptw_pc = new TlbPtwIO()
     val sfence = Input(new SfenceBundle)
     val tlbCsr = Input(new TlbCsrBundle)
     val fenceToSbuffer = Flipped(new FenceToSbuffer)
@@ -133,6 +134,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   // dtlb
   val sfence = RegNext(io.sfence)
   val tlbcsr = RegNext(io.tlbCsr)
+
   val dtlb_ld = VecInit(Seq.fill(exuParameters.LduCnt){
     val tlb_ld = Module(new TLB(1, ldtlbParams))
     tlb_ld.io // let the module have name in waveform
@@ -206,6 +208,13 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     p.req := d
     require(p.req.bits.size.getWidth == d.bits.size.getWidth)
   }
+
+  // point chaise tlb
+  // no pmp now, no needs now
+  val tlb_pc = Wire(Seq.fill(1)(new BlockTlbRequestIO()))
+  io.ptw_pc <> TLB(tlb_pc, sfence, tlbcsr, 1, shouldBlock = true, pctlbParams)
+  ExcitingUtils.addSink(tlb_pc(0).req, "POINT_CHASE_TLB_REQ")
+  ExcitingUtils.addSource(tlb_pc(0).resp, "POINT_CHASE_TLB_RESP")
 
   // LoadUnit
   for (i <- 0 until exuParameters.LduCnt) {
