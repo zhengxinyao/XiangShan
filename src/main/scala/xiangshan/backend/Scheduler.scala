@@ -29,7 +29,7 @@ import xiangshan.backend.fu.fpu.FMAMidResultIO
 import xiangshan.backend.issue.{ReservationStation, ReservationStationWrapper, RsPerfCounter}
 import xiangshan.backend.regfile.{Regfile, RfReadPort, RfWritePort}
 import xiangshan.backend.rename.{BusyTable, BusyTableReadIO}
-import xiangshan.mem.{SqPtr, StoreDataBundle, MemWaitUpdateReq}
+import xiangshan.mem.{LsqEnqIO, MemWaitUpdateReq, SqPtr, StoreDataBundle}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -207,6 +207,7 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
     val jalr_target = Input(UInt(VAddrBits.W))
     val stIssuePtr = Input(new SqPtr())
     // special ports for load / store rs
+    val enqLsq = if (outer.numReplayPorts > 0) Some(Flipped(new LsqEnqIO)) else None
     val memWaitUpdateReq = Flipped(new MemWaitUpdateReq)
     // debug
     val debug_int_rat = Vec(32, Input(UInt(PhyRegIdxWidth.W)))
@@ -238,8 +239,15 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
 
   val dispatch2 = outer.dispatch2.map(_.module)
 
+  // dirty code for ls dp
+  dispatch2.foreach(dp => if (dp.io.enqLsq.isDefined) dp.io.enqLsq.get <> io.extra.enqLsq.get)
+
   io.in <> dispatch2.flatMap(_.io.in)
   val readIntState = dispatch2.flatMap(_.io.readIntState.getOrElse(Seq()))
+  val intbtperfEvents = Wire(new PerfEventsBundle(4))
+  val fpbtperfEvents = Wire(new PerfEventsBundle(4))
+  intbtperfEvents := DontCare
+  fpbtperfEvents  := DontCare
   if (readIntState.nonEmpty) {
     val busyTable = Module(new BusyTable(readIntState.length, intRfWritePorts))
     busyTable.io.allocPregs.zip(io.allocPregs).foreach{ case (pregAlloc, allocReq) =>
@@ -250,6 +258,7 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
       pregWb.valid := exuWb.valid && exuWb.bits.uop.ctrl.rfWen
       pregWb.bits := exuWb.bits.uop.pdest
     }
+    intbtperfEvents <> busyTable.perfinfo.perfEvents
     busyTable.io.read <> readIntState
   }
   val readFpState = io.extra.fpStateReadOut.getOrElse(Seq()) ++ dispatch2.flatMap(_.io.readFpState.getOrElse(Seq()))
@@ -269,6 +278,8 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
         pregWb.bits := exuWb.bits.uop.pdest
       }
       busyTable.io.read <> readFpState.take(numBusyTableRead)
+      fpbtperfEvents <> busyTable.perfinfo.perfEvents
+      busyTable.io.read <> readFpState
     }
     if (io.extra.fpStateReadIn.isDefined) {
       io.extra.fpStateReadIn.get <> readFpState.takeRight(numInFpStateRead)
@@ -291,16 +302,15 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
     val wbPorts = if (isInt) io.writeback.take(intRfWritePorts) else io.writeback.drop(intRfWritePorts)
     val waddr = wbPorts.map(_.bits.uop.pdest)
     val wdata = wbPorts.map(_.bits.data)
-    val debugReadPorts = Some(if (isInt) io.extra.debug_int_rat else io.extra.debug_fp_rat)
-    val debugRead = if (env.FPGAPlatform) None else debugReadPorts
+    val debugRead = if (isInt) io.extra.debug_int_rat else io.extra.debug_fp_rat
     if (isInt) {
       val wen = wbPorts.map(wb => wb.valid && wb.bits.uop.ctrl.rfWen)
-      Regfile(NRPhyRegs, readIntRf, wen, waddr, wdata, true, debugRead = debugRead)
+      Regfile(NRPhyRegs, readIntRf, wen, waddr, wdata, true, debugRead = Some(debugRead))
     }
     else {
       // For floating-point function units, every instruction writes either int or fp regfile.
       val wen = wbPorts.map(_.valid)
-      Regfile(NRPhyRegs, readFpRf, wen, waddr, wdata, false, debugRead = debugRead)
+      Regfile(NRPhyRegs, readFpRf, wen, waddr, wdata, false, debugRead = Some(debugRead))
     }
   }
 
@@ -309,20 +319,24 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
 
   if (io.extra.intRfReadIn.isDefined) {
     io.extra.intRfReadIn.get.map(_.addr).zip(readIntRf).foreach{ case (r, addr) => r := addr}
+    require(io.extra.intRfReadIn.get.length == readIntRf.length)
   }
 
   if (io.extra.fpRfReadIn.isDefined) {
     io.extra.fpRfReadIn.get.map(_.addr).zip(readFpRf).foreach{ case (r, addr) => r := addr}
+    require(io.extra.fpRfReadIn.get.length == readFpRf.length)
   }
 
   if (io.extra.intRfReadOut.isDefined) {
     val extraIntReadData = intRfReadData.dropRight(32).takeRight(outer.outIntRfReadPorts)
     io.extra.intRfReadOut.get.map(_.data).zip(extraIntReadData).foreach{ case (a, b) => a := b }
+    require(io.extra.intRfReadOut.get.length == extraIntReadData.length)
   }
 
   if (io.extra.fpRfReadOut.isDefined) {
     val extraFpReadData = fpRfReadData.dropRight(32).takeRight(outer.outFpRfReadPorts)
     io.extra.fpRfReadOut.get.map(_.data).zip(extraFpReadData).foreach{ case (a, b) => a := b }
+    require(io.extra.fpRfReadOut.get.length == extraFpReadData.length)
   }
 
   var issueIdx = 0
@@ -333,7 +347,6 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
   for (((node, cfg), i) <- rs_all.zip(outer.configs.map(_._1)).zipWithIndex) {
     val rs = node.module
 
-    rs.io.redirect <> io.redirect
     rs.io.redirect <> io.redirect
 
     val issueWidth = rs.io.deq.length
@@ -452,4 +465,18 @@ class SchedulerImp(outer: Scheduler) extends LazyModuleImp(outer) with HasXSPara
   XSPerfAccumulate("allocate_fire", PopCount(allocate.map(_.fire())))
   XSPerfAccumulate("issue_valid", PopCount(io.issue.map(_.valid)))
   XSPerfAccumulate("issue_fire", PopCount(io.issue.map(_.fire)))
+  val perfEvents_list = Wire(new PerfEventsBundle(2))
+  val perfEvents = Seq(
+    ("sche_allocate_fire    ", PopCount(allocate.map(_.fire()))   ),
+    ("sche_issue_fire       ", PopCount(io.issue.map(_.fire))     ),
+  )
+  for (((perf_out,(perf_name,perf)),i) <- perfEvents_list.perf_events.zip(perfEvents).zipWithIndex) {
+    perf_out.incr_step := RegNext(perf)
+  }
+
+  val perf_list =  perfEvents_list.perf_events ++ intbtperfEvents.perf_events ++ fpbtperfEvents.perf_events
+  val perfinfo = IO(new Bundle(){
+    val perfEvents = Output(new PerfEventsBundle(perf_list.length))
+  })
+  perfinfo.perfEvents.perf_events := perf_list
 }
