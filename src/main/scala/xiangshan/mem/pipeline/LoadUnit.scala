@@ -434,6 +434,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper {
     val fastpathOut = Output(new LoadToLoadIO)
     val fastpathIn = Input(Vec(LoadPipelineWidth, new LoadToLoadIO))
     val loadFastMatch = Input(UInt(exuParameters.LduCnt.W))
+    val toStrideReq = DecoupledIO(new ToStrideReq) //tjz
   })
 
   val load_s0 = Module(new LoadUnit_S0)
@@ -447,7 +448,11 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper {
   load_s0.io.isFirstIssue := io.isFirstIssue
   load_s0.io.fastpath := io.fastpathIn
   load_s0.io.loadFastMatch := io.loadFastMatch
-
+  //tjz
+  io.toStrideReq.bits.pc := load_s0.io.out.bits.uop.cf.pc
+  io.toStrideReq.bits.vaddr := load_s0.io.out.bits.vaddr
+  io.toStrideReq.valid := load_s0.io.out.valid && load_s0.io.out.bits.isFirstIssue
+  //tjz
   PipelineConnect(load_s0.io.out, load_s1.io.in, true.B, load_s0.io.out.bits.uop.robIdx.needFlush(io.redirect))
 
   load_s1.io.dtlbResp <> io.tlb.resp

@@ -26,6 +26,7 @@ import xiangshan.cache.prefetch._
 import huancun.{CacheParameters, HCCacheParameters}
 import xiangshan.frontend.{BIM, BasePredictor, BranchPredictionResp, FTB, FakePredictor, ICacheParameters, MicroBTB, RAS, Tage, ITTage, Tage_SC}
 import xiangshan.cache.mmu.{TLBParameters, L2TLBParameters}
+import xiangshan.mem.strideprefetch.{SBPParameters}
 import freechips.rocketchip.diplomacy.AddressSet
 
 case object XSCoreParamsKey extends Field[XSCoreParameters]
@@ -111,6 +112,13 @@ case class XSCoreParameters
   LoadQueueSize: Int = 80,
   StoreQueueSize: Int = 64,
   RobSize: Int = 256,
+
+  L1dpbSize: Int = 16, //tjz
+  StrideOldListSize:= 16, //tjz
+  RptTimeMax: Int = 1024, //tjz
+  SbpPrefetchSize: Int = 2, //tjz
+  L1DPrefetchPipelineWidth: Int = 1, //tjz
+  
   dpParams: DispatchParameters = DispatchParameters(
     IntDqSize = 16,
     FpDqSize = 16,
@@ -193,6 +201,16 @@ case class XSCoreParameters
     nReleaseEntries = 16,
     nStoreReplayEntries = 16
   )),
+    //add by tjz
+  l1dStrideParameters: SBPParameters = SBPParameters(
+    rptEntries = 128,
+    rptTagBits = 12,
+    preVaddrBits = 12,
+    rptStrideBits = 12,
+    rptStateBits = 3,
+    rptTimeMax = 1024,
+    prefetchCostTimeMax = 64
+  ),
   L2CacheParamsOpt: Option[HCCacheParameters] = Some(HCCacheParameters(
     name = "l2",
     level = 2,
@@ -290,6 +308,13 @@ trait HasXSParameter {
   val NRPhyRegs = coreParams.NRPhyRegs
   val PhyRegIdxWidth = log2Up(NRPhyRegs)
   val RobSize = coreParams.RobSize
+
+  val L1dpbSize = coreParams.L1dpbSize //tjz
+  val StrideOldListSize = coreParams.StrideOldListSize //tjz
+  val RptTimeMax = coreParams.RptTimeMax //tjz
+  val SbpPrefetchSize = coreParams.SbpPrefetchSize //tjz
+  val L1DPrefetchPipelineWidth = coreParams.L1DPrefetchPipelineWidth //tjz
+
   val IntRefCounterWidth = log2Ceil(RobSize)
   val StdFreeListSize = NRPhyRegs - 32
   val MEFreeListSize = NRPhyRegs
@@ -308,7 +333,7 @@ trait HasXSParameter {
   val StoreBufferThreshold = coreParams.StoreBufferThreshold
   val EnableFastForward = coreParams.EnableFastForward
   val RefillSize = coreParams.RefillSize
-  val BTLBWidth = coreParams.LoadPipelineWidth + coreParams.StorePipelineWidth
+  val BTLBWidth = coreParams.LoadPipelineWidth + coreParams.StorePipelineWidth + coreParams.L1DPrefetchPipelineWidth
   val refillBothTlb = coreParams.refillBothTlb
   val useBTlb = coreParams.useBTlb
   val itlbParams = coreParams.itlbParameters
@@ -325,6 +350,7 @@ trait HasXSParameter {
 
   val icacheParameters = coreParams.icacheParameters
   val dcacheParameters = coreParams.dcacheParametersOpt.getOrElse(DCacheParameters())
+  val l1dStrideParameters = coreParams.l1dStrideParameters //tjz
 
   val LRSCCycles = 100
 
