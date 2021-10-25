@@ -24,7 +24,7 @@ import freechips.rocketchip.tile.HasFPUParameters
 import xiangshan._
 import xiangshan.backend.rob.RobLsqIO
 import xiangshan.cache._
-import xiangshan.cache.mmu.{BTlbPtwIO, BlockTlbRequestIO, BridgeTLB, PrefetchTlbResp, PtwResp, TLB, TlbPtwIO, TlbReplace, TlbReq, TlbRequestIO}
+import xiangshan.cache.mmu.{BTlbPtwIO, BlockTlbRequestIO, BridgeTLB, PtwResp, TLB, TlbCmd, TlbPtwIO, TlbReplace, TlbReq, TlbRequestIO}
 import xiangshan.mem._
 import xiangshan.backend.fu.{FenceToSbuffer, FunctionUnit, HasExceptionNO, PMP, PMPChecker, PMPModule}
 import utils._
@@ -211,10 +211,27 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
   // point chaise tlb
   // no pmp now, no needs now
-  val tlb_pc = Wire(Seq.fill(1)(new BlockTlbRequestIO()))
-  io.ptw_pc <> TLB(tlb_pc, sfence, tlbcsr, 1, shouldBlock = true, pctlbParams)
-  ExcitingUtils.addSink(tlb_pc(0).req, "POINT_CHASE_TLB_REQ")
-  ExcitingUtils.addSource(tlb_pc(0).resp, "POINT_CHASE_TLB_RESP")
+  val tlb_pc = Wire(Vec(1, new BlockTlbRequestIO()))
+  tlb_pc(0).req.valid := DontCare
+  tlb_pc(0).req.bits := DontCare
+  tlb_pc(0).resp.ready := DontCare
+  io.ptw_pc <> TLB(tlb_pc.map(x => x), sfence, tlbcsr, 1, shouldBlock = true, pctlbParams)
+  ExcitingUtils.addSink(tlb_pc(0).req.valid, "POINT_CHASE_TLB_REQ_VALID")
+  ExcitingUtils.addSink(tlb_pc(0).req.bits.vaddr, "POINT_CHASE_TLB_REQ_VADDR")
+  tlb_pc(0).req.bits.cmd := TlbCmd.read
+  tlb_pc(0).req.bits.size := log2Up(XLEN/8).U
+  tlb_pc(0).req.bits.robIdx := DontCare
+  tlb_pc(0).req.bits.debug := DontCare
+  ExcitingUtils.addSource(
+    tlb_pc(0).resp.valid &&
+      !tlb_pc(0).resp.bits.miss &&
+      !tlb_pc(0).resp.bits.mmio &&
+      !tlb_pc(0).resp.bits.excp.pf.ld &&
+      !tlb_pc(0).resp.bits.excp.af.ld,
+    "POINT_CHASE_TLB_RESP_VALID"
+  )
+  ExcitingUtils.addSource(tlb_pc(0).resp.bits.paddr, "POINT_CHASE_TLB_RESP_PADDR")
+  tlb_pc(0).resp.ready := true.B
 
   // LoadUnit
   for (i <- 0 until exuParameters.LduCnt) {

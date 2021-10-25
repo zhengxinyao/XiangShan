@@ -325,8 +325,8 @@ class LoadQueueData(size: Int, wbNumRead: Int, wbNumWrite: Int)(implicit p: Para
   })
 
   (0 until CommitWidth).map(i => {
-    coredataModule.io.raddr(i + wbNumRead) := io.commit_data.raddr(i)
-    io.commit_data.rdata(i) := coredataModule.io.rdata(i + wbNumRead)
+    coredataModule.io.raddr(i + wbNumRead + 1) := io.commit_data.raddr(i)
+    io.commit_data.rdata(i) := coredataModule.io.rdata(i + wbNumRead + 1)
   })
 
   // read port wbNumRead
