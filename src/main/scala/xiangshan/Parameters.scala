@@ -154,7 +154,7 @@ case class XSCoreParameters
   pctlbParameters: TLBParameters = TLBParameters(
     name = "pc_tlb",
     sameCycle = true,
-    normalNWays = 32,
+    normalNWays = 64,
     normalReplacer = Some("plru"),
     superNWays = 4,
     superReplacer = Some("plru"),

@@ -66,7 +66,7 @@ case class L2TLBParameters
   filterSize: Int = 8,
   // miss queue, add more entries than 'must require'
   // 0 for easier bug trigger, please set as big as u can, 8 maybe
-  missqueueExtendSize: Int = 0,
+  missqueueExtendSize: Int = 8,
   // way size
   blockBytes: Int = 64,
   // prefetch
@@ -145,7 +145,7 @@ trait HasPtwConst extends HasTlbConst with MemoryOpConstants{
   val SPTagLen = vpnnLen * 2
 
   // miss queue
-  val MSHRBaseSize = 1 + l2tlbParams.filterSize + l2tlbParams.missqueueExtendSize
+  val MSHRBaseSize = 1 + l2tlbParams.filterSize*2 + l2tlbParams.missqueueExtendSize
   val MSHRSize =  { if (l2tlbParams.enablePrefetch) (MSHRBaseSize + 1) else MSHRBaseSize }
   val MemReqWidth = MSHRSize + 1
   val FsmReqID = MSHRSize

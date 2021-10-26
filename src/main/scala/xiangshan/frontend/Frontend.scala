@@ -79,7 +79,7 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
     ifu.io.pmp(i).resp <> pmp_check(i).resp
   }
 
-  io.ptw <> TLB(
+  val itlb = TLB(
     in = Seq(ifu.io.iTLBInter(0), ifu.io.iTLBInter(1)),
     sfence = io.sfence,
     csr = tlbCsr,
@@ -87,6 +87,7 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
     shouldBlock = true,
     itlbParams
   )
+  io.ptw <> itlb.io.ptw
   //TODO: modules need to be removed
   val instrUncache = outer.instrUncache.module
   val icache       = outer.icache.module

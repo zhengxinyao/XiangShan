@@ -74,7 +74,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val stOut = Vec(exuParameters.StuCnt, ValidIO(new ExuOutput))
     val memoryViolation = ValidIO(new Redirect)
     val ptw = new BTlbPtwIO(exuParameters.LduCnt + exuParameters.StuCnt)
-    val ptw_pc = new TlbPtwIO()
+    val ptw_pc = new BTlbPtwIO(1)
     val sfence = Input(new SfenceBundle)
     val tlbCsr = Input(new TlbCsrBundle)
     val fenceToSbuffer = Flipped(new FenceToSbuffer)
@@ -196,27 +196,31 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
   // point chaise tlb
   // no pmp now, no needs now
-  val tlb_pc = Wire(Vec(1, new BlockTlbRequestIO()))
-  tlb_pc(0).req.valid := DontCare
-  tlb_pc(0).req.bits := DontCare
-  tlb_pc(0).resp.ready := DontCare
-  io.ptw_pc <> TLB(tlb_pc.map(x => x), sfence, tlbcsr, 1, shouldBlock = true, pctlbParams)
-  ExcitingUtils.addSink(tlb_pc(0).req.valid, "POINT_CHASE_TLB_REQ_VALID")
-  ExcitingUtils.addSink(tlb_pc(0).req.bits.vaddr, "POINT_CHASE_TLB_REQ_VADDR")
-  tlb_pc(0).req.bits.cmd := TlbCmd.read
-  tlb_pc(0).req.bits.size := log2Up(XLEN/8).U
-  tlb_pc(0).req.bits.robIdx := DontCare
-  tlb_pc(0).req.bits.debug := DontCare
+  val tlb_pc_requestor = Wire(Vec(1, new BlockTlbRequestIO()))
+  tlb_pc_requestor(0).req.valid := DontCare
+  tlb_pc_requestor(0).req.bits := DontCare
+  tlb_pc_requestor(0).resp.ready := DontCare
+  ExcitingUtils.addSink(tlb_pc_requestor(0).req.valid, "POINT_CHASE_TLB_REQ_VALID")
+  ExcitingUtils.addSink(tlb_pc_requestor(0).req.bits.vaddr, "POINT_CHASE_TLB_REQ_VADDR")
+  tlb_pc_requestor(0).req.bits.cmd := TlbCmd.read
+  tlb_pc_requestor(0).req.bits.size := log2Up(XLEN/8).U
+  tlb_pc_requestor(0).req.bits.robIdx := DontCare
+  tlb_pc_requestor(0).req.bits.debug := DontCare
   ExcitingUtils.addSource(
-    tlb_pc(0).resp.valid &&
-      !tlb_pc(0).resp.bits.miss &&
-      !tlb_pc(0).resp.bits.mmio &&
-      !tlb_pc(0).resp.bits.excp.pf.ld &&
-      !tlb_pc(0).resp.bits.excp.af.ld,
+    tlb_pc_requestor(0).resp.valid &&
+      !tlb_pc_requestor(0).resp.bits.miss &&
+      !tlb_pc_requestor(0).resp.bits.mmio &&
+      !tlb_pc_requestor(0).resp.bits.excp.pf.ld &&
+      !tlb_pc_requestor(0).resp.bits.excp.af.ld,
     "POINT_CHASE_TLB_RESP_VALID"
   )
-  ExcitingUtils.addSource(tlb_pc(0).resp.bits.paddr, "POINT_CHASE_TLB_RESP_PADDR")
-  tlb_pc(0).resp.ready := true.B
+  ExcitingUtils.addSource(tlb_pc_requestor(0).resp.bits.paddr, "POINT_CHASE_TLB_RESP_PADDR")
+  tlb_pc_requestor(0).resp.ready := true.B
+
+  val tlb_pc = TLB(tlb_pc_requestor.map(x => x), sfence, tlbcsr, 1, shouldBlock = true, pctlbParams)
+  tlb_pc.io.ptw.req <> io.ptw_pc.req
+  tlb_pc.io.ptw.resp.bits := io.ptw_pc.resp.bits.data
+  tlb_pc.io.ptw.resp.valid := io.ptw_pc.resp.valid
 
   // LoadUnit
   for (i <- 0 until exuParameters.LduCnt) {

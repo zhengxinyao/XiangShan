@@ -367,6 +367,6 @@ object TLB {
         tlb.io.requestor(i).resp.ready := in(i).resp.ready
       }
     }
-    tlb.io.ptw
+    tlb
   }
 }
