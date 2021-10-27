@@ -41,7 +41,7 @@ trait HasBPUConst extends HasXSParameter with HasIFUConst {
   def BP_S2 = BP_STAGES(1)
   def BP_S3 = BP_STAGES(2)
   val numBpStages = BP_STAGES.length
-  
+
   val debug = true
   val resetVector = 0x10000000L//TODO: set reset vec
   // TODO: Replace log2Up by log2Ceil
@@ -261,6 +261,10 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   val s2_pc = RegEnable(s1_pc, s1_fire)
   val s3_pc = RegEnable(s2_pc, s2_fire)
 
+  val npcGen   = new PhyPriorityMuxGenerator[UInt]
+  val ghistGen = new PhyPriorityMuxGenerator[GlobalHistory]
+  val phistGen = new PhyPriorityMuxGenerator[UInt]
+
   val s0_ghist = WireInit(0.U.asTypeOf(new GlobalHistory))
   val s0_ghist_reg = RegNext(s0_ghist, init=0.U.asTypeOf(new GlobalHistory))
   val s1_ghist = RegEnable(s0_ghist, 0.U.asTypeOf(new GlobalHistory), s0_fire)
@@ -277,12 +281,6 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
 
 
   val toFtq_fire = io.bpu_to_ftq.resp.valid && io.bpu_to_ftq.resp.ready
-
-  when(RegNext(reset.asBool) && !reset.asBool) {
-    s0_ghist := 0.U.asTypeOf(new GlobalHistory)
-    s0_phist := 0.U
-    s0_pc := resetVector.U
-  }
 
   // when(toFtq_fire) {
     // final_gh := s3_gh.update(io.bpu_to_ftq.resp.bits.ftb_entry.brValids.reduce(_||_) && !io.bpu_to_ftq.resp.bits.preds.taken,
@@ -358,9 +356,12 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   io.bpu_to_ftq.resp.bits.s3.ghist  := s3_ghist
   io.bpu_to_ftq.resp.bits.s3.phist  := s3_phist
 
-  s0_pc := s0_pc_reg
-  s0_ghist := s0_ghist_reg
-  s0_phist := s0_phist_reg
+  npcGen.register(true.B, s0_pc_reg, Some("stallPC"), 0)
+  ghistGen.register(true.B, s0_ghist_reg, Some("stallGhist"), 0)
+  phistGen.register(true.B, s0_phist_reg, Some("stallPhist"), 0)
+  // s0_pc := s0_pc_reg
+  // s0_ghist := s0_ghist_reg
+  // s0_phist := s0_phist_reg
 
   // History manage
   // s1
@@ -369,11 +370,14 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   XSDebug(p"[hit] ${resp.s1.preds.hit} [s1_real_br_taken_mask] ${Binary(resp.s1.real_br_taken_mask.asUInt)}\n")
   XSDebug(p"s1_predicted_ghist=${Binary(s1_predicted_ghist.predHist)}\n")
 
-  when(s1_valid) {
-    s0_pc := resp.s1.target
-    s0_ghist := s1_predicted_ghist
-    s0_phist := (s1_phist << 1) | s1_pc(instOffsetBits)
-  }
+  // when(s1_valid) {
+  //   s0_pc := resp.s1.target
+  //   s0_ghist := s1_predicted_ghist
+  //   s0_phist := (s1_phist << 1) | s1_pc(instOffsetBits)
+  // }
+  npcGen.register(s1_valid, resp.s1.target, Some("s1_target"), 4)
+  ghistGen.register(s1_valid, s1_predicted_ghist, Some("s1_ghist"), 4)
+  phistGen.register(s1_valid, (s1_phist << 1) | s1_pc(instOffsetBits), Some("s1_phist"), 4)
 
   // s2
   val s2_predicted_ghist = s2_ghist.update(resp.s2.preds.br_valids, resp.s2.real_br_taken_mask())
@@ -388,16 +392,24 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
     when((s1_valid && (s1_pc =/= resp.s2.target || s2_correct_s1_ghist)) ||
       !s1_valid && (s0_pc_reg =/= resp.s2.target || s2_correct_s0_ghist_reg) ||
       previous_s1_pred_taken =/= s2_pred_taken) {
-      s0_ghist := s2_predicted_ghist
-      s2_redirect := true.B
-      s0_pc := resp.s2.target
-      s0_phist := (s2_phist << 1) | s2_pc(instOffsetBits)
+      // s0_ghist := s2_predicted_ghist
+      // s2_redirect := true.B
+      // s0_pc := resp.s2.target
+      // s0_phist := (s2_phist << 1) | s2_pc(instOffsetBits)
       XSDebug(p"s1_valid=$s1_valid, s1_pc=${Hexadecimal(s1_pc)}, s2_resp_target=${Hexadecimal(resp.s2.target)}\n")
       XSDebug(p"s2_correct_s1_ghist=$s2_correct_s1_ghist\n")
       XSDebug(p"s1_ghist=${Binary(s1_ghist.predHist)}\n")
       XSDebug(p"s2_predicted_ghist=${Binary(s2_predicted_ghist.predHist)}\n")
     }
   }
+
+  s2_redirect := s2_fire && ((s1_valid && (s1_pc =/= resp.s2.target || s2_correct_s1_ghist)) ||
+      !s1_valid && (s0_pc_reg =/= resp.s2.target || s2_correct_s0_ghist_reg) ||
+      previous_s1_pred_taken =/= s2_pred_taken)
+
+  npcGen.register(s2_redirect, resp.s2.target, Some("s2_target"), 3)
+  ghistGen.register(s2_redirect, s2_predicted_ghist, Some("s2_ghist"), 3)
+  phistGen.register(s2_redirect, (s2_phist << 1) | s2_pc(instOffsetBits), Some("s2_phist"), 3)
 
   val s2_redirect_target = s2_fire && s1_valid && s1_pc =/= resp.s2.target
   val s2_saw_s1_hit = RegEnable(resp.s1.preds.hit, s1_fire)
@@ -423,18 +435,27 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   val previous_s2_pred_taken = RegEnable(resp.s2.real_slot_taken_mask.asUInt.orR, init=false.B, enable=s2_fire)
   val s3_pred_taken = resp.s3.real_slot_taken_mask.asUInt.orR
 
-  when(s3_fire) {
-    when((s2_valid && (s2_pc =/= resp.s3.target || s3_correct_s2_ghist)) ||
+  // when(s3_fire) {
+  //   when((s2_valid && (s2_pc =/= resp.s3.target || s3_correct_s2_ghist)) ||
+  //     (!s2_valid && s1_valid && (s1_pc =/= resp.s3.target || s3_correct_s1_ghist)) ||
+  //     (!s2_valid && !s1_valid && (s0_pc_reg =/= resp.s3.target || s3_correct_s0_ghist_reg)) ||
+  //     previous_s2_pred_taken =/= s3_pred_taken) {
+
+  //     s0_ghist := s3_predicted_ghist
+  //     s3_redirect := true.B
+  //     s0_pc := resp.s3.target
+  //     s0_phist := (s3_phist << 1) | s3_pc(instOffsetBits)
+  //   }
+  // }
+
+  s3_redirect := s3_fire && ((s2_valid && (s2_pc =/= resp.s3.target || s3_correct_s2_ghist)) ||
       (!s2_valid && s1_valid && (s1_pc =/= resp.s3.target || s3_correct_s1_ghist)) ||
       (!s2_valid && !s1_valid && (s0_pc_reg =/= resp.s3.target || s3_correct_s0_ghist_reg)) ||
-      previous_s2_pred_taken =/= s3_pred_taken) {
+      previous_s2_pred_taken =/= s3_pred_taken)
 
-      s0_ghist := s3_predicted_ghist
-      s3_redirect := true.B
-      s0_pc := resp.s3.target
-      s0_phist := (s3_phist << 1) | s3_pc(instOffsetBits)
-    }
-  }
+  npcGen.register(s3_redirect, resp.s3.target, Some("s3_target"), 2)
+  ghistGen.register(s3_redirect, s3_predicted_ghist, Some("s3_ghist"), 2)
+  phistGen.register(s3_redirect, (s3_phist << 1) | s3_pc(instOffsetBits), Some("s3_phist"), 2)
 
   // Send signal tell Ftq override
   val s2_ftq_idx = RegEnable(io.ftq_to_bpu.enq_ptr, s1_fire)
@@ -455,21 +476,22 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   predictors.io.update := io.ftq_to_bpu.update
   predictors.io.redirect := io.ftq_to_bpu.redirect
 
+  val oldGh = redirect.cfiUpdate.hist
+
+  val shift = redirect.cfiUpdate.shift
+  val addIntoHist = redirect.cfiUpdate.addIntoHist
+
+  val isBr = redirect.cfiUpdate.pd.isBr
+  val taken = redirect.cfiUpdate.taken
+  val oldPh = redirect.cfiUpdate.phist
+  val phNewBit = redirect.cfiUpdate.phNewBit
+
+  val updatedGh = oldGh.update(shift, taken && addIntoHist)
+
   when(io.ftq_to_bpu.redirect.valid) {
-    val oldGh = redirect.cfiUpdate.hist
-
-    val shift = redirect.cfiUpdate.shift
-    val addIntoHist = redirect.cfiUpdate.addIntoHist
-
-    val isBr = redirect.cfiUpdate.pd.isBr
-    val taken = redirect.cfiUpdate.taken
-
-    val updatedGh = oldGh.update(shift, taken && addIntoHist)
-    s0_ghist := updatedGh // TODO: History fix logic
-    s0_pc := redirect.cfiUpdate.target
-    val oldPh = redirect.cfiUpdate.phist
-    val phNewBit = redirect.cfiUpdate.phNewBit
-    s0_phist := (oldPh << 1) | phNewBit
+    // s0_ghist := updatedGh // TODO: History fix logic
+    // s0_pc := redirect.cfiUpdate.target
+    // s0_phist := (oldPh << 1) | phNewBit
 
     XSDebug(io.ftq_to_bpu.redirect.valid, p"-------------redirect Repair------------\n")
     // XSDebug(io.ftq_to_bpu.redirect.valid, p"taken_mask=${Binary(taken_mask.asUInt)}, brValids=${Binary(brValids.asUInt)}\n")
@@ -478,6 +500,26 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
     XSDebug(io.ftq_to_bpu.redirect.valid, p"updateGh=${Binary(updatedGh.predHist)}\n")
 
   }
+
+  npcGen.register(io.ftq_to_bpu.redirect.valid, redirect.cfiUpdate.target, Some("redirect_target"), 1)
+  ghistGen.register(io.ftq_to_bpu.redirect.valid, updatedGh, Some("redirect_ghist"), 1)
+  phistGen.register(io.ftq_to_bpu.redirect.valid, (oldPh << 1) | phNewBit, Some("redirect_phist"), 1)
+
+  val need_reset = RegNext(reset.asBool) && !reset.asBool
+  // when(need_reset) {
+  //   s0_ghist := 0.U.asTypeOf(new GlobalHistory)
+  //   s0_phist := 0.U
+  //   s0_pc := resetVector.U
+  // }
+
+  npcGen.register(need_reset, resetVector.U, Some("reset_pc"), 5)
+  ghistGen.register(need_reset, 0.U.asTypeOf(new GlobalHistory), Some("reset_ghist"), 5)
+  phistGen.register(need_reset, 0.U, Some("reset_phist"), 5)
+
+  s0_pc     := npcGen()
+  s0_pc_reg := s0_pc
+  s0_ghist  := ghistGen()
+  s0_phist  := phistGen()
 
   XSDebug(RegNext(reset.asBool) && !reset.asBool, "Reseting...\n")
   XSDebug(io.ftq_to_bpu.update.valid, p"Update from ftq\n")
