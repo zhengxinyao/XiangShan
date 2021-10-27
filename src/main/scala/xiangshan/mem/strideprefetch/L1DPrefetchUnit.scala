@@ -6,9 +6,10 @@ import chisel3.util._
 import utils._
 import xiangshan._
 import xiangshan.backend.decode.ImmUnion
+import xiangshan.backend.fu.PMPRespBundle
 import xiangshan.cache._
 import xiangshan.mem.strideprefetch._
-import xiangshan.cache.mmu.{TlbRequestIO, TlbReq, TlbResp, TlbCmd}
+import xiangshan.cache.mmu.{TLB, TlbCmd, TlbPtwIO, TlbReq, TlbRequestIO, TlbResp}
 
 class L1DPIO(implicit p: Parameters) extends XSBundle {
   val l1dpin = Flipped(DecoupledIO(new RptResp))
@@ -30,11 +31,9 @@ class L1DPUnit_S0(implicit p: Parameters) extends XSModule with HasLoadHelper{
 
   //query DTLB
   io.dtlbReq.valid := io.in.valid
+  io.dtlbReq.bits := DontCare
   io.dtlbReq.bits.vaddr := s0_vaddr
   io.dtlbReq.bits.cmd := TlbCmd.read
-  io.dtlbReq.bits.roqIdx := DontCare
-  io.dtlbReq.bits.debug.pc := DontCare
-  io.dtlbReq.bits.debug.isFirstIssue := DontCare
 
   //query dcache to read meta
   io.dcacheReq.valid := io.in.valid

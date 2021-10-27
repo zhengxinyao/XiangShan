@@ -292,6 +292,12 @@ class DCacheLoadIO(implicit p: Parameters) extends DCacheWordIO
   val s1_disable_fast_wakeup = Input(Bool())
   val s1_bank_conflict = Input(Bool())
 }
+//tjz
+class DCacheToPrefetchIO(implicit p: Parameters) extends DCacheWordIO
+{
+  val s1_kill  = Output(Bool())
+  val s1_paddr = Output(UInt(PAddrBits.W))
+}
 
 class DCacheLineIO(implicit p: Parameters) extends DCacheBundle
 {
@@ -324,6 +330,7 @@ class DCacheIO(implicit p: Parameters) extends DCacheBundle {
   val csr = new L1CacheToCsrIO
   val error = new L1CacheErrorInfo
   val mshrFull = Output(Bool())
+  val prefetch = new DCacheToPrefetchIO //tjz
 }
 
 
@@ -366,8 +373,8 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   //----------------------------------------
   // core data structures
   val bankedDataArray = Module(new BankedDataArray)
-  val metaArray = Module(new AsynchronousMetaArray(readPorts = 4, writePorts = 3))
-  val tagArray = Module(new DuplicatedTagArray(readPorts = LoadPipelineWidth + 1))
+  val metaArray = Module(new AsynchronousMetaArray(readPorts = 4 + L1DPrefetchPipelineWidth, writePorts = 3)) //tjz
+  val tagArray = Module(new DuplicatedTagArray(readPorts = LoadPipelineWidth + 1 + L1DPrefetchPipelineWidth)) //tjz
   bankedDataArray.dump()
 
   val errors = bankedDataArray.io.errors ++ metaArray.io.errors
@@ -384,15 +391,18 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   val missQueue  = Module(new MissQueue(edge))
   val probeQueue = Module(new ProbeQueue(edge))
   val wb         = Module(new WritebackQueue(edge))
+  val l1dpu      = Module(new StridePrefetchPipe)
 
   //----------------------------------------
   // meta array
   val meta_read_ports = ldu.map(_.io.meta_read) ++
     Seq(mainPipe.io.meta_read,
-      replacePipe.io.meta_read)
+      replacePipe.io.meta_read,
+      l1dpu.io.meta_read)//tjz
   val meta_resp_ports = ldu.map(_.io.meta_resp) ++
     Seq(mainPipe.io.meta_resp,
-      replacePipe.io.meta_resp)
+      replacePipe.io.meta_resp,
+      l1dpu.io.meta_resp)//tjz
   val meta_write_ports = Seq(
     mainPipe.io.meta_write,
     refillPipe.io.meta_write,
@@ -404,12 +414,16 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
 
   //----------------------------------------
   // tag array
-  require(tagArray.io.read.size == (ldu.size + 1))
+  require(tagArray.io.read.size == (ldu.size + 2))//tjz
   ldu.zipWithIndex.foreach {
     case (ld, i) =>
       tagArray.io.read(i) <> ld.io.tag_read
       ld.io.tag_resp := tagArray.io.resp(i)
   }
+//tjz
+  tagArray.io.read(ldu.size) <> l1dpu.io.tag_read
+  l1dpu.io.tag_resp := tagArray.io.resp(ldu.size)
+
   tagArray.io.read.last <> mainPipe.io.tag_read
   mainPipe.io.tag_resp := tagArray.io.resp.last
 
@@ -467,7 +481,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
 
   //----------------------------------------
   // miss queue
-  val MissReqPortCount = LoadPipelineWidth + 1
+  val MissReqPortCount = LoadPipelineWidth + 1 + L1DPrefetchPipelineWidth //tjz
   val MainPipeMissReqPort = 0
 
   // Request
@@ -475,6 +489,8 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
 
   missReqArb.io.in(MainPipeMissReqPort) <> mainPipe.io.miss
   for (w <- 0 until LoadPipelineWidth) { missReqArb.io.in(w + 1) <> ldu(w).io.miss_req }
+
+  missReqArb.io.in(MissReqPortCount) <> l1dpu.io.miss_req //tjz
 
   wb.io.miss_req.valid := missReqArb.io.out.valid
   wb.io.miss_req.bits  := missReqArb.io.out.bits.addr
@@ -584,7 +600,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   // replacement algorithm
   val replacer = ReplacementPolicy.fromString(cacheParams.replacer, nWays, nSets)
 
-  val replWayReqs = ldu.map(_.io.replace_way) ++ Seq(mainPipe.io.replace_way)
+  val replWayReqs = ldu.map(_.io.replace_way) ++ Seq(mainPipe.io.replace_way, l1dpu.io.replace_way) //tjz
   replWayReqs.foreach{
     case req =>
       req.way := DontCare
@@ -593,7 +609,8 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
 
   val replAccessReqs = ldu.map(_.io.replace_access) ++ Seq(
     mainPipe.io.replace_access,
-    refillPipe.io.replace_access
+    refillPipe.io.replace_access,
+    l1dpu.io.replace_access
   )
   val touchWays = Seq.fill(replAccessReqs.size)(Wire(ValidIO(UInt(log2Up(nWays).W))))
   touchWays.zip(replAccessReqs).foreach {
