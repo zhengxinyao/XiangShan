@@ -73,8 +73,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val stIn = Vec(exuParameters.StuCnt, ValidIO(new ExuInput))
     val stOut = Vec(exuParameters.StuCnt, ValidIO(new ExuOutput))
     val memoryViolation = ValidIO(new Redirect)
-    val ptw = new BTlbPtwIO(exuParameters.LduCnt + exuParameters.StuCnt)
-    val ptw_pc = new BTlbPtwIO(1)
+    val ptw = new BTlbPtwIO(exuParameters.LduCnt + 1 + exuParameters.StuCnt)
     val sfence = Input(new SfenceBundle)
     val tlbCsr = Input(new TlbCsrBundle)
     val fenceToSbuffer = Flipped(new FenceToSbuffer)
@@ -138,7 +137,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   val sfence = RegNext(io.sfence)
   val tlbcsr = RegNext(io.tlbCsr)
 
-  val dtlb_ld = VecInit(Seq.fill(exuParameters.LduCnt){
+  val dtlb_ld = VecInit(Seq.fill(exuParameters.LduCnt + 1){
     val tlb_ld = Module(new TLB(1, ldtlbParams))
     tlb_ld.io // let the module have name in waveform
   })
@@ -154,11 +153,11 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     require(ldtlbParams.outReplace == sttlbParams.outReplace)
     require(ldtlbParams.outReplace)
 
-    val replace = Module(new TlbReplace(exuParameters.LduCnt + exuParameters.StuCnt, ldtlbParams))
+    val replace = Module(new TlbReplace(exuParameters.LduCnt + 1 + exuParameters.StuCnt, ldtlbParams))
     replace.io.apply_sep(dtlb_ld.map(_.replace) ++ dtlb_st.map(_.replace), io.ptw.resp.bits.data.entry.tag)
   } else {
     if (ldtlbParams.outReplace) {
-      val replace_ld = Module(new TlbReplace(exuParameters.LduCnt, ldtlbParams))
+      val replace_ld = Module(new TlbReplace(exuParameters.LduCnt + 1, ldtlbParams))
       replace_ld.io.apply_sep(dtlb_ld.map(_.replace), io.ptw.resp.bits.data.entry.tag)
     }
     if (sttlbParams.outReplace) {
@@ -177,8 +176,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     dtlb_ld.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector).orR)
     dtlb_st.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector).orR)
   } else {
-    dtlb_ld.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.take(exuParameters.LduCnt)).orR)
-    dtlb_st.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.drop(exuParameters.LduCnt)).orR)
+    dtlb_ld.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.take(exuParameters.LduCnt + 1)).orR)
+    dtlb_st.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.drop(exuParameters.LduCnt + 1)).orR)
   }
   io.ptw.resp.ready := true.B
 
@@ -186,7 +185,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   val pmp = Module(new PMP())
   pmp.io.distribute_csr <> io.csrCtrl.distribute_csr
 
-  val pmp_check = VecInit(Seq.fill(exuParameters.LduCnt + exuParameters.StuCnt)(Module(new PMPChecker(3)).io))
+  val pmp_check = VecInit(Seq.fill(exuParameters.LduCnt + 1 + exuParameters.StuCnt)(Module(new PMPChecker(3)).io))
   for ((p,d) <- pmp_check zip dtlb.map(_.pmp(0))) {
     p.env.pmp := pmp.io.pmp
     p.env.mode := tlbcsr.priv.dmode
@@ -196,31 +195,24 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
   // point chaise tlb
   // no pmp now, no needs now
-  val tlb_pc_requestor = Wire(Vec(1, new BlockTlbRequestIO()))
-  tlb_pc_requestor(0).req.valid := DontCare
-  tlb_pc_requestor(0).req.bits := DontCare
-  tlb_pc_requestor(0).resp.ready := DontCare
-  ExcitingUtils.addSink(tlb_pc_requestor(0).req.valid, "POINT_CHASE_TLB_REQ_VALID")
-  ExcitingUtils.addSink(tlb_pc_requestor(0).req.bits.vaddr, "POINT_CHASE_TLB_REQ_VADDR")
-  tlb_pc_requestor(0).req.bits.cmd := TlbCmd.read
-  tlb_pc_requestor(0).req.bits.size := log2Up(XLEN/8).U
-  tlb_pc_requestor(0).req.bits.robIdx := DontCare
-  tlb_pc_requestor(0).req.bits.debug := DontCare
+  val tlb_pc = dtlb_ld(exuParameters.LduCnt)
+  val tlb_pc_requestor = tlb_pc.requestor(0)
+  tlb_pc_requestor.req.valid := DontCare
+  tlb_pc_requestor.req.bits := DontCare
+  ExcitingUtils.addSink(tlb_pc_requestor.req.valid, "POINT_CHASE_TLB_REQ_VALID")
+  ExcitingUtils.addSink(tlb_pc_requestor.req.bits.vaddr, "POINT_CHASE_TLB_REQ_VADDR")
+  tlb_pc_requestor.req.bits.cmd := TlbCmd.read
+  tlb_pc_requestor.req.bits.size := log2Up(XLEN/8).U
+  tlb_pc_requestor.resp.ready := true.B
   ExcitingUtils.addSource(
-    tlb_pc_requestor(0).resp.valid &&
-      !tlb_pc_requestor(0).resp.bits.miss &&
-      !tlb_pc_requestor(0).resp.bits.mmio &&
-      !tlb_pc_requestor(0).resp.bits.excp.pf.ld &&
-      !tlb_pc_requestor(0).resp.bits.excp.af.ld,
+    tlb_pc_requestor.resp.valid &&
+      !tlb_pc_requestor.resp.bits.miss &&
+      !tlb_pc_requestor.resp.bits.mmio &&
+      !tlb_pc_requestor.resp.bits.excp.pf.ld &&
+      !tlb_pc_requestor.resp.bits.excp.af.ld,
     "POINT_CHASE_TLB_RESP_VALID"
   )
-  ExcitingUtils.addSource(tlb_pc_requestor(0).resp.bits.paddr, "POINT_CHASE_TLB_RESP_PADDR")
-  tlb_pc_requestor(0).resp.ready := true.B
-
-  val tlb_pc = TLB(tlb_pc_requestor.map(x => x), sfence, tlbcsr, 1, shouldBlock = true, pctlbParams)
-  tlb_pc.io.ptw.req <> io.ptw_pc.req
-  tlb_pc.io.ptw.resp.bits := io.ptw_pc.resp.bits.data
-  tlb_pc.io.ptw.resp.valid := io.ptw_pc.resp.valid
+  ExcitingUtils.addSource(tlb_pc_requestor.resp.bits.paddr, "POINT_CHASE_TLB_RESP_PADDR")
 
   // LoadUnit
   for (i <- 0 until exuParameters.LduCnt) {
@@ -281,7 +273,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     stu.io.lsq          <> lsq.io.storeIn(i)
     // dtlb
     stu.io.tlb          <> dtlb_st(i).requestor(0)
-    stu.io.pmp          <> pmp_check(i+exuParameters.LduCnt).resp
+    stu.io.pmp          <> pmp_check(i+exuParameters.LduCnt + 1).resp
 
     // store unit does not need fast feedback
     io.rsfeedback(exuParameters.LduCnt + i).feedbackFast := DontCare

@@ -312,20 +312,15 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   memBlock.io.lsqio.exceptionAddr.isStore := CommitType.lsInstIsStore(ctrlBlock.io.robio.exception.bits.uop.ctrl.commitType)
 
   val itlbRepeater = Module(new PTWRepeater(2))
-  val dtlbRepeater = Module(new PTWFilter(LoadPipelineWidth + StorePipelineWidth, l2tlbParams.filterSize))
-  val pctlbRepeater = Module(new PTWFilter(1, l2tlbParams.filterSize))
+  val dtlbRepeater = Module(new PTWFilter(LoadPipelineWidth + 1 + StorePipelineWidth, l2tlbParams.filterSize))
   itlbRepeater.io.tlb <> frontend.io.ptw
   dtlbRepeater.io.tlb <> memBlock.io.ptw
-  pctlbRepeater.io.tlb <> memBlock.io.ptw_pc
   itlbRepeater.io.sfence <> fenceio.sfence
   dtlbRepeater.io.sfence <> fenceio.sfence
-  pctlbRepeater.io.sfence <> fenceio.sfence
   itlbRepeater.io.csr <> csrioIn.tlb
   dtlbRepeater.io.csr <> csrioIn.tlb
-  pctlbRepeater.io.csr <> csrioIn.tlb
   ptw.io.tlb(0) <> itlbRepeater.io.ptw
   ptw.io.tlb(1) <> dtlbRepeater.io.ptw
-  ptw.io.tlb(2) <> pctlbRepeater.io.ptw
   ptw.io.sfence <> fenceio.sfence
   ptw.io.csr.tlb <> csrioIn.tlb
   ptw.io.csr.distribute_csr <> csrioIn.customCtrl.distribute_csr
