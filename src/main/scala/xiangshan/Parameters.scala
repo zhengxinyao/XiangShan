@@ -64,7 +64,7 @@ case class XSCoreParameters
   RasSize: Int = 32,
   CacheLineSize: Int = 512,
   UBtbWays: Int = 16,
-  BtbWays: Int = 2,
+  BtbWays: Int = 4,
   branchPredictor: Function2[BranchPredictionResp, Parameters, Tuple2[Seq[BasePredictor], BranchPredictionResp]] =
     ((resp_in: BranchPredictionResp, p: Parameters) => {
       // val loop = Module(new LoopPredictor)
