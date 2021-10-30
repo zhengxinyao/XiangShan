@@ -45,7 +45,7 @@ case class XSCoreParameters
   PAddrBits: Int = 40,
   HasFPU: Boolean = true,
   HasCustomCSRCacheOp: Boolean = true,
-  FetchWidth: Int = 8,
+  FetchWidth: Int = 4,
   AsidLength: Int = 16,
   EnableBPU: Boolean = true,
   EnableBPD: Boolean = true,
@@ -99,9 +99,9 @@ case class XSCoreParameters
       (preds, ras.io.out.resp)
     }),
   IBufSize: Int = 48,
-  DecodeWidth: Int = 6,
-  RenameWidth: Int = 6,
-  CommitWidth: Int = 6,
+  DecodeWidth: Int = 4,
+  RenameWidth: Int = 4,
+  CommitWidth: Int = 4,
   FtqSize: Int = 64,
   EnableLoadFastWakeUp: Boolean = true, // NOTE: not supported now, make it false
   IssQueSize: Int = 16,
