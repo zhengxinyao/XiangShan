@@ -105,14 +105,14 @@ case class XSCoreParameters
   FtqSize: Int = 64,
   EnableLoadFastWakeUp: Boolean = true, // NOTE: not supported now, make it false
   IssQueSize: Int = 16,
-  NRPhyRegs: Int = 192,
+  NRPhyRegs: Int = 128,
   NRIntReadPorts: Int = 14,
   NRIntWritePorts: Int = 8,
   NRFpReadPorts: Int = 14,
   NRFpWritePorts: Int = 8,
   LoadQueueSize: Int = 80,
   StoreQueueSize: Int = 64,
-  RobSize: Int = 256,
+  RobSize: Int = 128,
   dpParams: DispatchParameters = DispatchParameters(
     IntDqSize = 16,
     FpDqSize = 16,
@@ -123,10 +123,10 @@ case class XSCoreParameters
   ),
   exuParameters: ExuParameters = ExuParameters(
     JmpCnt = 1,
-    AluCnt = 4,
+    AluCnt = 2,
     MulCnt = 0,
-    MduCnt = 2,
-    FmacCnt = 4,
+    MduCnt = 1,
+    FmacCnt = 2,
     FmiscCnt = 2,
     FmiscDivSqrtCnt = 0,
     LduCnt = 2,
@@ -196,13 +196,7 @@ case class XSCoreParameters
     nProbeEntries = 16,
     nReleaseEntries = 32
   )),
-  L2CacheParamsOpt: Option[HCCacheParameters] = Some(HCCacheParameters(
-    name = "l2",
-    level = 2,
-    ways = 8,
-    sets = 1024, // default 512KB L2
-    prefetch = Some(huancun.prefetch.BOPParameters())
-  )),
+  L2CacheParamsOpt: Option[HCCacheParameters] = None,
   L2NBanks: Int = 1,
   usePTWRepeater: Boolean = false,
   softPTW: Boolean = false // dpi-c debug only

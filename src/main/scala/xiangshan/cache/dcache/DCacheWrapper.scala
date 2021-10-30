@@ -32,7 +32,7 @@ import scala.math.max
 // DCache specific parameters
 case class DCacheParameters
 (
-  nSets: Int = 256,
+  nSets: Int = 64,
   nWays: Int = 8,
   rowBits: Int = 128,
   tagECC: Option[String] = None,
