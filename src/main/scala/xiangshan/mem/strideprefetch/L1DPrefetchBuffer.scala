@@ -1,4 +1,4 @@
-package xiangshan.mem
+package xiangshan.mem.strideprefetch
 //add by tjz
 import chipsalliance.rocketchip.config.{Parameters, Field}
 import chisel3._
@@ -7,7 +7,7 @@ import utils._
 import xiangshan._
 import xiangshan.backend.decode.ImmUnion
 import xiangshan.cache._
-import xiangshan.mem.strideprefetch._
+import xiangshan.mem._
 //import xiangshan.mem._
 
 class L1dpbPtr(implicit p: Parameters) extends CircularQueuePtr[L1dpbPtr](
@@ -23,7 +23,7 @@ class L1dpBufferReq(implicit p: Parameters) extends XSBundle {
 
 class L1dpBufferIO(implicit p: Parameters) extends XSBundle {
     val in = Flipped(DecoupledIO(new L1dpBufferReq))
-    val out = Vec(L1DPrefetchPipelineWidth, DecoupledIO(new RptReq))
+    val out = Vec(L1DPrefetchPipelineWidth, DecoupledIO(new RptResp))
 }
 
 class L1DPrefetchBuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
@@ -31,15 +31,15 @@ class L1DPrefetchBuffer(implicit p: Parameters) extends XSModule with HasCircula
 
     class L1dpBufferEntry(implicit p: Parameters) extends XSBundle {
         val vaddr = UInt(VAddrBits.W)
-        val costTime = UInt(log2Up(L1dpCostTimeMax).W)
+        //val costTime = UInt(log2Up(L1dpCostTimeMax).W)
     }
 
-    val clock_in_buffer = RegInit(0.U(log2Up(L1dpCostTimeMax).W))
+    /*val clock_in_buffer = RegInit(0.U(log2Up(L1dpCostTimeMax).W))
     when (clock_in_buffer === L1dpCostTimeMax.U) {
         clock_in_buffer := 0.U
     }.otherwise {
         clock_in_buffer := clock_in_buffer + 1.U
-    }
+    }*/
 
     val l1dpbuf = Module(new SyncDataModuleTemplate(new L1dpBufferEntry, L1dpbSize, L1DPrefetchPipelineWidth, LoadPipelineWidth))
     val head_vec = RegInit(VecInit((0 until L1DPrefetchPipelineWidth).map(_.U.asTypeOf(new L1dpbPtr))))
@@ -77,7 +77,7 @@ class L1DPrefetchBuffer(implicit p: Parameters) extends XSModule with HasCircula
     for(i <- 0 until LoadPipelineWidth) {
         val inputWire = Wire(new L1dpBufferEntry)
         inputWire.vaddr := io.in.bits.vaddr(i)
-        inputWire.costTime := clock_in_buffer
+        //inputWire.costTime := clock_in_buffer
 
         l1dpbuf.io.waddr(i) := tail_vec(offset(i)).value
         l1dpbuf.io.wdata(i) := inputWire
@@ -96,12 +96,12 @@ class L1DPrefetchBuffer(implicit p: Parameters) extends XSModule with HasCircula
         io.out(i).valid := validVec(i)
         val outputWire = l1dpbuf.io.rdata(i)
 
-        io.out(i).bits.reqVaddr := outputWire.vaddr
-        when(clock_in_buffer <= outputWire.costTime){
+        io.out(i).bits.respVaddr := outputWire.vaddr
+        /*when(clock_in_buffer <= outputWire.costTime){
             io.out(i).bits.l1dpBufferCostTime  := L1dpCostTimeMax.U +& clock_in_buffer - outputWire.costTime
         }.otherwise {
             io.out(i).bits.l1dpBufferCostTime  := clock_in_buffer - outputWire.costTime
-        }
+        }*/
     }
 
     val next_head_vec = VecInit(head_vec.map(_ + numberRealDeq))
@@ -124,7 +124,7 @@ class L1DPrefetchBuffer(implicit p: Parameters) extends XSModule with HasCircula
   
 
   for (i <- 0 until L1DPrefetchPipelineWidth) {
-    XSDebug(io.out(i).fire(), p"deq: reqVaddr=${Hexadecimal(io.out(i).bits.reqVaddr)} l1dpBufferCostTime=${Hexadecimal(io.out(i).bits.l1dpBufferCostTime)} valid=${io.out(i).valid}\n")
+    XSDebug(io.out(i).fire(), p"deq: reqVaddr=${Hexadecimal(io.out(i).bits.respVaddr)} valid=${io.out(i).valid}\n")
   }
 
   XSDebug(p"ValidEntries: ${validEntries}\n")

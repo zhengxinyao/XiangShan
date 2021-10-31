@@ -26,6 +26,7 @@ import xiangshan.backend.rob.RobLsqIO
 import xiangshan.cache._
 import xiangshan.cache.mmu.{BTlbPtwIO, PtwResp, TLB, TlbReplace}
 import xiangshan.mem._
+import xiangshan.mem.strideprefetch._
 import xiangshan.backend.fu.{FenceToSbuffer, FunctionUnit, HasExceptionNO, PMP, PMPChecker, PMPModule, PFEvent}
 import utils._
 import xiangshan.backend.exu.StdExeUnit
@@ -73,7 +74,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val stIn = Vec(exuParameters.StuCnt, ValidIO(new ExuInput))
     val stOut = Vec(exuParameters.StuCnt, ValidIO(new ExuOutput))
     val memoryViolation = ValidIO(new Redirect)
-    val ptw = new BTlbPtwIO(exuParameters.LduCnt + exuParameters.StuCnt)
+    val ptw = new BTlbPtwIO(exuParameters.LduCnt + exuParameters.StuCnt + coreParams.L1DPrefetchPipelineWidth)
     val sfence = Input(new SfenceBundle)
     val tlbCsr = Input(new TlbCsrBundle)
     val fenceToSbuffer = Flipped(new FenceToSbuffer)
@@ -105,6 +106,11 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   val stdExeUnits = Seq.fill(exuParameters.StuCnt)(Module(new StdExeUnit))
   val stData = stdExeUnits.map(_.stData.get)
   val exeUnits = loadUnits ++ storeUnits
+  //tjz
+  val stridePrefetchs = Seq.fill(coreParams.SbpPrefetchSize)(Module(new StrideBasedPrefetch))
+  val oldList = Module(new OldList)
+  val l1dpBuffer = Module(new L1DPrefetchBuffer)
+  val l1dPrefetchUnit = Module(new L1DPrefetchUnit)
 
   loadUnits.zipWithIndex.map(x => x._1.suggestName("LoadUnit_"+x._2))
   storeUnits.zipWithIndex.map(x => x._1.suggestName("StoreUnit_"+x._2))
@@ -133,7 +139,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   // dtlb
   val sfence = RegNext(io.sfence)
   val tlbcsr = RegNext(io.tlbCsr)
-  val dtlb_ld = VecInit(Seq.fill(exuParameters.LduCnt){
+  val dtlb_ld = VecInit(Seq.fill(exuParameters.LduCnt + coreParams.L1DPrefetchPipelineWidth){
     val tlb_ld = Module(new TLB(1, ldtlbParams))
     tlb_ld.io // let the module have name in waveform
   })
@@ -149,11 +155,11 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     require(ldtlbParams.outReplace == sttlbParams.outReplace)
     require(ldtlbParams.outReplace)
 
-    val replace = Module(new TlbReplace(exuParameters.LduCnt + exuParameters.StuCnt, ldtlbParams))
+    val replace = Module(new TlbReplace(exuParameters.LduCnt + exuParameters.StuCnt + coreParams.L1DPrefetchPipelineWidth, ldtlbParams))
     replace.io.apply_sep(dtlb_ld.map(_.replace) ++ dtlb_st.map(_.replace), io.ptw.resp.bits.data.entry.tag)
   } else {
     if (ldtlbParams.outReplace) {
-      val replace_ld = Module(new TlbReplace(exuParameters.LduCnt, ldtlbParams))
+      val replace_ld = Module(new TlbReplace(exuParameters.LduCnt + coreParams.L1DPrefetchPipelineWidth, ldtlbParams))
       replace_ld.io.apply_sep(dtlb_ld.map(_.replace), io.ptw.resp.bits.data.entry.tag)
     }
     if (sttlbParams.outReplace) {
@@ -172,8 +178,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     dtlb_ld.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector).orR)
     dtlb_st.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector).orR)
   } else {
-    dtlb_ld.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.take(exuParameters.LduCnt)).orR)
-    dtlb_st.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.drop(exuParameters.LduCnt)).orR)
+    dtlb_ld.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.take(exuParameters.LduCnt + coreParams.L1DPrefetchPipelineWidth)).orR)
+    dtlb_st.map(_.ptw.resp.valid := io.ptw.resp.valid && Cat(io.ptw.resp.bits.vector.drop(exuParameters.LduCnt + coreParams.L1DPrefetchPipelineWidth)).orR)
   }
   io.ptw.resp.ready := true.B
 
@@ -181,7 +187,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   val pmp = Module(new PMP())
   pmp.io.distribute_csr <> io.csrCtrl.distribute_csr
 
-  val pmp_check = VecInit(Seq.fill(exuParameters.LduCnt + exuParameters.StuCnt)(Module(new PMPChecker(3)).io))
+  val pmp_check = VecInit(Seq.fill(exuParameters.LduCnt + exuParameters.StuCnt + coreParams.L1DPrefetchPipelineWidth)(Module(new PMPChecker(3)).io))
   for ((p,d) <- pmp_check zip dtlb.map(_.pmp(0))) {
     p.env.pmp := pmp.io.pmp
     p.env.pma := pmp.io.pma
@@ -229,7 +235,31 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     // TODO: read pc
     io.memPredUpdate(i) := DontCare
     lsq.io.needReplayFromRS(i)    <> loadUnits(i).io.lsq.needReplayFromRS
+    
+    //prefetch
+    stridePrefetchs(i).io.train.req     <> loadUnits(i).io.toStrideReq
   }
+
+  //prefetch
+  for (i <- 1 until coreParams.SbpPrefetchSize) {
+    stridePrefetchs(i - 1).io.train.reqFromAnotherRpt  <> stridePrefetchs(i).io.train.reqToAnotherRpt
+    stridePrefetchs(i - 1).io.train.reqToAnotherRpt    <> stridePrefetchs(i).io.train.reqFromAnotherRpt
+    stridePrefetchs(i - 1).io.train.respToAnotherRpt   <> stridePrefetchs(i).io.train.respFromAnotherRpt
+    stridePrefetchs(i - 1).io.train.respFromAnotherRpt <> stridePrefetchs(i).io.train.respToAnotherRpt
+  }
+
+  for (i <- 0 until coreParams.SbpPrefetchSize) {
+    oldList.io.req(i) <> stridePrefetchs(i).io.train.resp
+    oldList.io.resp(i).ready := l1dpBuffer.io.in.ready
+  }
+
+  l1dpBuffer.io.in.bits.bufMask := VecInit(stridePrefetchs.map(_.io.train.resp.valid)).asUInt()
+  l1dpBuffer.io.in.bits.vaddr   := VecInit(stridePrefetchs.map(_.io.train.resp.bits.respVaddr))
+  l1dpBuffer.io.in.valid := stridePrefetchs.map(_.io.train.resp.valid).reduce(_||_)
+  l1dPrefetchUnit.io.l1dpin       <> l1dpBuffer.io.out(0)
+  l1dPrefetchUnit.io.dtlb         <> dtlb_ld(exuParameters.LduCnt).requestor(0)
+  l1dPrefetchUnit.io.pmp          <> pmp_check(exuParameters.LduCnt).resp
+  l1dPrefetchUnit.io.toStridePipe <> dcache.io.prefetch
 
   // StoreUnit
   for (i <- 0 until exuParameters.StuCnt) {

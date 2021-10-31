@@ -296,6 +296,7 @@ class DCacheLoadIO(implicit p: Parameters) extends DCacheWordIO
 class DCacheToPrefetchIO(implicit p: Parameters) extends DCacheWordIO
 {
   val s1_kill  = Output(Bool())
+  val s2_kill  = Output(Bool())
   val s1_paddr = Output(UInt(PAddrBits.W))
 }
 
@@ -330,7 +331,7 @@ class DCacheIO(implicit p: Parameters) extends DCacheBundle {
   val csr = new L1CacheToCsrIO
   val error = new L1CacheErrorInfo
   val mshrFull = Output(Bool())
-  val prefetch = new DCacheToPrefetchIO //tjz
+  val prefetch = Flipped(new DCacheToPrefetchIO) //tjz
 }
 
 
@@ -474,6 +475,10 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   }
 
   //----------------------------------------
+  //prefetch pipe
+    l1dpu.io.l1dprefetch <> io.prefetch
+
+  //----------------------------------------
   // atomics
   // atomics not finished yet
   io.lsu.atomics <> atomicsReplayUnit.io.lsu
@@ -490,7 +495,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   missReqArb.io.in(MainPipeMissReqPort) <> mainPipe.io.miss
   for (w <- 0 until LoadPipelineWidth) { missReqArb.io.in(w + 1) <> ldu(w).io.miss_req }
 
-  missReqArb.io.in(MissReqPortCount) <> l1dpu.io.miss_req //tjz
+  missReqArb.io.in(MissReqPortCount - 1) <> l1dpu.io.miss_req //tjz
 
   wb.io.miss_req.valid := missReqArb.io.out.valid
   wb.io.miss_req.bits  := missReqArb.io.out.bits.addr

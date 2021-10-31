@@ -1,4 +1,4 @@
-package xiangshan.mem
+package xiangshan.mem.strideprefetch
 //add by tjz
 import chipsalliance.rocketchip.config.{Parameters, Field}
 import chisel3._
@@ -6,7 +6,7 @@ import chisel3.util._
 import xiangshan._
 import xiangshan.cache.mmu.{HasTlbConst}
 import xiangshan.backend._
-import xiangshan.mem.strideprefetch._
+import xiangshan.mem._
 import utils._
 
 case class SBPParameters(
@@ -32,8 +32,8 @@ class RptEntryResp(implicit p: Parameters) extends XSBundle {
   val preVaddr = UInt((l1dStrideParameters.preVaddrBits).W)//12bits
   val stride = UInt((l1dStrideParameters.rptStrideBits).W)//12bits
   val state = UInt((l1dStrideParameters.rptStateBits).W)//3bits
-  val cc = UInt((l1dStrideParameters.rptTimeBits).W)
-  val updown = Bool()
+  val cc = UInt((l1dStrideParameters.rptTimeBits).W)//10bits
+  val updown = Bool()//1bits
 }
 
 class RptBundle(implicit p: Parameters) extends XSBundle {
@@ -77,7 +77,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   def tag(pc: UInt) = usedPc(pc)(rptTagBits + rptIdxBits - 1, rptIdxBits)//pc(21, 10)//12.W
   //above is relevant about pc
   def usedVaddr(vaddr: UInt) = vaddr(untagBits - 1, 2)//12.W
-  def getPageNum(vaddr: UInt) = vaddr(VAddrBits - 1, untagBits)//vaddr(38, 14), 25.W
+  //def getPageNum(vaddr: UInt) = vaddr(VAddrBits - 1, untagBits)//vaddr(38, 14), 25.W
   def getIdxNum(vaddr: UInt) = vaddr(offLen - 1, 6)
   
   def rptTableEntry() = new Bundle {
@@ -93,28 +93,26 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   clock_in_stride.inc()
 
   //check whether crosspage
-  val crosspage = Wire(Bool())
+  //val crosspage = Wire(Bool())
   //check whether the addr is at the same cacheline
   val sameline = Wire(Bool())
   //stride is good
   val stride_is_good = Wire(Bool())
   //tag is good
   val tag_is_good = Wire(Bool())
-  //for all the possible stride
-  val nstride = Wire(Vec((untagBits - 2), Bool()))
-  nstride(0) := false.B
-  //create the new members
 
   val s_idle :: s_init :: s_tran :: s_stand :: s_steady :: Nil = Enum(5)
   //below is entry for write
-  val entry_new = Reg(rptTableEntry)
+  val entry_new = Reg(rptTableEntry())
 
   //below is for update, which's 1 cycle before writs
   val pc_forupdate = RegNext(io.train.req.bits.pc)
   val vaddr_forupdate = RegNext(io.train.req.bits.reqVaddr)
   val valid_forupdate = RegNext(io.train.req.valid)
   //below is from another apt's req
-  val req_fromAnotherRpt = RegNext(io.train.reqFromAnotherRpt)
+  val req_fromAnotherRpt_pcUpdate = RegNext(io.train.reqFromAnotherRpt.bits.pc)
+  val req_fromAnotherRpt_vaddrUpdate = RegNext(io.train.reqFromAnotherRpt.bits.reqVaddr)
+  val req_fromAnotherRpt_validUpdate = RegNext(io.train.reqFromAnotherRpt.valid)
   //below is for write             
   val pc_forwrite = RegNext(pc_forupdate)
   val vaddr_forout = RegNext(vaddr_forupdate)
@@ -150,15 +148,37 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   rw_same := idx(io.train.req.bits.pc) === idx(pc_forwrite)
   //to solve write&&read at the same entry in the same time
   when(rw_same) {
-    oldEntryRespToSelfRpt <> RegNext(entry_new)
-    oldEntryRespToAnotherRpt <> RegNext(entry_new)
+    oldEntryRespToSelfRpt.tag := RegNext(entry_new.tag)
+    oldEntryRespToSelfRpt.preVaddr := RegNext(entry_new.preVaddr)
+    oldEntryRespToSelfRpt.stride := RegNext(entry_new.stride)
+    oldEntryRespToSelfRpt.state := RegNext(entry_new.state)
+    oldEntryRespToSelfRpt.cc := RegNext(entry_new.cc)
+    oldEntryRespToSelfRpt.updown := RegNext(entry_new.updown)
+
+    oldEntryRespToAnotherRpt.tag := RegNext(entry_new.tag)
+    oldEntryRespToAnotherRpt.preVaddr := RegNext(entry_new.preVaddr)
+    oldEntryRespToAnotherRpt.stride := RegNext(entry_new.stride)
+    oldEntryRespToAnotherRpt.state := RegNext(entry_new.state)
+    oldEntryRespToAnotherRpt.cc := RegNext(entry_new.cc)
+    oldEntryRespToAnotherRpt.updown := RegNext(entry_new.updown)
   }
   //to solve r/r back to back
   val rr_same = RegInit(false.B)
   rr_same := idx(io.train.req.bits.pc) === idx(pc_forupdate)
   when(rr_same) {
-    oldEntryRespToSelfRpt <> entry_new
-    oldEntryRespToAnotherRpt <> entry_new
+    oldEntryRespToSelfRpt.tag := entry_new.tag
+    oldEntryRespToSelfRpt.preVaddr := entry_new.preVaddr
+    oldEntryRespToSelfRpt.stride := entry_new.stride
+    oldEntryRespToSelfRpt.state := entry_new.state
+    oldEntryRespToSelfRpt.cc := entry_new.cc
+    oldEntryRespToSelfRpt.updown := entry_new.updown
+
+    oldEntryRespToAnotherRpt.tag := entry_new.tag
+    oldEntryRespToAnotherRpt.preVaddr := entry_new.preVaddr
+    oldEntryRespToAnotherRpt.stride := entry_new.stride
+    oldEntryRespToAnotherRpt.state := entry_new.state
+    oldEntryRespToAnotherRpt.cc := entry_new.cc
+    oldEntryRespToAnotherRpt.updown := entry_new.updown
   }
 
   val cc_forupdate = RegInit(0.U(rptTimeBits.W))  
@@ -173,42 +193,46 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   val stride_min  = WireInit(0.U(rptStrideBits.W))
   val strideSubSelf = WireInit(0.U(rptStrideBits.W))
   val strideSubAnother = WireInit(0.U(rptStrideBits.W))
-  val updown_update = Bool()
+  val updown_update = WireInit(true.B)
+  val engage_state = Mux(oldEntryRespFromAnotherRpt.bits.state >= oldEntryRespToSelfRpt.state, oldEntryRespFromAnotherRpt.bits.state, oldEntryRespToSelfRpt.state)
+  val engage_cc = WireInit(0.U(rptTimeBits.W))
   //to get the minest stride, for example, stride 2
   //0 4 10 56  76
   //2 6 8  44  66
   //above is two loadlines but they have the same pc, we need to find out the stride = 2
-  when(pc_forupdate === req_fromAnotherRpt.bits.pc) {
-    stride_min := Mux(vaddr_forupdate >= req_fromAnotherRpt.bits.reqVaddr, 
-    vaddr_forupdate - req_fromAnotherRpt.bits.reqVaddr,
-    req_fromAnotherRpt.bits.reqVaddr - vaddr_forupdate
+  when(pc_forupdate === req_fromAnotherRpt_pcUpdate) {
+    stride_min := Mux(vaddr_forupdate >= req_fromAnotherRpt_vaddrUpdate, 
+    vaddr_forupdate - req_fromAnotherRpt_vaddrUpdate,
+    req_fromAnotherRpt_vaddrUpdate - vaddr_forupdate
     )
     updown_update := true.B
+    engage_cc := cc_forupdate
   }.otherwise {
-    when(vaddr_forupdate >= oldEntryRespToSelfRpt){
+    when(vaddr_forupdate >= oldEntryRespToSelfRpt.preVaddr){
       strideSubSelf := vaddr_forupdate - oldEntryRespToSelfRpt.preVaddr
       updown_update := true.B
     }.otherwise {
       strideSubSelf := oldEntryRespToSelfRpt.preVaddr - vaddr_forupdate
       updown_update := false.B
     }
-    when(vaddr_forupdate >= oldEntryRespFromAnotherRpt){
-      strideSubAnother := vaddr_forupdate - oldEntryRespFromAnotherRpt.respVaddr
+    when(vaddr_forupdate >= oldEntryRespFromAnotherRpt.bits.preVaddr){
+      strideSubAnother := vaddr_forupdate - oldEntryRespFromAnotherRpt.bits.preVaddr
       updown_update := true.B
     }.otherwise {
-      strideSubAnother := oldEntryRespFromAnotherRpt.respVaddr - vaddr_forupdate
+      strideSubAnother := oldEntryRespFromAnotherRpt.bits.preVaddr - vaddr_forupdate
       updown_update := false.B
     }
     stride_min := Mux(strideSubAnother >= strideSubSelf, strideSubSelf, strideSubAnother)
+    engage_cc := Mux(oldEntryRespToSelfRpt.cc >= oldEntryRespFromAnotherRpt.bits.cc, oldEntryRespToSelfRpt.cc, oldEntryRespFromAnotherRpt.bits.cc)
   }
-  when(oldEntryRespToSelfRpt.state === s_steady){
+  when(engage_state === s_steady){
     stride_is_good := stride_min === oldEntryRespToSelfRpt.stride
   }.otherwise{
     stride_is_good := (stride_min === oldEntryRespToSelfRpt.stride) && (updown_update === oldEntryRespToSelfRpt.updown)
   }
   tag_is_good := oldEntryRespToSelfRpt.tag === tag(pc_forupdate)
   //statemachine
-  when(oldEntryRespToSelfRpt.state === s_idle) {
+  when(engage_state === s_idle) {
     when(!tag_is_good) {
       entry_new.tag := tag(pc_forupdate)
       entry_new.preVaddr := usedVaddr(vaddr_forupdate)
@@ -224,7 +248,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     }
   }
 
-  when(oldEntryRespToSelfRpt.state === s_init) {
+  when(engage_state === s_init) {
     when(tag_is_good && stride_is_good) {
       entry_new.tag := oldEntryRespToSelfRpt.tag
       entry_new.preVaddr := usedVaddr(vaddr_forupdate)
@@ -246,7 +270,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     }
   }
 
-  when(state_old === s_tran) {
+  when(engage_state === s_tran) {
     when(tag_is_good && stride_is_good) {
       entry_new.tag := oldEntryRespToSelfRpt.tag
       entry_new.preVaddr := usedVaddr(vaddr_forupdate)
@@ -268,7 +292,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     }
   }
 
-  when(oldEntryRespToSelfRpt.state === s_stand) {
+  when(engage_state === s_stand) {
     when(tag_is_good && stride_is_good) {
       entry_new.tag := oldEntryRespToSelfRpt.tag
       entry_new.preVaddr := usedVaddr(vaddr_forupdate)
@@ -290,7 +314,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     }
   }
 
-  when(oldEntryRespToSelfRpt.state === s_steady) {
+  when(engage_state === s_steady) {
     when(tag_is_good && stride_is_good) {
       entry_new.tag := oldEntryRespToSelfRpt.tag
       entry_new.preVaddr := usedVaddr(vaddr_forupdate)
@@ -304,7 +328,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
       entry_new.state := s_idle
       entry_new.updown := true.B
     }.elsewhen(!stride_is_good) {
-      entry_new.tag := tag(pc_forupdate)
+      entry_new.tag := oldEntryRespToSelfRpt.tag
       entry_new.preVaddr := usedVaddr(vaddr_forupdate)
       entry_new.stride := stride_min
       entry_new.state := s_idle
@@ -318,17 +342,25 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   io.train.respFromAnotherRpt.ready := true.B
 
   io.train.reqToAnotherRpt.valid := io.train.req.valid
-  io.train.respToAnotherRpt.valid := req_fromAnotherRpt.valid//1 cyclie later
+  io.train.reqToAnotherRpt.bits.reqVaddr := io.train.req.bits.reqVaddr
+  io.train.reqToAnotherRpt.bits.pc := io.train.req.bits.pc
 
+  io.train.respToAnotherRpt.valid := req_fromAnotherRpt_validUpdate//1 cyclie later
+  io.train.respToAnotherRpt.bits.tag := oldEntryRespToAnotherRpt.tag
+  io.train.respToAnotherRpt.bits.preVaddr := oldEntryRespToAnotherRpt.preVaddr
+  io.train.respToAnotherRpt.bits.stride := oldEntryRespToAnotherRpt.stride
+  io.train.respToAnotherRpt.bits.state := oldEntryRespToAnotherRpt.state
+  io.train.respToAnotherRpt.bits.cc := oldEntryRespToAnotherRpt.cc
+  io.train.respToAnotherRpt.bits.updown := oldEntryRespToAnotherRpt.updown
   //control the out data and out valid
   //check whether cross page
   //check whether in the same cacheline
   val finalPredict_vaddr = WireInit(0.U(VAddrBits.W))
   val timeChecker = RegInit(0.U(rptTimeBits.W))
-  when(cc_forupdate < oldEntryRespToSelfRpt.cc) {
-      timeChecker := cc_forupdate +& rptTimeMax.U - oldEntryRespToSelfRpt.cc
+  when(cc_forupdate < engage_cc) {
+      timeChecker := cc_forupdate +& rptTimeMax.U - engage_cc
   }.otherwise {
-      timeChecker := cc_forupdate - oldEntryRespToSelfRpt.cc
+      timeChecker := cc_forupdate - engage_cc
   }
 
   when(entry_new.state === s_stand || entry_new.state === s_steady) {
@@ -349,7 +381,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     
   io.train.resp.bits.respVaddr := finalPredict_vaddr
 
-  crosspage := getPageNum(finalPredict_vaddr) =/= getPageNum(vaddr_forout)
+  //crosspage := getPageNum(finalPredict_vaddr) =/= getPageNum(vaddr_forout)
   sameline := getIdxNum(finalPredict_vaddr) === getIdxNum(vaddr_forout)
   
   when((entry_new.state === s_stand || entry_new.state === s_steady) && valid_forwrite) {
@@ -363,16 +395,18 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   }
 
   when(io.train.req.fire()) {
-    XSDebug("rptpcReq: %x rptVaddrReq: %x rptvalidReq: %d\n", rAddr, io.train.req.bits.reqVaddr, rptTable.io.r.req.valid)
+    XSDebug("rptpcReqSelf: %x rptVaddrReq: %x rptvalidReq: %d\n", rAddr0 ,io.train.req.bits.reqVaddr, rptTables(0).io.r.req.valid)
+    XSDebug("rptpcReqOther: %x rptVaddrReq: %x rptvalidReq: %d\n", rAddr1 ,io.train.req.bits.reqVaddr, rptTables(1).io.r.req.valid)    
   }
   when(valid_forupdate) {
     XSDebug("pc_forupdate: %x vaddr_forupdate: %x cc_forupdate: %d valid_forupdate: %d\n", pc_forupdate, vaddr_forupdate, cc_forupdate ,valid_forupdate)
     XSDebug("tag_old: %x preVaddr_old: %x stride_old: %x state_old: %x cc_old: %d updown_old: %d\n", oldEntryRespToSelfRpt.tag, oldEntryRespToSelfRpt.preVaddr, oldEntryRespToSelfRpt.stride, oldEntryRespToSelfRpt.state, oldEntryRespToSelfRpt.cc, oldEntryRespToSelfRpt.updown)
+    XSDebug("tag_from_ot: %x preVaddr_from_ot: %x stride_from_ot: %x state_from_ot: %x cc_from_ot: %x updown_from_ot: %x", oldEntryRespFromAnotherRpt.bits.tag, oldEntryRespFromAnotherRpt.bits.preVaddr, oldEntryRespFromAnotherRpt.bits.stride, oldEntryRespFromAnotherRpt.bits.state, oldEntryRespFromAnotherRpt.bits.cc, oldEntryRespFromAnotherRpt.bits.updown)
   }
   when(valid_forwrite) {
     XSDebug("pc_forwrite: %x vaddr_forout: %x valid_forwrite: %d\n", pc_forwrite, vaddr_forout, valid_forwrite)
     XSDebug("valid_forwrite: %d finaltag: %x finalpreVaddr: %x finalstride: %x finalstate: %x finalcc: %d timeChecker: %d updown_new: %d\n", valid_forwrite, entry_new.tag, finalPredict_vaddr, entry_new.stride, entry_new.state, entry_new.cc, timeChecker, entry_new.updown)
-    XSDebug("vaddr_forout: %x finalpreVaddr: %x finalstride: %x timeChecker: %d upORdown: %d\n", vaddr_forout, finalPredict_vaddr, stride_new, timeChecker, updown_new)
+    XSDebug("vaddr_forout: %x finalpreVaddr: %x finalstride: %x timeChecker: %d upORdown: %d\n", vaddr_forout, finalPredict_vaddr, entry_new.stride, timeChecker, entry_new.updown)
   }
   XSPerfAccumulate("fire_pefetch_numbers", io.train.resp.fire())
 }

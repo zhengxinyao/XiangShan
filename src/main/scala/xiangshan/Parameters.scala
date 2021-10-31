@@ -116,7 +116,7 @@ case class XSCoreParameters
   RobSize: Int = 256,
 
   L1dpbSize: Int = 16, //tjz
-  StrideOldListSize:= 16, //tjz
+  StrideOldListSize: Int = 16, //tjz
   RptTimeMax: Int = 1024, //tjz
   SbpPrefetchSize: Int = 2, //tjz
   L1DPrefetchPipelineWidth: Int = 1, //tjz

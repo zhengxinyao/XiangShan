@@ -139,7 +139,7 @@ class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
   //send miss
   // send load miss to miss queue
 
-  io.miss_req.valid := s2_valid && !s2_hit
+  io.miss_req.valid := s2_valid && !s2_hit && !io.l1dprefetch.s2_kill
   io.miss_req.bits := DontCare
   io.miss_req.bits.source := LOAD_SOURCE.U
   io.miss_req.bits.cmd := s2_req.cmd
@@ -177,9 +177,9 @@ class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
     }
   }
 
-  XSPerfAccumulate("prefetch_req", io.l1dprefetch.prefetch.req.fire())
+  XSPerfAccumulate("prefetch_req", io.l1dprefetch.req.fire())
   XSPerfAccumulate("prefetch_s1_kill", s1_fire && io.l1dprefetch.s1_kill)
   XSPerfAccumulate("prefetch_hit_way", s1_fire && s1_tag_match)
-  XSPerfAccumulate("prefetch_hit", io.l1dprefetch.prefetch.resp.fire() && !resp.bits.miss)
-  XSPerfAccumulate("prefetch_miss", io.l1dprefetch.prefetch.resp.fire() && resp.bits.miss)
+  XSPerfAccumulate("prefetch_hit", io.l1dprefetch.resp.fire() && !resp.bits.miss)
+  XSPerfAccumulate("prefetch_miss", io.l1dprefetch.resp.fire() && resp.bits.miss)
 }

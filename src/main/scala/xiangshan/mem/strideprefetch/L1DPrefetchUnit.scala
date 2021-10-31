@@ -1,4 +1,4 @@
-package xiangshan.mem
+package xiangshan.mem.strideprefetch
 //add by tjz
 import chipsalliance.rocketchip.config.Parameters
 import chisel3._
@@ -8,18 +8,19 @@ import xiangshan._
 import xiangshan.backend.decode.ImmUnion
 import xiangshan.backend.fu.PMPRespBundle
 import xiangshan.cache._
-import xiangshan.mem.strideprefetch._
+import xiangshan.mem._
 import xiangshan.cache.mmu.{TLB, TlbCmd, TlbPtwIO, TlbReq, TlbRequestIO, TlbResp}
 
 class L1DPIO(implicit p: Parameters) extends XSBundle {
   val l1dpin = Flipped(DecoupledIO(new RptResp))
   val dtlb = new TlbRequestIO()
-  val toStridePipe = new DCacheToL1DPrefetch
+  val toStridePipe = new DCacheToPrefetchIO
+  val pmp = Flipped(new PMPRespBundle())
 }
 
 //L1DPrefetch Pipeline Stage 0
 //query DTLB to get paddr
-class L1DPUnit_S0(implicit p: Parameters) extends XSModule with HasLoadHelper{
+class L1DPUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParameters{
   val io = IO(new Bundle{
     val in = Flipped(DecoupledIO(new RptResp))
     val out = DecoupledIO(new LsPipelineBundle)
@@ -47,7 +48,7 @@ class L1DPUnit_S0(implicit p: Parameters) extends XSModule with HasLoadHelper{
   io.out.valid := io.in.valid
   io.out.bits := DontCare
   io.out.bits.vaddr := s0_vaddr
-  io.out.bits.uop := io.in.bits.exuin.uop
+  //io.out.bits.uop := io.in.bits.exuin.uop
   io.out.bits.mask := genWmask(io.out.bits.vaddr, "b00".U)
 
   io.in.ready := io.out.ready
@@ -67,6 +68,7 @@ class L1DPUnit_S0(implicit p: Parameters) extends XSModule with HasLoadHelper{
 class L1DPUnit_S1(implicit p: Parameters) extends XSModule with HasLoadHelper{
   val io = IO(new Bundle{
     val in = Flipped(DecoupledIO(new LsPipelineBundle))
+    val out = DecoupledIO(new LsPipelineBundle)
     val dtlbResp = Flipped(DecoupledIO(new TlbResp))
     val dcachePaddr = Output(UInt(PAddrBits.W))
     val dcacheKill = Output(Bool())
@@ -77,11 +79,25 @@ class L1DPUnit_S1(implicit p: Parameters) extends XSModule with HasLoadHelper{
   val wrongaddr = Wire(Bool())
   wrongaddr := (s1_paddr <= 0x80000000L.U)
 
-  io.in.ready := true.B
   io.dtlbResp.ready := true.B
 
   io.dcachePaddr := s1_paddr
   io.dcacheKill := s1_tlb_miss || wrongaddr
+
+  io.out.valid := io.in.valid
+  io.out.bits := io.in.bits
+  io.in.ready := !io.in.valid || io.out.ready
+}
+
+class L1DPUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper{
+  val io = IO(new Bundle{
+    val in = Flipped(DecoupledIO(new LsPipelineBundle))
+    val pmpResp = Flipped(new PMPRespBundle())
+    val dcache_kill = Output(Bool())
+  })
+
+  io.dcache_kill := false.B // move pmp resp kill to outside
+  io.in.ready := true.B
 }
 
 class L1DPrefetchUnit(implicit p: Parameters) extends XSModule with HasLoadHelper{
@@ -89,12 +105,13 @@ class L1DPrefetchUnit(implicit p: Parameters) extends XSModule with HasLoadHelpe
 
   val l1dp_s0 = Module(new L1DPUnit_S0)
   val l1dp_s1 = Module(new L1DPUnit_S1)
+  val l1dp_s2 = Module(new L1DPUnit_S2)
 
-  io.toStridePipe.prefetch.resp.ready := true.B
+  io.toStridePipe.resp.ready := true.B
 
   l1dp_s0.io.in <> io.l1dpin
   l1dp_s0.io.dtlbReq <> io.dtlb.req
-  l1dp_s0.io.dcacheReq <> io.toStridePipe.prefetch.req
+  l1dp_s0.io.dcacheReq <> io.toStridePipe.req
 
   PipelineConnect(l1dp_s0.io.out, l1dp_s1.io.in, true.B, false.B)
   
@@ -102,15 +119,19 @@ class L1DPrefetchUnit(implicit p: Parameters) extends XSModule with HasLoadHelpe
   l1dp_s1.io.dcachePaddr <> io.toStridePipe.s1_paddr
   l1dp_s1.io.dcacheKill <> io.toStridePipe.s1_kill
 
+  PipelineConnect(l1dp_s1.io.out, l1dp_s2.io.in, true.B, false.B)
+  io.toStridePipe.s2_kill := l1dp_s2.io.dcache_kill || (io.pmp.ld || io.pmp.mmio)
+  l1dp_s2.io.pmpResp <> io.pmp
+  
   //l1dp_s1.io.replayOut <> io.toReplayUnit
   when(io.l1dpin.fire()) {
     XSDebug("l1dpu_fire(): %x l1dpu_vaddr: %x\n", io.l1dpin.fire(), io.l1dpin.bits.respVaddr)
   }   
   when(io.dtlb.resp.fire()) {
     XSDebug("Dtlb_paddr: %x Dtlb_miss: %x\n", l1dp_s1.io.dtlbResp.bits.paddr, l1dp_s1.io.dtlbResp.bits.miss)
-  }   
+  }
+  XSDebug(io.pmp.mmio, "1\n")   
   XSPerfAccumulate("prefetch_tlb_miss", l1dp_s1.io.dtlbResp.bits.miss)
   XSPerfAccumulate("prefetch_tlb_hit", ~l1dp_s1.io.dtlbResp.bits.miss)
-  XSPerfAccumulate("toStridePipe", io.toStridePipe.prefetch.req.fire())
+  XSPerfAccumulate("toStridePipe", io.toStridePipe.req.fire())
 }
-

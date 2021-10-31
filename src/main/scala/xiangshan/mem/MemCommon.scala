@@ -51,7 +51,7 @@ object genWdata {
 //tjz
 class ToStrideReq(implicit p: Parameters) extends XSBundle {
   val pc = UInt(VAddrBits.W)
-  val vaddr = UInt(VAddrBits.W)
+  val reqVaddr = UInt(VAddrBits.W)
 }
 
 class LsPipelineBundle(implicit p: Parameters) extends XSBundle {
