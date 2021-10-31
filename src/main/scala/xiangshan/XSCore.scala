@@ -171,8 +171,6 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   })
 
   println(s"FPGAPlatform:${env.FPGAPlatform} EnableDebug:${env.EnableDebug}")
-  AddressSpace.checkMemmap()
-  AddressSpace.printMemmap()
 
   val ctrlBlock = Module(new CtrlBlock)
 
@@ -304,6 +302,7 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   memBlock.io.lsqio.exceptionAddr.lsIdx.sqIdx := ctrlBlock.io.robio.exception.bits.uop.sqIdx
   memBlock.io.lsqio.exceptionAddr.isStore := CommitType.lsInstIsStore(ctrlBlock.io.robio.exception.bits.uop.ctrl.commitType)
 
+/*<<<<<<< HEAD
   val itlbRepeater = Module(new PTWRepeater(2))
   val dtlbRepeater = Module(new PTWFilter(LoadPipelineWidth + StorePipelineWidth + + L1DPrefetchPipelineWidth, l2tlbParams.filterSize)) //tjz
   itlbRepeater.io.tlb <> frontend.io.ptw
@@ -314,6 +313,11 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   dtlbRepeater.io.csr <> csrioIn.tlb
   ptw.io.tlb(0) <> itlbRepeater.io.ptw
   ptw.io.tlb(1) <> dtlbRepeater.io.ptw
+=======*/
+  val itlbRepeater1 = PTWRepeater(frontend.io.ptw, fenceio.sfence, csrioIn.tlb)
+  val itlbRepeater2 = PTWRepeater(itlbRepeater1.io.ptw, ptw.io.tlb(0), fenceio.sfence, csrioIn.tlb)
+  val dtlbRepeater  = PTWFilter(memBlock.io.ptw, ptw.io.tlb(1), fenceio.sfence, csrioIn.tlb, l2tlbParams.filterSize)
+//>>>>>>> master
   ptw.io.sfence <> fenceio.sfence
   ptw.io.csr.tlb <> csrioIn.tlb
   ptw.io.csr.distribute_csr <> csrioIn.customCtrl.distribute_csr
@@ -332,7 +336,7 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
     // Note: arbiters don't actually have reset ports
     exuBlocks ++ Seq(outer.wbArbiter.module),
     Seq(ctrlBlock),
-    Seq(frontend, itlbRepeater)
+    Seq(frontend, itlbRepeater1, itlbRepeater2)
   )
   ResetGen(resetChain, reset.asBool, !debugOpts.FPGAPlatform)
 }
