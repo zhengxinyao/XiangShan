@@ -81,7 +81,7 @@ trait HasL1CacheParameters extends HasXSParameter
   def get_idx(addr: UInt) = addr(untagBits-1, blockOffBits)
   def get_untag(addr: UInt) = addr(pgUntagBits-1, 0)
   def get_block(addr: UInt) = addr >> blockOffBits
-  def get_block_addr(addr: UInt) = (addr >> blockOffBits) << blockOffBits
+  def get_block_addr(addr: UInt) = ((addr >> blockOffBits) << blockOffBits).asUInt()
   def get_refill_addr(addr: UInt) = (addr >> refillOffBits) << refillOffBits
 
   def get_beat(addr: UInt) = addr(blockOffBits - 1, beatOffBits)

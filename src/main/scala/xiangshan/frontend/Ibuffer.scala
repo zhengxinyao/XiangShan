@@ -55,6 +55,8 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
     out.bits.intrVec := DontCare
   }
 
+  println(p"PredictWidth: {$PredictWidth}")
+
   val ibuf = Module(new SyncDataModuleTemplate(new IBufEntry, IBufSize, DecodeWidth, PredictWidth))
   ibuf.io.wdata.map(w => dontTouch(w.ftqOffset))
   val head_vec = RegInit(VecInit((0 until DecodeWidth).map(_.U.asTypeOf(new IbufPtr))))
@@ -100,11 +102,12 @@ class Ibuffer(implicit p: Parameters) extends XSModule with HasCircularQueuePtrH
 
     ibuf.io.waddr(i) := tail_vec(offset(i)).value
     ibuf.io.wdata(i) := inWire
-    ibuf.io.wen(i)   := io.in.bits.valid(i) && io.in.fire && !io.flush
+    ibuf.io.wen(i)   := io.in.bits.enqEnable(i) && io.in.fire && !io.flush
   }
 
+  //WARNING: this path maybe timing critical
   when (io.in.fire && !io.flush) {
-    tail_vec := VecInit(tail_vec.map(_ + PopCount(io.in.bits.valid)))
+    tail_vec := VecInit(tail_vec.map(_ + PopCount(io.in.bits.enqEnable)))
   }
 
   // Dequeue
