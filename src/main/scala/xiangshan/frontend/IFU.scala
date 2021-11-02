@@ -28,7 +28,7 @@ import xiangshan.backend.fu.{PMPReqBundle, PMPRespBundle}
 
 trait HasInstrMMIOConst extends HasXSParameter with HasIFUConst{
   def mmioBusWidth = 64
-  def mmioBusBytes = mmioBusWidth /8
+  def mmioBusBytes = mmioBusWidth / 8
   def maxInstrLen = 32
 }
 
@@ -112,6 +112,9 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   def isLastInCacheline(fallThruAddr: UInt): Bool = fallThruAddr(blockOffBits - 1, 1) === 0.U
 
+    def ResultHoldBypass[T<:Data](data: T, valid: Bool): T = {
+    Mux(valid, data, RegEnable(data, valid))
+  }
 
   //---------------------------------------------
   //  Fetch Stage 1 :
@@ -213,9 +216,13 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
 
   tlbRespAllValid := tlbRespValid(0)  && (tlbRespValid(1) || !f1_doubleLine)
 
-  val f1_pAddrs             = tlbRespPAddr   //TODO: Temporary assignment
+  val f1_pAddrs             = tlbRespPAddr
   val f1_pTags              = VecInit(f1_pAddrs.map(get_phy_tag(_)))
-  val (f1_tags, f1_cacheline_valid, f1_datas)   = (meta_resp.tags, meta_resp.valid, data_resp.datas)
+
+  val f1_tags               = ResultHoldBypass(data = meta_resp.tags, valid = RegNext(toMeta.fire()))
+  val f1_cacheline_valid    = ResultHoldBypass(data = meta_resp.valid, valid = RegNext(toMeta.fire()))
+  val f1_datas              = ResultHoldBypass(data = data_resp.datas, valid = RegNext(toData.fire()))
+
   val bank0_hit_vec         = VecInit(f1_tags(0).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(0)(i) && way_tag ===  f1_pTags(0) })
   val bank1_hit_vec         = VecInit(f1_tags(1).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(1)(i) && way_tag ===  f1_pTags(1) })
   val (bank0_hit,bank1_hit) = (ParallelOR(bank0_hit_vec) && !tlbExcpPF(0) && !tlbExcpAF(0), ParallelOR(bank1_hit_vec) && !tlbExcpPF(1) && !tlbExcpAF(1))
@@ -296,7 +303,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f2_except    = VecInit((0 until 2).map{i => f2_except_pf(i) || f2_except_af(i)})
   val f2_has_except = f2_valid && (f2_except_af.reduce(_||_) || f2_except_pf.reduce(_||_))
   //MMIO
-  val f2_mmio      = DataHoldBypass(Cat(io.pmp.map(_.resp.mmio)).orR, RegNext(f1_fire)).asBool()
+  val f2_mmio      = DataHoldBypass(io.pmp(0).resp.mmio && !f2_except_af(0) && !f2_except_pf(0), RegNext(f1_fire)).asBool()
 
   io.pmp.zipWithIndex.map { case (p, i) =>
     p.req.valid := f2_fire
