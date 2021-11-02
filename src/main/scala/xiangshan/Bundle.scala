@@ -88,6 +88,9 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val shift = UInt((log2Ceil(numBr)+1).W)
   val addIntoHist = Bool()
 
+  // for oracle bp
+  val brIdx = UInt(64.W)
+
   def fromFtqRedirectSram(entry: Ftq_Redirect_SRAMEntry) = {
     this.hist := entry.ghist
     this.phist := entry.phist
@@ -95,6 +98,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
     this.rasSp := entry.rasSp
     this.rasEntry := entry.rasEntry
     this.specCnt := entry.specCnt
+    this.brIdx := entry.brIdx
     this
   }
 }

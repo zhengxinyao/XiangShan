@@ -148,6 +148,7 @@ class Ftq_Redirect_SRAMEntry(implicit p: Parameters) extends XSBundle with HasBP
   val ghist = new GlobalHistory
   val phist = UInt(PathHistoryLength.W)
   val phNewBit = UInt(1.W)
+  val brIdx = UInt(64.W)
 
   def fromBranchPrediction(resp: BranchPredictionBundle) = {
     this.rasSp := resp.rasSp
@@ -156,6 +157,7 @@ class Ftq_Redirect_SRAMEntry(implicit p: Parameters) extends XSBundle with HasBP
     this.ghist := resp.ghist
     this.phist := resp.phist
     this.phNewBit := resp.pc(instOffsetBits)
+    this.brIdx := resp.brIdx
     this
   }
 }

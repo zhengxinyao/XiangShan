@@ -243,6 +243,9 @@ class BranchPredictionBundle(implicit p: Parameters) extends XSBundle with HasBP
   val specCnt = Vec(numBr, UInt(10.W))
   // val meta = UInt(MaxMetaLength.W)
 
+  // for oracle bp
+  val brIdx = UInt(64.W)
+
   val ftb_entry = new FTBEntry() // TODO: Send this entry to ftq
 
   def real_slot_taken_mask(): Vec[Bool] = {
