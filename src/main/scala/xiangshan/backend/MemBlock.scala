@@ -236,6 +236,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     loadUnits(i).io.tlb           <> dtlb_ld(i).requestor(0)
     // pmp
     loadUnits(i).io.pmp           <> pmp_check(i).resp
+    // for pointer trace
+    loadUnits(i).io.rawdata       <> lsq.io.rawdata(i)
 
     // laod to load fast forward
     for (j <- 0 until exuParameters.LduCnt) {

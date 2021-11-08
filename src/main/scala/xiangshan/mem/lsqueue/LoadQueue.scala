@@ -99,6 +99,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val exceptionAddr = new ExceptionAddrIO
     val lqFull = Output(Bool())
     val commitMemAccessInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
+    val rawdata = Vec(2, Input(UInt(XLEN.W)))
   })
 
   println("LoadQueue: size:" + LoadQueueSize)
@@ -208,7 +209,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
       val loadWbData = Wire(new LQDataEntry)
       loadWbData.paddr := io.loadIn(i).bits.paddr
       loadWbData.mask := io.loadIn(i).bits.mask
-      loadWbData.data := io.loadIn(i).bits.forwardData.asUInt // fwd data
+      loadWbData.data := io.rawdata(i) // fwd data
       loadWbData.fwdMask := io.loadIn(i).bits.forwardMask
       dataModule.io.wbWrite(i, loadWbIndex, loadWbData)
       dataModule.io.wb.wen(i) := true.B

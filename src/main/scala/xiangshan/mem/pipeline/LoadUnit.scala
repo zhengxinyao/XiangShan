@@ -284,6 +284,7 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper {
     val dcache_kill = Output(Bool())
     val loadViolationQueryResp = Flipped(Valid(new LoadViolationQueryResp))
     val csrCtrl = Flipped(new CustomCSRCtrlIO)
+    val rawdata = Output(UInt(XLEN.W))
   })
 
   val excep = WireInit(io.in.bits.uop.cf.exceptionVec)
@@ -340,6 +341,7 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper {
   val rdataVec = VecInit((0 until XLEN / 8).map(j =>
     Mux(forwardMask(j), forwardData(j), io.dcacheResp.bits.data(8*(j+1)-1, 8*j))))
   val rdata = rdataVec.asUInt
+  io.rawdata := rdata
   val rdataSel = LookupTree(s2_paddr(2, 0), List(
     "b000".U -> rdata(63, 0),
     "b001".U -> rdata(63, 8),
@@ -455,6 +457,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper {
     val sbuffer = new LoadForwardQueryIO
     val lsq = new LoadToLsqIO
     val fastUop = ValidIO(new MicroOp) // early wakeup signal generated in load_s1
+    val rawdata = Output(UInt(XLEN.W))
 
     val tlb = new TlbRequestIO
     val pmp = Input(new PMPRespBundle()) // arrive same to tlb now
@@ -469,6 +472,8 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper {
   val load_s0 = Module(new LoadUnit_S0)
   val load_s1 = Module(new LoadUnit_S1)
   val load_s2 = Module(new LoadUnit_S2)
+
+  io.rawdata := load_s2.io.rawdata
 
   load_s0.io.in <> io.ldin
   load_s0.io.dtlbReq <> io.tlb.req
