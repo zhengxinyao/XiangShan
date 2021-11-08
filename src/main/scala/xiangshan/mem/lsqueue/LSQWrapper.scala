@@ -79,10 +79,13 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
     val lqFull = Output(Bool())
     val ldCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo))) // only for pointer-chase
     val stCommitInfo = Output(Vec(CommitWidth, Valid(new CommitMemAccessInfo)))
+    val rawdata = Vec(2, Input(UInt(XLEN.W)))
   })
 
   val loadQueue = Module(new LoadQueue)
   val storeQueue = Module(new StoreQueue)
+
+  io.rawdata <> loadQueue.io.rawdata 
 
   // io.enq logic
   // LSQ: send out canAccept when both load queue and store queue are ready
