@@ -14,6 +14,8 @@
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
 
+// See LICENSE.SiFive for license details.
+
 package xiangshan.backend.fu
 
 import chipsalliance.rocketchip.config.Parameters
@@ -365,18 +367,26 @@ trait PMPCheckMethod extends HasXSParameter with HasCSRConst { this: PMPChecker 
     resp
   }
 
-  def pmp_match_res(addr: UInt, size: UInt, pmpEntries: Vec[PMPEntry], mode: UInt, lgMaxSize: Int) = {
+  def pmp_match_res(leaveHitMux: Boolean = false, valid: Bool = true.B)(
+    addr: UInt,
+    size: UInt,
+    pmpEntries: Vec[PMPEntry],
+    mode: UInt,
+    lgMaxSize: Int
+  ) = {
     val num = pmpEntries.size
     require(num == NumPMP)
 
     val passThrough = if (pmpEntries.isEmpty) true.B else (mode > ModeS)
-    val pmpMinuxOne = WireInit(0.U.asTypeOf(new PMPEntry()))
-    pmpMinuxOne.cfg.r := passThrough
-    pmpMinuxOne.cfg.w := passThrough
-    pmpMinuxOne.cfg.x := passThrough
+    val pmpDefault = WireInit(0.U.asTypeOf(new PMPEntry()))
+    pmpDefault.cfg.r := passThrough
+    pmpDefault.cfg.w := passThrough
+    pmpDefault.cfg.x := passThrough
 
-    val res = pmpEntries.zip(pmpMinuxOne +: pmpEntries.take(num-1)).zipWithIndex
-      .reverse.foldLeft(pmpMinuxOne) { case (prev, ((pmp, last_pmp), i)) =>
+    val match_vec = Wire(Vec(num+1, Bool()))
+    val cfg_vec = Wire(Vec(num+1, new PMPEntry()))
+
+    pmpEntries.zip(pmpDefault +: pmpEntries.take(num-1)).zipWithIndex.foreach{ case ((pmp, last_pmp), i) =>
       val is_match = pmp.is_match(addr, size, lgMaxSize, last_pmp)
       val ignore = passThrough && !pmp.cfg.l
       val aligned = pmp.aligned(addr, size, lgMaxSize, last_pmp)
@@ -386,9 +396,20 @@ trait PMPCheckMethod extends HasXSParameter with HasCSRConst { this: PMPChecker 
       cur.cfg.w := aligned && (pmp.cfg.w || ignore)
       cur.cfg.x := aligned && (pmp.cfg.x || ignore)
 
-      Mux(is_match, cur, prev)
+//      Mux(is_match, cur, prev)
+      match_vec(i) := is_match
+      cfg_vec(i) := cur
     }
-    res
+
+    // default value
+    match_vec(num) := true.B
+    cfg_vec(num) := pmpDefault
+
+    if (leaveHitMux) {
+      ParallelPriorityMux(match_vec.map(RegEnable(_, init = false.B, valid)), RegEnable(cfg_vec, valid))
+    } else {
+      ParallelPriorityMux(match_vec, cfg_vec)
+    }
   }
 }
 
@@ -396,7 +417,8 @@ trait PMPCheckMethod extends HasXSParameter with HasCSRConst { this: PMPChecker 
 class PMPChecker
 (
   lgMaxSize: Int = 3,
-  sameCycle: Boolean = false
+  sameCycle: Boolean = false,
+  leaveHitMux: Boolean = false
 )(implicit p: Parameters)
   extends PMPModule
   with PMPCheckMethod
@@ -411,17 +433,18 @@ class PMPChecker
     val req = Flipped(Valid(new PMPReqBundle(lgMaxSize))) // usage: assign the valid to fire signal
     val resp = new PMPRespBundle()
   })
+  require(!(leaveHitMux && sameCycle))
 
   val req = io.req.bits
 
-  val res_pmp = pmp_match_res(req.addr, req.size, io.env.pmp, io.env.mode, lgMaxSize)
-  val res_pma = pma_match_res(req.addr, req.size, io.env.pma, io.env.mode, lgMaxSize)
+  val res_pmp = pmp_match_res(leaveHitMux, io.req.valid)(req.addr, req.size, io.env.pmp, io.env.mode, lgMaxSize)
+  val res_pma = pma_match_res(leaveHitMux, io.req.valid)(req.addr, req.size, io.env.pma, io.env.mode, lgMaxSize)
 
   val resp_pmp = pmp_check(req.cmd, res_pmp.cfg)
   val resp_pma = pma_check(req.cmd, res_pma.cfg)
   val resp = resp_pmp | resp_pma
 
-  if (sameCycle) {
+  if (sameCycle || leaveHitMux) {
     io.resp := resp
   } else {
     io.resp := RegEnable(resp, io.req.valid)

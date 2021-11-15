@@ -68,6 +68,12 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   val pfevent = Module(new PFEvent)
   val tlbCsr = RegNext(io.tlbCsr)
   pfevent.io.distribute_csr := io.csrCtrl.distribute_csr
+
+  // trigger
+  ifu.io.frontendTrigger := io.csrCtrl.frontend_trigger
+  val triggerEn = io.csrCtrl.trigger_enable
+  ifu.io.csrTriggerEnable := VecInit(triggerEn(0), triggerEn(1), triggerEn(6), triggerEn(8))
+
   // pmp
   val pmp = Module(new PMP())
   val pmp_check = VecInit(Seq.fill(2)(Module(new PMPChecker(3, sameCycle = true)).io))
@@ -123,6 +129,8 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   ftq.io.fromBackend <> io.backend.toFtq
   io.backend.fromFtq <> ftq.io.toBackend
   io.frontendInfo.bpuInfo <> ftq.io.bpuInfo
+
+  ifu.io.rob_commits <> io.backend.toFtq.rob_commits
 
   ibuffer.io.flush := needFlush
   io.backend.cfVec <> ibuffer.io.out

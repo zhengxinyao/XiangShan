@@ -100,6 +100,7 @@ class PreDecodeResp(implicit p: Parameters) extends XSBundle with HasPdConst {
   val expInstr = Vec(PredictWidth, UInt(32.W))
   val jumpOffset = Vec(PredictWidth, UInt(XLEN.W))
   val hasLastHalf = Bool()
+  val triggered    = Vec(PredictWidth, new TriggerCf)
 }
 
 class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
@@ -115,6 +116,17 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
   val rawInsts = if (HasCExtension) VecInit((0 until PredictWidth).map(i => Cat(data(i+1), data(i))))
   else         VecInit((0 until PredictWidth).map(i => data(i)))
 
+
+  // Frontend Triggers
+  val tdata = Reg(Vec(4, new MatchTriggerIO))
+  when(io.in.frontendTrigger.t.valid) {
+    tdata(io.in.frontendTrigger.t.bits.addr) := io.in.frontendTrigger.t.bits.tdata
+  }
+  io.out.triggered.map{i => i := 0.U.asTypeOf(new TriggerCf)}
+  val triggerEnable = RegInit(VecInit(Seq.fill(4)(false.B))) // From CSR, controlled by priv mode, etc.
+  triggerEnable := io.in.csrTriggerEnable
+  val triggerMapping = Map(0 -> 0, 1 -> 1, 2 -> 6, 3 -> 8)
+  val chainMapping = Map(0 -> 0, 2 -> 3, 3 -> 4)
 
   for (i <- 0 until PredictWidth) {
     val inst           =WireInit(rawInsts(i))
