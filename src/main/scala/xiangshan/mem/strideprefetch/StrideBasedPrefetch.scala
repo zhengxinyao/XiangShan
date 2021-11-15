@@ -29,8 +29,8 @@ class RptResp(implicit p: Parameters) extends XSBundle {
 
 class RptEntryResp(implicit p: Parameters) extends XSBundle {
   val tag = UInt((l1dStrideParameters.rptTagBits).W)//12bits
-  val preVaddr = UInt((l1dStrideParameters.preVaddrBits).W)//12bits
-  val stride = UInt((l1dStrideParameters.rptStrideBits).W)//12bits
+  val preVaddr = UInt(l1dStrideParameters.preVaddrBits.W)//12bits
+  val stride = UInt(l1dStrideParameters.rptStrideBits.W)//12bits
   val state = UInt((l1dStrideParameters.rptStateBits).W)//3bits
   val cc = UInt((l1dStrideParameters.rptTimeBits).W)//10bits
   val updown = Bool()//1bits
@@ -66,7 +66,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   //each entry holds these: tag(12bits), prevaddrs(10bits), stride(10bits), state(2bits), time(2bits), totally 36bits
   //use PC(9, 2) ^ PC(17, 10) = idx, use idx(8bits) to access Rpt table
   //use PC(21, 10) to be the tag(12 bits)
-  //use reqVaddr(11, 2) tp be the preVaddr, use the new and old reqVaddr's difference to be teh stide
+  //use reqVaddr(11, 2) tp be the preVaddr, use the new and old reqVaddr's difference to be teh stride
   //Also, the reqVaddr(1, 0) was ignored because the Granularity of calculate addr is 32bits(4B)
   //use the state to record the stride's credibility
   //when tag dosen't match, use the time to decide abandone it or not(when pc miss/hit, time -/+1. when time ==0, abandone the tag)
@@ -76,9 +76,9 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   def idx(pc: UInt) = hash1(pc) ^ hash2(pc)//8.W
   def tag(pc: UInt) = usedPc(pc)(rptTagBits + rptIdxBits - 1, rptIdxBits)//pc(21, 10)//12.W
   //above is relevant about pc
-  def usedVaddr(vaddr: UInt) = vaddr(untagBits - 1, 2)//12.W
+  def usedVaddr(vaddr: UInt) = vaddr((preVaddrBits + 1), 2)//12.W
   //def getPageNum(vaddr: UInt) = vaddr(VAddrBits - 1, untagBits)//vaddr(38, 14), 25.W
-  def getIdxNum(vaddr: UInt) = vaddr(offLen - 1, 6)
+  def getIdxNum(vaddr: UInt) = vaddr(offLen - 1, log2Up(dcacheBlockBytes))
   
   def rptTableEntry() = new Bundle {
     val tag = UInt(rptTagBits.W)//12bits
@@ -97,13 +97,23 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   //check whether the addr is at the same cacheline
   val sameline = Wire(Bool())
   //stride is good
-  val stride_is_good = Wire(Bool())
+  val stride_is_good_self = Wire(Bool())
+  val stride_is_good_other = Wire(Bool())
   //tag is good
-  val tag_is_good = Wire(Bool())
+  val tag_is_good_self = Wire(Bool())
+  val tag_is_good_other = Wire(Bool())
+
+  val self_is_good = Wire(Bool())
+  val other_is_good = Wire(Bool())
 
   val s_idle :: s_init :: s_tran :: s_stand :: s_steady :: Nil = Enum(5)
   //below is entry for write
-  val entry_new = Reg(rptTableEntry())
+  val tag_new = RegInit(0.U(rptTagBits.W))
+  val preVaddr_new = RegInit(0.U(preVaddrBits.W))
+  val stride_new = RegInit(0.U(rptStrideBits.W))
+  val state_new = RegInit(s_idle)
+  val cc_new = RegInit(0.U(rptTimeBits.W))
+  val updown_new = RegInit(true.B)
 
   //below is for update, which's 1 cycle before writs
   val pc_forupdate = RegNext(io.train.req.bits.pc)
@@ -128,62 +138,83 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     val rptTable = Module(new SRAMTemplate(rptTableEntry(), set = rptEntries, way = 1, shouldReset = true, singlePort = false))
     // connection
     if(bank == 0) {
-      rptTable.io.r.req.valid := io.train.reqFromAnotherRpt.fire() && (idx(rAddr0) =/= idx(pc_forwrite))
+      rptTable.io.r.req.valid := io.train.req.fire()
       rptTable.io.r.req.bits.setIdx := idx(rAddr0)
-      oldEntryRespToSelfRpt <> rptTable.io.r.resp.data(0)
+      oldEntryRespToSelfRpt.tag := rptTable.io.r.resp.data(0).tag
+      oldEntryRespToSelfRpt.preVaddr := rptTable.io.r.resp.data(0).preVaddr
+      oldEntryRespToSelfRpt.stride := rptTable.io.r.resp.data(0).stride
+      oldEntryRespToSelfRpt.state := rptTable.io.r.resp.data(0).state
+      oldEntryRespToSelfRpt.cc := rptTable.io.r.resp.data(0).cc
+      oldEntryRespToSelfRpt.updown := rptTable.io.r.resp.data(0).updown
     }else{
-      rptTable.io.r.req.valid := io.train.req.fire() && (idx(rAddr1) =/= idx(pc_forwrite))
+      rptTable.io.r.req.valid := io.train.reqFromAnotherRpt.fire()
       rptTable.io.r.req.bits.setIdx := idx(rAddr1)
-      oldEntryRespToAnotherRpt <> rptTable.io.r.resp.data(0)
+      oldEntryRespToAnotherRpt.tag := rptTable.io.r.resp.data(0).tag
+      oldEntryRespToAnotherRpt.preVaddr := rptTable.io.r.resp.data(0).preVaddr
+      oldEntryRespToAnotherRpt.stride := rptTable.io.r.resp.data(0).stride
+      oldEntryRespToAnotherRpt.state := rptTable.io.r.resp.data(0).state
+      oldEntryRespToAnotherRpt.cc := rptTable.io.r.resp.data(0).cc
+      oldEntryRespToAnotherRpt.updown := rptTable.io.r.resp.data(0).updown
     }
     rptTable.io.w.req.valid := valid_forwrite
     rptTable.io.w.req.bits.setIdx := idx(wAddr)
-    rptTable.io.w.req.bits.data(0) <> entry_new
+    rptTable.io.w.req.bits.data(0).tag := tag_new
+    rptTable.io.w.req.bits.data(0).preVaddr := preVaddr_new
+    rptTable.io.w.req.bits.data(0).stride := stride_new
+    rptTable.io.w.req.bits.data(0).state := state_new
+    rptTable.io.w.req.bits.data(0).cc := cc_new
+    rptTable.io.w.req.bits.data(0).updown := updown_new
 
     rptTable
   }
 
   //to solve the r/w in the same address and time
-  val rw_same = RegInit(false.B)
-  rw_same := idx(io.train.req.bits.pc) === idx(pc_forwrite)
+  val rw_same_self = RegInit(false.B)
+  rw_same_self := (idx(io.train.req.bits.pc) === idx(pc_forwrite)) && io.train.req.valid
   //to solve write&&read at the same entry in the same time
-  when(rw_same) {
-    oldEntryRespToSelfRpt.tag := RegNext(entry_new.tag)
-    oldEntryRespToSelfRpt.preVaddr := RegNext(entry_new.preVaddr)
-    oldEntryRespToSelfRpt.stride := RegNext(entry_new.stride)
-    oldEntryRespToSelfRpt.state := RegNext(entry_new.state)
-    oldEntryRespToSelfRpt.cc := RegNext(entry_new.cc)
-    oldEntryRespToSelfRpt.updown := RegNext(entry_new.updown)
-
-    oldEntryRespToAnotherRpt.tag := RegNext(entry_new.tag)
-    oldEntryRespToAnotherRpt.preVaddr := RegNext(entry_new.preVaddr)
-    oldEntryRespToAnotherRpt.stride := RegNext(entry_new.stride)
-    oldEntryRespToAnotherRpt.state := RegNext(entry_new.state)
-    oldEntryRespToAnotherRpt.cc := RegNext(entry_new.cc)
-    oldEntryRespToAnotherRpt.updown := RegNext(entry_new.updown)
+  when(rw_same_self) {
+    oldEntryRespToSelfRpt.tag := RegNext(tag_new)
+    oldEntryRespToSelfRpt.preVaddr := RegNext(preVaddr_new)
+    oldEntryRespToSelfRpt.stride := RegNext(stride_new)
+    oldEntryRespToSelfRpt.state := RegNext(state_new)
+    oldEntryRespToSelfRpt.cc := RegNext(cc_new)
+    oldEntryRespToSelfRpt.updown := RegNext(updown_new)
+  }
+  val rw_same_other = RegInit(false.B)
+  rw_same_other := (idx(io.train.reqFromAnotherRpt.bits.pc) === idx(pc_forwrite)) && io.train.req.valid
+  when(rw_same_other) {
+    oldEntryRespToAnotherRpt.tag := RegNext(tag_new)
+    oldEntryRespToAnotherRpt.preVaddr := RegNext(preVaddr_new)
+    oldEntryRespToAnotherRpt.stride := RegNext(stride_new)
+    oldEntryRespToAnotherRpt.state := RegNext(state_new)
+    oldEntryRespToAnotherRpt.cc := RegNext(cc_new)
+    oldEntryRespToAnotherRpt.updown := RegNext(updown_new)
   }
   //to solve r/r back to back
-  val rr_same = RegInit(false.B)
-  rr_same := idx(io.train.req.bits.pc) === idx(pc_forupdate)
-  when(rr_same) {
-    oldEntryRespToSelfRpt.tag := entry_new.tag
-    oldEntryRespToSelfRpt.preVaddr := entry_new.preVaddr
-    oldEntryRespToSelfRpt.stride := entry_new.stride
-    oldEntryRespToSelfRpt.state := entry_new.state
-    oldEntryRespToSelfRpt.cc := entry_new.cc
-    oldEntryRespToSelfRpt.updown := entry_new.updown
-
-    oldEntryRespToAnotherRpt.tag := entry_new.tag
-    oldEntryRespToAnotherRpt.preVaddr := entry_new.preVaddr
-    oldEntryRespToAnotherRpt.stride := entry_new.stride
-    oldEntryRespToAnotherRpt.state := entry_new.state
-    oldEntryRespToAnotherRpt.cc := entry_new.cc
-    oldEntryRespToAnotherRpt.updown := entry_new.updown
+  val rr_same_self = RegInit(false.B)
+  rr_same_self := idx(io.train.req.bits.pc) === idx(pc_forupdate) && io.train.req.valid
+  when(rr_same_self) {
+    oldEntryRespToSelfRpt.tag := tag_new
+    oldEntryRespToSelfRpt.preVaddr := preVaddr_new
+    oldEntryRespToSelfRpt.stride := stride_new
+    oldEntryRespToSelfRpt.state := state_new
+    oldEntryRespToSelfRpt.cc := cc_new
+    oldEntryRespToSelfRpt.updown := updown_new
+  }
+  val rr_same_other = RegInit(false.B)
+  rr_same_other := idx(io.train.req.bits.pc) === idx(pc_forupdate) && io.train.req.valid
+  when(rr_same_other) {
+    oldEntryRespToAnotherRpt.tag := tag_new
+    oldEntryRespToAnotherRpt.preVaddr := preVaddr_new
+    oldEntryRespToAnotherRpt.stride := stride_new
+    oldEntryRespToAnotherRpt.state := state_new
+    oldEntryRespToAnotherRpt.cc := cc_new
+    oldEntryRespToAnotherRpt.updown := updown_new
   }
 
   val cc_forupdate = RegInit(0.U(rptTimeBits.W))  
   cc_forupdate := clock_in_stride.value
-  entry_new.cc := cc_forupdate
+  cc_new := cc_forupdate
 
   // now, we get two oldEntries, one comes from selfRpt, one comes from anotherRpt
   val oldEntryRespFromAnotherRpt = io.train.respFromAnotherRpt
@@ -194,145 +225,159 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   val strideSubSelf = WireInit(0.U(rptStrideBits.W))
   val strideSubAnother = WireInit(0.U(rptStrideBits.W))
   val updown_update = WireInit(true.B)
-  val engage_state = Mux(oldEntryRespFromAnotherRpt.bits.state >= oldEntryRespToSelfRpt.state, oldEntryRespFromAnotherRpt.bits.state, oldEntryRespToSelfRpt.state)
+  //val engage_state = Mux(oldEntryRespFromAnotherRpt.bits.state >= oldEntryRespToSelfRpt.state, oldEntryRespFromAnotherRpt.bits.state, oldEntryRespToSelfRpt.state)
+  val engage_state = WireInit(s_idle)
   val engage_cc = WireInit(0.U(rptTimeBits.W))
+  val state_better = WireInit(false.B)
   //to get the minest stride, for example, stride 2
   //0 4 10 56  76
   //2 6 8  44  66
   //above is two loadlines but they have the same pc, we need to find out the stride = 2
-  when(pc_forupdate === req_fromAnotherRpt_pcUpdate) {
+
+  tag_is_good_self := oldEntryRespToSelfRpt.tag === tag(pc_forupdate) 
+  tag_is_good_other := oldEntryRespFromAnotherRpt.bits.tag === tag(pc_forupdate)
+
+  when((pc_forupdate === req_fromAnotherRpt_pcUpdate) && valid_forupdate && req_fromAnotherRpt_validUpdate) {
     stride_min := Mux(vaddr_forupdate >= req_fromAnotherRpt_vaddrUpdate, 
-    vaddr_forupdate - req_fromAnotherRpt_vaddrUpdate,
-    req_fromAnotherRpt_vaddrUpdate - vaddr_forupdate
+    usedVaddr(vaddr_forupdate) - usedVaddr(req_fromAnotherRpt_vaddrUpdate),
+    usedVaddr(req_fromAnotherRpt_vaddrUpdate) - usedVaddr(vaddr_forupdate)
     )
     updown_update := true.B
     engage_cc := cc_forupdate
   }.otherwise {
-    when(vaddr_forupdate >= oldEntryRespToSelfRpt.preVaddr){
-      strideSubSelf := vaddr_forupdate - oldEntryRespToSelfRpt.preVaddr
+    when(usedVaddr(vaddr_forupdate) >= oldEntryRespToSelfRpt.preVaddr){
+      strideSubSelf := usedVaddr(vaddr_forupdate) - oldEntryRespToSelfRpt.preVaddr
       updown_update := true.B
     }.otherwise {
-      strideSubSelf := oldEntryRespToSelfRpt.preVaddr - vaddr_forupdate
+      strideSubSelf := oldEntryRespToSelfRpt.preVaddr - usedVaddr(vaddr_forupdate)
       updown_update := false.B
     }
-    when(vaddr_forupdate >= oldEntryRespFromAnotherRpt.bits.preVaddr){
-      strideSubAnother := vaddr_forupdate - oldEntryRespFromAnotherRpt.bits.preVaddr
+    when(usedVaddr(vaddr_forupdate) >= oldEntryRespFromAnotherRpt.bits.preVaddr){
+      strideSubAnother := usedVaddr(vaddr_forupdate) - oldEntryRespFromAnotherRpt.bits.preVaddr
       updown_update := true.B
     }.otherwise {
-      strideSubAnother := oldEntryRespFromAnotherRpt.bits.preVaddr - vaddr_forupdate
+      strideSubAnother := oldEntryRespFromAnotherRpt.bits.preVaddr - usedVaddr(vaddr_forupdate)
       updown_update := false.B
     }
-    stride_min := Mux(strideSubAnother >= strideSubSelf, strideSubSelf, strideSubAnother)
+    stride_min := Mux(((strideSubAnother < strideSubSelf) || !tag_is_good_self) && tag_is_good_other, strideSubAnother, strideSubSelf)
     engage_cc := Mux(oldEntryRespToSelfRpt.cc >= oldEntryRespFromAnotherRpt.bits.cc, oldEntryRespToSelfRpt.cc, oldEntryRespFromAnotherRpt.bits.cc)
   }
-  when(engage_state === s_steady){
-    stride_is_good := stride_min === oldEntryRespToSelfRpt.stride
+  when(oldEntryRespToSelfRpt.state === s_steady || oldEntryRespFromAnotherRpt.bits.state === s_steady){
+    stride_is_good_self := (stride_min === oldEntryRespToSelfRpt.stride) && (stride_min =/= 0.U)
+    stride_is_good_other := (stride_min === oldEntryRespFromAnotherRpt.bits.stride) && (stride_min =/= 0.U)
+    //stride_is_good := (stride_min === oldEntryRespToSelfRpt.stride || stride_min === oldEntryRespFromAnotherRpt.bits.stride) && (stride_min =/= 0.U)
   }.otherwise{
-    stride_is_good := (stride_min === oldEntryRespToSelfRpt.stride) && (updown_update === oldEntryRespToSelfRpt.updown)
+    stride_is_good_self := (stride_min === oldEntryRespToSelfRpt.stride) && (updown_update === oldEntryRespToSelfRpt.updown) && (stride_min =/= 0.U)
+    stride_is_good_other := (stride_min === oldEntryRespFromAnotherRpt.bits.stride) && (updown_update === oldEntryRespFromAnotherRpt.bits.updown) && (stride_min =/= 0.U)
   }
-  tag_is_good := oldEntryRespToSelfRpt.tag === tag(pc_forupdate)
+
+  self_is_good  := stride_is_good_self && tag_is_good_self
+  other_is_good := stride_is_good_other && tag_is_good_other
+
+  state_better := ((oldEntryRespFromAnotherRpt.bits.state > oldEntryRespToSelfRpt.state) || !tag_is_good_self) && other_is_good
+  engage_state := Mux(state_better, oldEntryRespFromAnotherRpt.bits.state, oldEntryRespToSelfRpt.state)
   //statemachine
   when(engage_state === s_idle) {
-    when(!tag_is_good) {
-      entry_new.tag := tag(pc_forupdate)
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := 0.U
-      entry_new.state := s_idle
-      entry_new.updown := true.B
+    when(!(tag_is_good_self || tag_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := 0.U
+      state_new := s_idle
+      updown_new := true.B
     }.otherwise {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := stride_min
-      entry_new.updown := updown_update
-      entry_new.state := s_init
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      updown_new := updown_update
+      state_new := s_init
     }
   }
 
   when(engage_state === s_init) {
-    when(tag_is_good && stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := oldEntryRespToSelfRpt.stride
-      entry_new.state := s_tran
-      entry_new.updown := oldEntryRespToSelfRpt.updown
-    }.elsewhen(!tag_is_good) {
-      entry_new.tag := tag(pc_forupdate)
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := 0.U
-      entry_new.state := s_idle
-      entry_new.updown := true.B
-    }.elsewhen(!stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := stride_min
-      entry_new.updown := updown_update
-      entry_new.state := s_init
+    when(self_is_good || other_is_good) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      state_new := s_tran
+      updown_new := updown_update
+    }.elsewhen(!(tag_is_good_self || tag_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := 0.U
+      state_new := s_idle
+      updown_new := true.B
+    }.elsewhen(!(stride_is_good_self || stride_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      updown_new := updown_update
+      state_new := s_init
     }
   }
 
   when(engage_state === s_tran) {
-    when(tag_is_good && stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := oldEntryRespToSelfRpt.stride
-      entry_new.state := s_stand
-      entry_new.updown := oldEntryRespToSelfRpt.updown
-    }.elsewhen(!tag_is_good) {
-      entry_new.tag := tag(pc_forupdate)
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := 0.U
-      entry_new.state := s_idle
-      entry_new.updown := true.B
-    }.elsewhen(!stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := stride_min
-      entry_new.updown := updown_update
-      entry_new.state := s_init
+    when(self_is_good || other_is_good) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      state_new := s_stand
+      updown_new := updown_update
+    }.elsewhen(!(tag_is_good_self || tag_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := 0.U
+      state_new := s_idle
+      updown_new := true.B
+    }.elsewhen(!(stride_is_good_self || stride_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      updown_new := updown_update
+      state_new := s_init
     }
   }
 
   when(engage_state === s_stand) {
-    when(tag_is_good && stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := oldEntryRespToSelfRpt.stride
-      entry_new.state := s_steady
-      entry_new.updown := oldEntryRespToSelfRpt.updown
-    }.elsewhen(!tag_is_good) {
-      entry_new.tag := tag(pc_forupdate)
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := 0.U
-      entry_new.state := s_idle
-      entry_new.updown := true.B
-    }.elsewhen(!stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.state := s_init
-      entry_new.stride := stride_min
-      entry_new.updown := updown_update
+    when(self_is_good || other_is_good) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      state_new := s_steady
+      updown_new := updown_update
+    }.elsewhen(!(tag_is_good_self || tag_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := 0.U
+      state_new := s_idle
+      updown_new := true.B
+    }.elsewhen(!(stride_is_good_self || stride_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      updown_new := updown_update
+      state_new := s_init
     }
   }
 
   when(engage_state === s_steady) {
-    when(tag_is_good && stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := oldEntryRespToSelfRpt.stride
-      entry_new.state := s_steady
-      entry_new.updown := oldEntryRespToSelfRpt.updown
-    }.elsewhen(!tag_is_good) {
-      entry_new.tag := tag(pc_forupdate)
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := 0.U
-      entry_new.state := s_idle
-      entry_new.updown := true.B
-    }.elsewhen(!stride_is_good) {
-      entry_new.tag := oldEntryRespToSelfRpt.tag
-      entry_new.preVaddr := usedVaddr(vaddr_forupdate)
-      entry_new.stride := stride_min
-      entry_new.state := s_idle
-      entry_new.updown := updown_update
+    when(self_is_good || other_is_good) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      state_new := s_steady
+      updown_new := updown_update
+    }.elsewhen(!(tag_is_good_self || tag_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := 0.U
+      state_new := s_idle
+      updown_new := true.B
+    }.elsewhen(!(stride_is_good_self || stride_is_good_other)) {
+      tag_new := tag(pc_forupdate)
+      preVaddr_new := usedVaddr(vaddr_forupdate)
+      stride_new := stride_min
+      updown_new := updown_update
+      state_new := s_init
     }
   }
 
@@ -363,28 +408,28 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
       timeChecker := cc_forupdate - engage_cc
   }
 
-  when(entry_new.state === s_stand || entry_new.state === s_steady) {
+  when(state_new === s_stand || state_new === s_steady) {
     when(timeChecker <= (prefetchCostTimeMax >> 2).U) {
-      when(entry_new.updown){
-        finalPredict_vaddr := vaddr_forout + ((entry_new.stride << (log2Up(prefetchCostTimeMax >> 4) + 2)))
+      when(updown_new){
+        finalPredict_vaddr := vaddr_forout + ((stride_new << (log2Up(prefetchCostTimeMax >> 4) + 2)))
       }.otherwise{
-        finalPredict_vaddr := vaddr_forout - ((entry_new.stride << (log2Up(prefetchCostTimeMax >> 4) + 2)))
+        finalPredict_vaddr := vaddr_forout - ((stride_new << (log2Up(prefetchCostTimeMax >> 4) + 2)))
       }
     }.otherwise {
-      when(entry_new.updown){
-        finalPredict_vaddr := vaddr_forout + (entry_new.stride << 3)
+      when(updown_new){
+        finalPredict_vaddr := vaddr_forout + (stride_new << 3)
       }.otherwise{
-        finalPredict_vaddr := vaddr_forout - (entry_new.stride << 3)
+        finalPredict_vaddr := vaddr_forout - (stride_new << 3)
       }
     }
   }
     
-  io.train.resp.bits.respVaddr := finalPredict_vaddr
+  io.train.resp.bits.respVaddr := Cat(finalPredict_vaddr(VAddrBits - 1, log2Up(dcacheBlockBytes)), 0.U((log2Up(dcacheBlockBytes)).W))
 
   //crosspage := getPageNum(finalPredict_vaddr) =/= getPageNum(vaddr_forout)
   sameline := getIdxNum(finalPredict_vaddr) === getIdxNum(vaddr_forout)
   
-  when((entry_new.state === s_stand || entry_new.state === s_steady) && valid_forwrite) {
+  when((state_new === s_stand || state_new === s_steady) && valid_forwrite) {
     when(sameline) {
       io.train.resp.valid := false.B
     }.otherwise {
@@ -396,7 +441,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
 
   when(io.train.req.fire()) {
     XSDebug("rptpcReqSelf: %x rptVaddrReq: %x rptvalidReq: %d\n", rAddr0 ,io.train.req.bits.reqVaddr, rptTables(0).io.r.req.valid)
-    XSDebug("rptpcReqOther: %x rptVaddrReq: %x rptvalidReq: %d\n", rAddr1 ,io.train.req.bits.reqVaddr, rptTables(1).io.r.req.valid)    
+    XSDebug("rptpcReqOther: %x rptVaddrReq: %x rptvalidReq: %d\n", rAddr1 ,io.train.reqFromAnotherRpt.bits.reqVaddr, rptTables(1).io.r.req.valid)    
   }
   when(valid_forupdate) {
     XSDebug("pc_forupdate: %x vaddr_forupdate: %x cc_forupdate: %d valid_forupdate: %d\n", pc_forupdate, vaddr_forupdate, cc_forupdate ,valid_forupdate)
@@ -405,8 +450,8 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   }
   when(valid_forwrite) {
     XSDebug("pc_forwrite: %x vaddr_forout: %x valid_forwrite: %d\n", pc_forwrite, vaddr_forout, valid_forwrite)
-    XSDebug("valid_forwrite: %d finaltag: %x finalpreVaddr: %x finalstride: %x finalstate: %x finalcc: %d timeChecker: %d updown_new: %d\n", valid_forwrite, entry_new.tag, finalPredict_vaddr, entry_new.stride, entry_new.state, entry_new.cc, timeChecker, entry_new.updown)
-    XSDebug("vaddr_forout: %x finalpreVaddr: %x finalstride: %x timeChecker: %d upORdown: %d\n", vaddr_forout, finalPredict_vaddr, entry_new.stride, timeChecker, entry_new.updown)
+    XSDebug("valid_forwrite: %d finaltag: %x finalpreVaddr: %x finalstride: %x finalstate: %x finalcc: %d timeChecker: %d updown_new: %d\n", valid_forwrite, tag_new, finalPredict_vaddr, stride_new, state_new, cc_new, timeChecker, updown_new)
+    XSDebug("vaddr_forout: %x finalpreVaddr: %x finalstride: %x timeChecker: %d upORdown: %d\n", vaddr_forout, finalPredict_vaddr, stride_new, timeChecker, updown_new)
   }
   XSPerfAccumulate("fire_pefetch_numbers", io.train.resp.fire())
 }

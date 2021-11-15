@@ -17,7 +17,7 @@ class OldListPtr(implicit p: Parameters) extends CircularQueuePtr[OldListPtr](
 
 class OldListResp(implicit p: Parameters) extends XSBundle with HasTlbConst{
   val full = Bool()
-  val old_vaddr = UInt((VAddrBits - offLen).W)
+  val old_vaddr = UInt(VAddrBits.W)
 }
 
 class OldListEntry(implicit p: Parameters) extends XSModule with HasTlbConst{
@@ -29,7 +29,7 @@ class OldListEntry(implicit p: Parameters) extends XSModule with HasTlbConst{
   })
 
   val member_full = RegInit(false.B)
-  val member_vaddr = RegInit(0.U((VAddrBits - offLen).W))
+  val member_vaddr = RegInit(0.U((VAddrBits).W))
 
   member_full  := Mux(io.request_write.valid, true.B, member_full)
   member_vaddr := Mux(io.request_write.valid, io.request_write.bits.respVaddr, member_vaddr)
@@ -114,7 +114,7 @@ class OldList(implicit p: Parameters) extends XSModule with HasTlbConst{
   for (i <- 0 until SbpPrefetchSize) {
     write_reqs(i).bits.respVaddr := read_reqs(i).bits.respVaddr
     //we need to look both in write'Reg and entries.
-    check_result(i) := !(Cat(read_write_matchVec(i)).orR || Cat(read_entry_matchVec(i)).orR)
+    check_result(i) := !(Cat(read_write_matchVec(i)).orR || Cat(read_entry_matchVec(i)).orR) && read_reqs(i).valid
     write_reqs(i).valid := check_result(i)
   }
 
@@ -132,12 +132,12 @@ class OldList(implicit p: Parameters) extends XSModule with HasTlbConst{
   // send out the filtered prefetch vaddr
   for(i <- 0 until SbpPrefetchSize) {
     io.req(i).ready := true.B
-    io.resp(i).valid := check_result(i)
+    io.resp(i).valid := check_result(i) && io.req(i).valid
     io.resp(i).bits.respVaddr := io.req(i).bits.respVaddr
   }
 
   for (i <- 0 until SbpPrefetchSize) {
-    XSDebug(io.req(i).valid, p"vaddr=${Hexadecimal(io.req(i).bits.respVaddr)}\n")
-    XSDebug(io.resp(i).valid, p"vaddr=${Hexadecimal(io.resp(i).bits.respVaddr)}\n")
+    XSDebug(io.req(i).valid, p"reqvaddr=${Hexadecimal(io.req(i).bits.respVaddr)}\n")
+    XSDebug(io.resp(i).valid, p"respvaddr=${Hexadecimal(io.resp(i).bits.respVaddr)}\n")
   }
 }

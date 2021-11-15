@@ -90,7 +90,7 @@ class L1DPrefetchBuffer(implicit p: Parameters) extends XSModule with HasCircula
     }
 
     // the output stuff
-    val validVec = Mux(validEntries >= L1DPrefetchPipelineWidth.U, ((1 << L1DPrefetchPipelineWidth) - 1).U, UIntToMask(validEntries, SbpPrefetchSize))
+    val validVec = Mux(validEntries >= L1DPrefetchPipelineWidth.U, ((1 << L1DPrefetchPipelineWidth) - 1).U, UIntToMask(validEntries, L1DPrefetchPipelineWidth))
 
     for (i <- 0 until L1DPrefetchPipelineWidth) {
         io.out(i).valid := validVec(i)

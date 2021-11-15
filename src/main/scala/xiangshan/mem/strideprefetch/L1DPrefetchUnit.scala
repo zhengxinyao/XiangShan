@@ -131,7 +131,7 @@ class L1DPrefetchUnit(implicit p: Parameters) extends XSModule with HasLoadHelpe
     XSDebug("Dtlb_paddr: %x Dtlb_miss: %x\n", l1dp_s1.io.dtlbResp.bits.paddr, l1dp_s1.io.dtlbResp.bits.miss)
   }
   XSDebug(io.pmp.mmio, "1\n")   
-  XSPerfAccumulate("prefetch_tlb_miss", l1dp_s1.io.dtlbResp.bits.miss)
-  XSPerfAccumulate("prefetch_tlb_hit", ~l1dp_s1.io.dtlbResp.bits.miss)
+  XSPerfAccumulate("prefetch_tlb_miss", io.dtlb.resp.fire() && l1dp_s1.io.dtlbResp.bits.miss)
+  XSPerfAccumulate("prefetch_tlb_hit", io.dtlb.resp.fire() && ~l1dp_s1.io.dtlbResp.bits.miss)
   XSPerfAccumulate("toStridePipe", io.toStridePipe.req.fire())
 }

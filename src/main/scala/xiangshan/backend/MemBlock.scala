@@ -253,9 +253,9 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     oldList.io.resp(i).ready := l1dpBuffer.io.in.ready
   }
 
-  l1dpBuffer.io.in.bits.bufMask := VecInit(stridePrefetchs.map(_.io.train.resp.valid)).asUInt()
-  l1dpBuffer.io.in.bits.vaddr   := VecInit(stridePrefetchs.map(_.io.train.resp.bits.respVaddr))
-  l1dpBuffer.io.in.valid := stridePrefetchs.map(_.io.train.resp.valid).reduce(_||_)
+  l1dpBuffer.io.in.bits.bufMask := VecInit(oldList.io.resp.map(_.valid)).asUInt()
+  l1dpBuffer.io.in.bits.vaddr   := VecInit(oldList.io.resp.map(_.bits.respVaddr))
+  l1dpBuffer.io.in.valid := oldList.io.resp.map(_.valid).reduce(_||_)
   l1dPrefetchUnit.io.l1dpin       <> l1dpBuffer.io.out(0)
   l1dPrefetchUnit.io.dtlb         <> dtlb_ld(exuParameters.LduCnt).requestor(0)
   l1dPrefetchUnit.io.pmp          <> pmp_check(exuParameters.LduCnt).resp
@@ -280,7 +280,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     stu.io.lsq_replenish <> lsq.io.storeInRe(i)
     // dtlb
     stu.io.tlb          <> dtlb_st(i).requestor(0)
-    stu.io.pmp          <> pmp_check(i+exuParameters.LduCnt).resp
+    stu.io.pmp          <> pmp_check(i+exuParameters.LduCnt + coreParams.L1DPrefetchPipelineWidth).resp
 
     // store unit does not need fast feedback
     io.rsfeedback(exuParameters.LduCnt + i).feedbackFast := DontCare

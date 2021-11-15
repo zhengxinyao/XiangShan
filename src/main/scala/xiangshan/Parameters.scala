@@ -210,8 +210,8 @@ case class XSCoreParameters
   l1dStrideParameters: SBPParameters = SBPParameters(
     rptEntries = 128,
     rptTagBits = 12,
-    preVaddrBits = 12,
-    rptStrideBits = 12,
+    preVaddrBits = 14,
+    rptStrideBits = 14,
     rptStateBits = 3,
     rptTimeMax = 1024,
     prefetchCostTimeMax = 64
