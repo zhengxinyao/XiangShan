@@ -23,8 +23,8 @@ import chisel3.{util, _}
 import chisel3.util._
 import utils._
 import xiangshan._
+import xiangshan.frontend.icache._
 import xiangshan.backend.decode.isa.predecode.PreDecodeInst
-import xiangshan.cache._
 
 trait HasPdConst extends HasXSParameter with HasICacheParameters with HasIFUConst{
   def isRVC(inst: UInt) = (inst(1,0) =/= 3.U)
