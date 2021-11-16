@@ -116,7 +116,6 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
   val rawInsts = if (HasCExtension) VecInit((0 until PredictWidth).map(i => Cat(data(i+1), data(i))))
   else         VecInit((0 until PredictWidth).map(i => data(i)))
 
-
   // Frontend Triggers
   val tdata = Reg(Vec(4, new MatchTriggerIO))
   when(io.in.frontendTrigger.t.valid) {
@@ -132,6 +131,7 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
     val inst           =WireInit(rawInsts(i))
     val expander       = Module(new RVCExpander)
     val currentIsRVC   = isRVC(inst)
+    val currentPC      = io.in.pc(i)
     expander.io.in             := inst
 
     val brType::isCall::isRet::Nil = brInfo(inst)
@@ -141,6 +141,17 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
     val lastIsValidEnd =  if (i == 0) { !lastHalfMatch } else { validEnd(i-1) || !HasCExtension.B }
     validStart(i)   := (lastIsValidEnd || !HasCExtension.B)
     validEnd(i)     := validStart(i) && currentIsRVC || !validStart(i) || !HasCExtension.B
+
+    io.out.triggered(i).triggerTiming   := DontCare//VecInit(Seq.fill(10)(false.B))
+    io.out.triggered(i).triggerHitVec   := DontCare//VecInit(Seq.fill(10)(false.B))
+    io.out.triggered(i).triggerChainVec := DontCare//VecInit(Seq.fill(5)(false.B))
+    for (j <- 0 until 4) {
+      val hit = Mux(tdata(j).select, TriggerCmp(Mux(currentIsRVC, inst(15, 0), inst), tdata(j).tdata2, tdata(j).matchType, triggerEnable(j)),
+        TriggerCmp(currentPC, tdata(j).tdata2, tdata(j).matchType, triggerEnable(j)))
+      io.out.triggered(i).triggerHitVec(triggerMapping(j)) := hit
+      io.out.triggered(i).triggerTiming(triggerMapping(j)) := hit && tdata(j).timing
+      if(chainMapping.contains(j)) io.out.triggered(i).triggerChainVec(chainMapping(j)) := hit && tdata(j).chain
+    }
 
     io.out.pd(i).valid         := validStart(i)
     io.out.pd(i).isRVC         := currentIsRVC

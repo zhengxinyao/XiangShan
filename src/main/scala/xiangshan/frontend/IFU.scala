@@ -104,6 +104,7 @@ class IfuToPreDecode(implicit p: Parameters) extends XSBundle {
   val lastHalfMatch       =  Bool()
   val frontendTrigger = new FrontendTdataDistributeIO
   val csrTriggerEnable = Vec(4, Bool())
+  val pc               = Vec(PredictWidth, UInt(VAddrBits.W))
 }
 
 
@@ -248,6 +249,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f1_tags               = ResultHoldBypass(data = meta_resp.tags, valid = RegNext(toMeta.fire()))
   val f1_cacheline_valid    = ResultHoldBypass(data = meta_resp.valid, valid = RegNext(toMeta.fire()))
   val f1_datas              = ResultHoldBypass(data = data_resp.datas, valid = RegNext(toData.fire()))
+  val f1_pc                 = VecInit((0 until PredictWidth).map(i => f1_ftq_req.startAddr + (i * 2).U))
 
   val bank0_hit_vec         = VecInit(f1_tags(0).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(0)(i) && way_tag ===  f1_pTags(0) })
   val bank1_hit_vec         = VecInit(f1_tags(1).zipWithIndex.map{ case(way_tag,i) => f1_cacheline_valid(1)(i) && way_tag ===  f1_pTags(1) })
@@ -322,7 +324,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   val f2_waymask  = RegEnable(next = f1_victim_masks, enable = f1_fire)
   val f2_cut_ptr = RegEnable(next = f1_cut_ptr, enable = f1_fire)
 
-  val f2_pc = VecInit((0 until PredictWidth).map(i => f2_ftq_req.startAddr + (i * 2).U))
+  val f2_pc = RegEnable(next = f1_pc, enable = f1_fire)
   val (f2_vSetIdx, f2_pTags) = (RegEnable(next = f1_vSetIdx, enable = f1_fire), RegEnable(next = f1_pTags, enable = f1_fire))
   //exception information
   val f2_except_pf = RegEnable(next = VecInit(tlbExcpPF), enable = f1_fire)
@@ -562,6 +564,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   preDecoderIn.lastHalfMatch := f2_lastHalfMatch
   preDecoderIn.frontendTrigger := io.frontendTrigger
   preDecoderIn.csrTriggerEnable := io.csrTriggerEnable
+  preDecoderIn.pc  := f2_pc
 
   val f2_expd_instr   = preDecoderOut.expInstr
   val f2_pd           = preDecoderOut.pd
@@ -740,7 +743,7 @@ class NewIFU(implicit p: Parameters) extends XSModule with HasICacheParameters
   io.toIbuffer.bits.ipf         := f3_pf_vec
   io.toIbuffer.bits.acf         := f3_af_vec
   io.toIbuffer.bits.crossPageIPFFix := f3_crossPageFault
-  io.toIbuffer.bits.triggered := preDecoderOut.triggered
+  io.toIbuffer.bits.triggered   := f2_triggered
 
   //MMIO write back and flush
   val f3_cache_fetch = f3_valid && !(f2_fire && !f2_flush)
