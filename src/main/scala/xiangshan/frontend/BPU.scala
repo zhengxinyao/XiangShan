@@ -35,13 +35,13 @@ trait HasBPUConst extends HasXSParameter {
   val shareTailSlot = true
   val numBrSlot = if (shareTailSlot) numBr-1 else numBr
   val totalSlot = numBrSlot + 1
-  
+
   def BP_STAGES = (0 until 3).map(_.U(2.W))
   def BP_S1 = BP_STAGES(0)
   def BP_S2 = BP_STAGES(1)
   def BP_S3 = BP_STAGES(2)
   val numBpStages = BP_STAGES.length
-  
+
   val debug = true
   val resetVector = 0x10000000L//TODO: set reset vec
   // TODO: Replace log2Up by log2Ceil
@@ -155,10 +155,11 @@ class AllFoldedHistories(val gen: Seq[Tuple2[Int, Int]])(implicit p: Parameters)
       h := that.getHistWithInfo(h.info)
     }
   }
-  def update(ghr: Vec[Bool], ptr: CGHPtr, shift: UInt, taken: Bool): AllFoldedHistories = {
+  // def update(ghr: Vec[Bool], ptr: CGHPtr, shift: UInt, taken: Bool): AllFoldedHistories = {
+  def update(ghr: Vec[Bool], ptr: CGHPtr, shouldShiftVec: Vec[Bool], taken: Bool): AllFoldedHistories = {
     val res = WireInit(this)
     for (i <- 0 until this.hist.length) {
-      res.hist(i) := this.hist(i).update(ghr, ptr, shift, taken)
+      res.hist(i) := this.hist(i).update(ghr, ptr, shouldShiftVec, taken)
     }
     res
   }
@@ -168,13 +169,16 @@ class AllFoldedHistories(val gen: Seq[Tuple2[Int, Int]])(implicit p: Parameters)
       (numBr to 0 by -1).map(_.U(log2Ceil(numBr+1).W))
     )
     val first_taken_idx = PriorityEncoder(false.B +: br_takens)
-    val smaller = Mux(last_valid_idx < first_taken_idx,
-      last_valid_idx,
-      first_taken_idx
-    )
-    val shift = smaller
+    // val smaller = Mux(last_valid_idx < first_taken_idx,
+    //   last_valid_idx,
+    //   first_taken_idx
+    // )
+
+    val shouldShiftVec = VecInit(br_valids.zipWithIndex.map{case (v, i) => v && !br_takens.take(i).reduceOption(_||_).getOrElse(false.B)})
+    // val shift = smaller
     val taken = br_takens.reduce(_||_)
-    update(ghr, ptr, shift, taken)
+    // update(ghr, ptr, shift, taken)
+    update(ghr, ptr, shouldShiftVec, taken)
   }
   def update(ghr: Vec[Bool], ptr: CGHPtr, resp: BranchPredictionBundle): AllFoldedHistories = {
     update(ghr, ptr, resp.preds.br_valids, resp.real_br_taken_mask)
@@ -254,7 +258,7 @@ abstract class BasePredictor(implicit p: Parameters) extends XSModule with HasBP
   val s2_pc       = RegEnable(s1_pc, io.s1_fire)
   val s3_pc       = RegEnable(s2_pc, io.s2_fire)
 
-  
+
   def getFoldedHistoryInfo: Option[Set[FoldedHistoryInfo]] = None
 }
 
@@ -328,7 +332,7 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   val s1_folded_gh = RegEnable(s0_folded_gh, 0.U.asTypeOf(s0_folded_gh), s0_fire)
   val s2_folded_gh = RegEnable(s1_folded_gh, 0.U.asTypeOf(s0_folded_gh), s1_fire)
   val s3_folded_gh = RegEnable(s2_folded_gh, 0.U.asTypeOf(s0_folded_gh), s2_fire)
-  
+
   val ghr = RegInit(0.U.asTypeOf(Vec(HistoryLength, Bool())))
   val ghr_wire = WireInit(ghr)
 
@@ -487,7 +491,7 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
     }
   }
   val s1_predicted_fh = s1_folded_gh.update(ghr, s1_ghist_ptr, resp.s1)
-  
+
 
   // XSDebug(p"[hit] ${resp.s1.preds.hit} [s1_real_br_taken_mask] ${Binary(resp.s1.real_br_taken_mask.asUInt)}\n")
   // XSDebug(p"s1_predicted_ghist=${Binary(s1_predicted_ghist.predHist)}\n")
@@ -517,7 +521,7 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   }
   val s2_predicted_fh = s2_folded_gh.update(ghr, s2_ghist_ptr, resp.s2)
   val previous_s1_pred = RegEnable(resp.s1, init=0.U.asTypeOf(resp.s1), s1_fire)
-  
+
   val s2_redirect_s1_last_pred = preds_needs_redirect(s1_last_pred, resp.s2)
   val s2_redirect_s0_last_pred = preds_needs_redirect(s0_last_pred_reg, resp.s2)
 
@@ -603,18 +607,19 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst {
   predictors.io.redirect := io.ftq_to_bpu.redirect
 
   when(io.ftq_to_bpu.redirect.valid) {
-    
+
     val shift = redirect.cfiUpdate.shift
+    val shouldShiftVec = Mux(shift === 0.U, VecInit(0.U((1 << (log2Ceil(numBr) + 1)).W).asBools), VecInit((LowerMask(1.U << (shift-1.U))).asBools()))
     val addIntoHist = redirect.cfiUpdate.addIntoHist
-    
+
     val isBr = redirect.cfiUpdate.pd.isBr
     val taken = redirect.cfiUpdate.taken
-    
+
     val oldPtr = redirect.cfiUpdate.histPtr
     val oldFh = redirect.cfiUpdate.folded_hist
     val updated_ptr = oldPtr - shift
     val updated_ghist = WireInit(getHist(updated_ptr).asTypeOf(Vec(HistoryLength, Bool())))
-    val updated_fh = oldFh.update(ghr, oldPtr, shift, taken && addIntoHist)
+    val updated_fh = oldFh.update(ghr, oldPtr, shouldShiftVec, taken && addIntoHist)
     for (i <- 0 until numBr) {
       when (shift >= (i+1).U) {
         updated_ghist(i) := taken && addIntoHist && (i==0).B

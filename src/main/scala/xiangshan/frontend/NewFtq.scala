@@ -184,13 +184,13 @@ class Ftq_Pred_Info(implicit p: Parameters) extends XSBundle {
 //   val rasEntry = new RASEntry
 //   val hist = new ShiftingGlobalHistory
 //   val specCnt = Vec(numBr, UInt(10.W))
-  
+
 //   val valids = Vec(PredictWidth, Bool())
 //   val brMask = Vec(PredictWidth, Bool())
 //   // isJalr, isCall, isRet
 //   val jmpInfo = ValidUndirectioned(Vec(3, Bool()))
 //   val jmpOffset = UInt(log2Ceil(PredictWidth).W)
-  
+
 //   val mispredVec = Vec(PredictWidth, Bool())
 //   val cfiIndex = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
 //   val target = UInt(VAddrBits.W)
@@ -294,7 +294,7 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBackendRedire
   // if not hit, establish a new entry
   init_entry.valid := true.B
   // tag is left for ftb to assign
-  
+
   // case br
   val init_br_slot = init_entry.getSlotForBr(0)
   when (cfi_is_br) {
@@ -365,7 +365,7 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBackendRedire
 
   // two circumstances:
   // 1. oe: | br | j  |, new br should be in front of j, thus addr of j should be new pft
-  // 2. oe: | br | br |, new br could be anywhere between, thus new pft is the addr of either 
+  // 2. oe: | br | br |, new br could be anywhere between, thus new pft is the addr of either
   //        the previous last br or the new br
   val may_have_to_replace = oe.noEmptySlotForNewBr
   val pft_need_to_change = is_new_br && may_have_to_replace
@@ -674,7 +674,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
       }.reduce(_||_) ||
       (shareTailSlot.B && tailSlot.valid && pred_ftb_entry.tailSlot.sharing &&
         !(pd_reg(tailSlot.offset).valid && pd_reg(tailSlot.offset).isBr))
-    
+
     val jmpOffset = tailSlot.offset
     val jmp_pd = pd_reg(jmpOffset)
     val jal_false_hit = pred_ftb_entry.jmpValid &&
@@ -984,10 +984,10 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
     val histPtr = commit_spec_meta.histPtr
     val predCycle = commit_meta.meta(63, 0)
     val target = commit_target
-    
+
     val brIdx = OHToUInt(Reverse(Cat(update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U})))
     val inFtbEntry = update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U}.reduce(_||_)
-    val addIntoHist = ((commit_hit === h_hit) && inFtbEntry) || ((!(commit_hit === h_hit) && i.U === commit_cfi.bits && isBr && commit_cfi.valid)) 
+    val addIntoHist = ((commit_hit === h_hit) && inFtbEntry) || ((!(commit_hit === h_hit) && i.U === commit_cfi.bits && isBr && commit_cfi.valid))
     XSDebug(v && do_commit && isCfi, p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
     p"taken(${isTaken}) mispred(${misPred}) cycle($predCycle) hist(${histPtr.value}) " +
     p"startAddr(${Hexadecimal(commit_pc_bundle.startAddr)}) AddIntoHist(${addIntoHist}) " +

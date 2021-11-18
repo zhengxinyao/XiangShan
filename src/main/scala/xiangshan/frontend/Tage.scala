@@ -275,12 +275,12 @@ class TageTable
   //   (idx, tag)
   // }
 
-  
+
   val idxFhInfo = (histLen, min(log2Ceil(nRows), histLen))
   val tagFhInfo = (histLen, min(histLen, tagLen))
   val altTagFhInfo = (histLen, min(histLen, tagLen-1))
   val allFhInfos = Seq(idxFhInfo, tagFhInfo, altTagFhInfo)
-  
+
   def getFoldedHistoryInfo = allFhInfos.filter(_._1 >0).toSet
   def compute_tag_and_hash(unhashed_idx: UInt, allFh: AllFoldedHistories) = {
     val idx_fh = allFh.getHistWithInfo(idxFhInfo).folded_hist
@@ -715,7 +715,7 @@ class Tage(implicit p: Parameters) extends BaseTage {
     }
 
     // update base table if used base table to predict
-    when (updateValid) { 
+    when (updateValid) {
       when(updateMeta.provider.valid) {
         when(~up_altpredhit && updateMisPred && (updateMeta.predcnt === 3.U || updateMeta.predcnt === 4.U)) {
         baseupdate(w) := true.B
@@ -732,7 +732,7 @@ class Tage(implicit p: Parameters) extends BaseTage {
       baseupdate(w) := false.B
     }
     updatebcnt(w) := updateMeta.basecnt
-  
+
     // if mispredicted and not the case that
     // provider offered correct target but used altpred due to unconfident
     when (updateValid && updateMisPred && ~((updateMeta.predcnt === 3.U && ~isUpdateTaken || updateMeta.predcnt === 4.U && isUpdateTaken) && updateMeta.provider.valid)) {
