@@ -49,6 +49,7 @@ class SCResp(val ctrBits: Int = 6)(implicit p: Parameters) extends SCBundle {
 
 class SCUpdate(val ctrBits: Int = 6)(implicit p: Parameters) extends SCBundle {
   val pc = UInt(VAddrBits.W)
+  val phist = UInt(PathHistoryLength.W)
   val folded_hist = new AllFoldedHistories(foldedGHistInfos)
   val mask = Bool()
   val oldCtr = SInt(ctrBits.W)
@@ -71,9 +72,9 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int)(implicit p: Pa
   val table = Module(new SRAMTemplate(SInt(ctrBits.W), set=nRows, way=2, shouldReset=true, holdRead=true, singlePort=false))
 
   val phistLen = PathHistoryLength
-  // def getIdx(hist: UInt, pc: UInt) = {
-  //   (compute_folded_ghist(hist, log2Ceil(nRows)) ^ (pc >> instOffsetBits))(log2Ceil(nRows)-1,0)
-  // }
+  def getIdx(hist: UInt, pc: UInt) = {
+    (compute_folded_ghist(hist, log2Ceil(nRows)) ^ (pc >> instOffsetBits))(log2Ceil(nRows)-1,0)
+  }
 
 
   val idxFhInfo = (histLen, min(log2Ceil(nRows), histLen))
@@ -93,7 +94,8 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int)(implicit p: Pa
 
   def ctrUpdate(ctr: SInt, cond: Bool): SInt = signedSatUpdate(ctr, ctrBits, cond)
 
-  val s0_idx = getIdx(io.req.bits.pc, io.req.bits.folded_hist)
+  // val s0_idx = getIdx(io.req.bits.pc, io.req.bits.folded_hist)
+  val s0_idx = getIdx(io.req.bits.phist, io.req.bits.pc)
   val s1_idx = RegEnable(s0_idx, enable=io.req.valid)
 
   table.io.r.req.valid := io.req.valid
@@ -105,7 +107,8 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int)(implicit p: Pa
   val updateWayMask =
       VecInit((0 to 1).map(io.update.mask && _.U === io.update.tagePred.asUInt)).asUInt
 
-  val update_idx = getIdx(io.update.pc, io.update.folded_hist)
+  // val update_idx = getIdx(io.update.pc, io.update.folded_hist)
+  val update_idx = getIdx(io.update.phist, io.update.pc)
 
   table.io.w.apply(
     valid = io.update.mask,
@@ -187,7 +190,7 @@ trait HasSC extends HasSCParameter { this: Tage =>
             req.valid := io.s0_fire
             req.bits.pc := s0_pc
             req.bits.folded_hist := io.in.bits.folded_hist
-            req.bits.phist := DontCare
+            req.bits.phist := io.in.bits.phist
             if (!EnableSC) {t.io.update := DontCare}
             t
           }
@@ -325,6 +328,7 @@ trait HasSC extends HasSCParameter { this: Tage =>
         bank_scTables(b)(i).io.update.taken    := RegNext(scUpdateTakens(b))
         bank_scTables(b)(i).io.update.oldCtr   := RegNext(scUpdateOldCtrs(b)(i))
         bank_scTables(b)(i).io.update.pc := RegNext(update.pc)
+        bank_scTables(b)(i).io.update.phist := RegNext(updatePhist)
         bank_scTables(b)(i).io.update.folded_hist := RegNext(updateFHist)
       }
     }

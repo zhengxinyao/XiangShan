@@ -220,28 +220,28 @@ class TageTable
   val wrBypassEntries = 8
   val phistLen = if (PathHistoryLength > histLen) histLen else PathHistoryLength
 
-  // def compute_tag_and_hash(unhashed_idx: UInt, hist: UInt, phist: UInt) = {
-  //   def F(phist: UInt, len: Int) = {
-  //     val lenMask = Fill(len, 1.U(1.W))
-  //     val rowMask = Fill(log2Ceil(nRows), 1.U(1.W))
-  //     val masked = phist & lenMask
-  //     val a1 = masked & rowMask
-  //     val a2 = masked >> log2Ceil(nRows)
-  //     val a3 = ((a2 << tableIdx) & rowMask) + (a2 >> (log2Ceil(nRows) - tableIdx))
-  //     val a4 = a1 ^ a3
-  //     val res = ((a3 << tableIdx) & rowMask) + (a3 >> (log2Ceil(nRows) - tableIdx))
-  //     res
-  //   }
-  //   val idx_history = compute_folded_ghist(hist, log2Ceil(nRows))
-  //   val idx_phist = F(phist, (if (PathHistoryLength > histLen) histLen else PathHistoryLength))
-  //   // val idx = (unhashed_idx ^ (unhashed_idx >> (log2Ceil(nRows)-tableIdx+1)) ^ idx_history ^ idx_phist)(log2Ceil(nRows) - 1, 0)
-  //   val idx = (unhashed_idx ^ idx_history)(log2Ceil(nRows) - 1, 0)
-  //   val tag_history = compute_folded_ghist(hist, tagLen)
-  //   val alt_tag_history = compute_folded_ghist(hist, tagLen-1)
-  //   // Use another part of pc to make tags
-  //   val tag = ((unhashed_idx >> log2Ceil(nRows)) ^ tag_history ^ (alt_tag_history << 1)) (tagLen - 1, 0)
-  //   (idx, tag)
-  // }
+  def compute_tag_and_hash(unhashed_idx: UInt, hist: UInt, phist: UInt) = {
+    def F(phist: UInt, len: Int) = {
+      val lenMask = Fill(len, 1.U(1.W))
+      val rowMask = Fill(log2Ceil(nRows), 1.U(1.W))
+      val masked = phist & lenMask
+      val a1 = masked & rowMask
+      val a2 = masked >> log2Ceil(nRows)
+      val a3 = ((a2 << tableIdx) & rowMask) + (a2 >> (log2Ceil(nRows) - tableIdx))
+      val a4 = a1 ^ a3
+      val res = ((a3 << tableIdx) & rowMask) + (a3 >> (log2Ceil(nRows) - tableIdx))
+      res
+    }
+    val idx_history = compute_folded_ghist(hist, log2Ceil(nRows))
+    val idx_phist = F(phist, (if (PathHistoryLength > histLen) histLen else PathHistoryLength))
+    // val idx = (unhashed_idx ^ (unhashed_idx >> (log2Ceil(nRows)-tableIdx+1)) ^ idx_history ^ idx_phist)(log2Ceil(nRows) - 1, 0)
+    val idx = (unhashed_idx ^ idx_history)(log2Ceil(nRows) - 1, 0)
+    val tag_history = compute_folded_ghist(hist, tagLen)
+    val alt_tag_history = compute_folded_ghist(hist, tagLen-1)
+    // Use another part of pc to make tags
+    val tag = ((unhashed_idx >> log2Ceil(nRows)) ^ tag_history ^ (alt_tag_history << 1)) (tagLen - 1, 0)
+    (idx, tag)
+  }
 
 
   val idxFhInfo = (histLen, min(log2Ceil(nRows), histLen))
@@ -284,7 +284,8 @@ class TageTable
   val table  = Module(new SRAMTemplate(new TageEntry, set=nRows, way=1, shouldReset=true, holdRead=true, singlePort=false))
 
 
-  val (s0_idx, s0_tag) = compute_tag_and_hash(req_unhashed_idx, io.req.bits.folded_hist)
+  // val (s0_idx, s0_tag) = compute_tag_and_hash(req_unhashed_idx, io.req.bits.folded_hist)
+  val (s0_idx, s0_tag) = compute_tag_and_hash(req_unhashed_idx, io.req.bits.phist, io.req.bits.phist)
 
   table.io.r.req.valid := io.req.valid
   table.io.r.req.bits.setIdx := s0_idx
@@ -322,8 +323,8 @@ class TageTable
   // Use fetchpc to compute hash
   val update_wdata = Wire(new TageEntry)
 
-  // val (update_idx, update_tag) =  compute_tag_and_hash(getUnhashedIdx(io.update.pc), io.update.hist, io.update.phist)
-  val (update_idx, update_tag) =  compute_tag_and_hash(getUnhashedIdx(io.update.pc), io.update.folded_hist)
+  val (update_idx, update_tag) =  compute_tag_and_hash(getUnhashedIdx(io.update.pc), io.update.phist, io.update.phist)
+  // val (update_idx, update_tag) =  compute_tag_and_hash(getUnhashedIdx(io.update.pc), io.update.folded_hist)
 
   table.io.w.apply(
     valid = io.update.mask,

@@ -60,7 +60,7 @@ case class XSCoreParameters
   EnableJal: Boolean = false,
   EnableUBTB: Boolean = true,
   HistoryLength: Int = 256,
-  PathHistoryLength: Int = 16,
+  PathHistoryLength: Int = 130,
   BtbSize: Int = 2048,
   JbtacSize: Int = 1024,
   JbtacBanks: Int = 8,
@@ -70,12 +70,12 @@ case class XSCoreParameters
   BtbWays: Int = 2,
   TageTableInfos: Seq[Tuple3[Int,Int,Int]] =
   //       Sets  Hist   Tag
-    Seq(( 128*8,    2,    7),
-        ( 128*8,    4,    7),
-        ( 256*8,    8,    8),
-        ( 256*8,   16,    8),
-        ( 128*8,   32,    9),
-        ( 128*8,   65,    9)),
+    Seq(( 128*8,  2*2,    7),
+        ( 128*8,  4*2,    7),
+        ( 256*8,  8*2,    8),
+        ( 256*8, 16*2,    8),
+        ( 128*8, 32*2,    9),
+        ( 128*8, 65*2,    9)),
   TageBanks: Int = 2,
   ITTageTableInfos: Seq[Tuple3[Int,Int,Int]] =
   //      Sets  Hist   Tag
