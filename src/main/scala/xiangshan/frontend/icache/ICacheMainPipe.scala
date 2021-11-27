@@ -106,7 +106,8 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   val io = IO(new ICacheMainPipeInterface)
 
   val (fromIFU, toIFU)    = (io.fetch.map(_.req), io.fetch.map(_.resp))
-  val (toMeta, toData, metaResp, dataResp) =  (io.metaArray.toIMeta, io.dataArray.toIData, io.metaArray.fromIMeta, io.dataArray.fromIData)
+  val (toMeta, metaResp)  = (io.metaArray.toIMeta, io.metaArray.fromIMeta)
+  val (toData, dataResp)  = (io.dataArray.toIData,  io.dataArray.fromIData)
   val (toMSHR, fromMSHR)  = (io.mshr.map(_.toMSHR), io.mshr.map(_.fromMSHR))
   val (toITLB, fromITLB)  = (io.itlb.map(_.req), io.itlb.map(_.resp))
   val (toPMP,  fromPMP)   = (io.pmp.map(_.req), io.pmp.map(_.resp))
@@ -133,9 +134,6 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   //  * Hit Check (Generate hit signal and hit vector)
   //  * Get victim way
   //---------------------------------------------
-  val tlbRespMiss  = fromITLB.map(port => port.bits.miss)
-  val tlbRespAllHit =  WireInit(false.B)
-
   //Stage 1
   val s0_valid       = fromIFU.map(_.valid).reduce(_||_)
   val s0_req_vaddr   = VecInit(fromIFU.map(_.bits.vaddr))
@@ -143,8 +141,7 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   val s0_only_fisrt  = fromIFU(0).valid && !fromIFU(0).valid
   val s0_double_line = fromIFU(0).valid && fromIFU(1).valid
 
-  s0_fire        := s0_valid && tlbRespAllHit && s1_ready
-  tlbRespAllHit  := !tlbRespMiss(0)  && (!tlbRespMiss(1) || !s0_double_line)
+  s0_fire        := s0_valid && s1_ready
 
   //fetch: send addr to Meta/TLB and Data simultaneously
   val fetch_req = List(toMeta, toData)

@@ -36,22 +36,6 @@ trait HasIFUConst extends HasXSParameter {
   def fetchQueueSize = 2
 }
 
-class IfuPtr(implicit p: Parameters) extends CircularQueuePtr[IfuPtr](entries = 2){
-  override def cloneType = (new IfuPtr).asInstanceOf[this.type]
-}
-
-object IfuPtr {
-  def apply(f: Bool, v: UInt)(implicit p: Parameters): IfuPtr = {
-    val ptr = Wire(new IfuPtr)
-    ptr.flag := f
-    ptr.value := v
-    ptr
-  }
-  def inverse(ptr: IfuPtr)(implicit p: Parameters): IfuPtr = {
-    apply(!ptr.flag, ptr.value)
-  }
-}
-
 class IfuToFtqIO(implicit p:Parameters) extends XSBundle {
   val pdWb = Valid(new PredecodeWritebackBundle)
 }
@@ -85,20 +69,6 @@ class LastHalfInfo(implicit p: Parameters) extends XSBundle {
   def matchThisBlock(startAddr: UInt) = valid && middlePC === startAddr
 }
 
-//class IfuToPreDecode(implicit p: Parameters) extends XSBundle {
-//  val data          = if(HasCExtension) Vec(PredictWidth + 1, UInt(16.W)) else Vec(PredictWidth, UInt(32.W))
-//  val startAddr     = UInt(VAddrBits.W)
-//  val fallThruAddr  = UInt(VAddrBits.W)
-//  val fallThruError = Bool()
-//  val isDoubleLine  = Bool()
-//  val ftqOffset     = Valid(UInt(log2Ceil(PredictWidth).W))
-//  val target        = UInt(VAddrBits.W)
-//  val pageFault     = Vec(2, Bool())
-//  val accessFault   = Vec(2, Bool())
-//  val instValid     = Bool()
-//  val lastHalfMatch = Bool()
-//  val oversize      = Bool()
-//}
 
 class IfuToPreDecode(implicit p: Parameters) extends XSBundle {
   val data                =  if(HasCExtension) Vec(PredictWidth + 1, UInt(16.W)) else Vec(PredictWidth, UInt(32.W))
@@ -457,7 +427,7 @@ with HasCircularQueuePtrHelper
   checkerIn.pc          := f3_pc
 
 
-  io.toIbuffer.valid            := f3_valid && (!f3_req_is_mmio || f3_mmio_can_go)
+  io.toIbuffer.valid            := f3_valid && (!f3_req_is_mmio || f3_mmio_can_go) && !wb_redirect
   io.toIbuffer.bits.instrs      := f3_expd_instr
   io.toIbuffer.bits.valid       := f3_instr_valid
   io.toIbuffer.bits.enqEnable   := Mux(f3_req_is_mmio, f3_mmio_range.asUInt, checkerOut.fixedRange.asUInt & f3_instr_valid)    //to ibuffer.wen
@@ -533,7 +503,7 @@ with HasCircularQueuePtrHelper
   checkFlushWb.bits.jalTarget  := wb_check_result.fixedTarget(ParallelPriorityEncoder(VecInit(wb_pd.map{pd => pd.isJal })))
   checkFlushWb.bits.instrRange := wb_instr_range.asTypeOf(Vec(PredictWidth, Bool()))
 
-
+ 
   toFtq.pdWb := Mux(f3_req_is_mmio, mmioFlushWb,  checkFlushWb)
 
   wb_redirect := checkFlushWb.bits.misOffset.valid && wb_valid
