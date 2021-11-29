@@ -22,7 +22,7 @@ import chisel3.util._
 import freechips.rocketchip.diplomacy.{IdRange, LazyModule, LazyModuleImp, TransferSizes}
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util.BundleFieldBase
-import huancun.{AliasField, PreferCacheField, PrefetchField}
+import huancun.{AliasField, PreferCacheField, PrefetchField,DirtyField}
 import xiangshan._
 import xiangshan.frontend._
 import xiangshan.cache._
@@ -50,6 +50,7 @@ case class ICacheParameters(
     PrefetchField(),
     PreferCacheField()
   ) ++ aliasBitsOpt.map(AliasField)
+  val echoFields: Seq[BundleFieldBase] = Seq(DirtyField())
   def tagCode: Code = Code.fromString(tagECC)
   def dataCode: Code = Code.fromString(dataECC)
   def replacement = ReplacementPolicy.fromString(replacer,nWays,nSets)
@@ -415,7 +416,8 @@ class ICache()(implicit p: Parameters) extends LazyModule with HasICacheParamete
       sourceId = IdRange(0, cacheParams.nMissEntries + cacheParams.nReleaseEntries),
       supportsProbe = TransferSizes(blockBytes)
     )),
-    requestFields = cacheParams.reqFields
+    requestFields = cacheParams.reqFields,
+    echoFields = cacheParams.echoFields
   )
 
   val clientNode = TLClientNode(Seq(clientParameters))

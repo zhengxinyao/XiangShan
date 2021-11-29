@@ -271,7 +271,6 @@ trait HasXSParameter {
   val env = p(DebugOptionsKey)
 
   val XLEN = coreParams.XLEN
-  val hardId = coreParams.HartId
   val minFLen = 32
   val fLen = 64
   def xLen = XLEN
@@ -366,8 +365,6 @@ trait HasXSParameter {
   val PhyRegIdxWidth = log2Up(NRPhyRegs)
   val RobSize = coreParams.RobSize
   val IntRefCounterWidth = log2Ceil(RobSize)
-  val StdFreeListSize = NRPhyRegs - 32
-  val MEFreeListSize = NRPhyRegs
   val LoadQueueSize = coreParams.LoadQueueSize
   val StoreQueueSize = coreParams.StoreQueueSize
   val dpParams = coreParams.dpParams

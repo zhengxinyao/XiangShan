@@ -19,6 +19,7 @@ package xiangshan.frontend.icache
 import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
+import freechips.rocketchip.tilelink.ClientStates
 import xiangshan._
 import xiangshan.cache.mmu._
 import utils._
@@ -238,7 +239,6 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
     io.setInfor.s1(i).valid := s1_bank_miss(i) 
     io.setInfor.s1(i).vidx  := s1_req_vsetIdx(i)
   }
-
 
   assert(PopCount(s1_tag_match_vec(0)) <= 1.U && PopCount(s1_tag_match_vec(1)) <= 1.U, "Multiple hit in main pipe")
 
@@ -541,7 +541,8 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
     toRealseUnit(i).bits.addr      := get_block_addr(Cat(s2_victim_tag(i), get_untag(s2_req_vaddr(i))) )
     toRealseUnit(i).bits.param     := s2_victim_coh(i).onCacheControl(M_FLUSH)._2
     toRealseUnit(i).bits.voluntary := true.B
-    toRealseUnit(i).bits.hasData   := false.B
+    toRealseUnit(i).bits.hasData   := s2_victim_coh(i) === ClientStates.Dirty
+    toRealseUnit(i).bits.dirty     := s2_victim_coh(i) === ClientStates.Dirty
     toRealseUnit(i).bits.data      := s2_victim_data(i)
     toRealseUnit(i).bits.waymask   := s2_waymask(i)
     toRealseUnit(i).bits.vidx      := s2_req_vsetIdx(i)

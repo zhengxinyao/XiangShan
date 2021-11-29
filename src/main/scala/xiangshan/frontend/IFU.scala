@@ -113,6 +113,7 @@ with HasCircularQueuePtrHelper
   val (checkerIn, checkerOut)   = (predChecker.io.in, predChecker.io.out)
 
 
+
   //---------------------------------------------
   //  Fetch Stage 1 :
   //  * Send req to ICache Meta/Data
@@ -173,8 +174,6 @@ with HasCircularQueuePtrHelper
   .elsewhen(f1_fire)              {f1_valid  := false.B}
 
   val f1_pc                 = VecInit((0 until PredictWidth).map(i => f1_ftq_req.startAddr + (i * 2).U))
-
-
   //---------------------------------------------
   //  Fetch Stage 2 :
   //  * Send req to ITLB and TLB Response (Get Paddr)
@@ -293,8 +292,6 @@ with HasCircularQueuePtrHelper
   val f3_situation      = RegEnable(next = f2_situation,  enable=f2_fire)
   val f3_doubleLine     = RegEnable(next = f2_doubleLine, enable=f2_fire)
   val f3_fire           = io.toIbuffer.fire()
-
-  f3_ready := io.toIbuffer.ready || !f3_valid
 
   val f3_cut_data       = RegEnable(next = f2_cut_data, enable=f2_fire)
 
@@ -516,6 +513,7 @@ with HasCircularQueuePtrHelper
   val f3_hit_0    = io.toIbuffer.fire() && f3_perf_info.bank_hit(0)
   val f3_hit_1    = io.toIbuffer.fire() && f3_doubleLine & f3_perf_info.bank_hit(1)
   val f3_hit      = f3_perf_info.hit
+
 
   val perfinfo = IO(new Bundle(){
     val perfEvents = Output(new PerfEventsBundle(15))
