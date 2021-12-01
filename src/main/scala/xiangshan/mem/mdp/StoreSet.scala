@@ -238,9 +238,15 @@ class SSIT(implicit p: Parameters) extends XSModule {
         )
         when(ssidIsSame){
           data_sram.io.wdata(SSIT_UPDATE_LOAD_READ_PORT).strict := true.B
-          debug_strict(memPredUpdateReqReg.ldpc) := false.B
+          debug_strict(memPredUpdateReqReg.ldpc) := true.B
         }
       }
+    }
+    // make SyncDataModuleTemplate happy
+    // disable STORE_WRITE_PORT when hash(ldpc) === hash(stpc)
+    when(memPredUpdateReqReg.ldpc === memPredUpdateReqReg.stpc){
+      valid_sram.io.wen(SSIT_UPDATE_STORE_WRITE_PORT) := false.B
+      data_sram.io.wen(SSIT_UPDATE_STORE_WRITE_PORT) := false.B
     }
   }
 
