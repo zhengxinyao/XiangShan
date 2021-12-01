@@ -211,7 +211,7 @@ with HasCircularQueuePtrHelper
   .elsewhen(f1_fire && !f1_flush) {f2_valid := true.B }
   .elsewhen(f2_fire)              {f2_valid := false.B}
 
-  val f2_cache_response_data = ResultHoldBypass(valid = f2_icache_all_resp_wire, data = VecInit(fromICache.map(_.bits.readData)))
+  val f2_cache_response_data = VecInit(fromICache.map(_.bits.readData))
 
   def isNextLine(pc: UInt, startAddr: UInt) = {
     startAddr(blockOffBits) ^ pc(blockOffBits)
