@@ -174,12 +174,6 @@ class FTBEntry(implicit p: Parameters) extends XSBundle with FTBParams with BPUU
     
   def brIsSaved(offset: UInt) = getBrRecordedVec(offset).reduce(_||_)
 
-  def onNotHit(pc: UInt) = {
-    pftAddr := pc(instOffsetBits + log2Ceil(PredictWidth), instOffsetBits) ^ (1 << log2Ceil(PredictWidth)).U
-    carry := pc(instOffsetBits + log2Ceil(PredictWidth)).asBool
-    oversize := false.B
-  }
-
   def brValids = {
     VecInit(
       brSlots.map(_.valid) ++
@@ -240,7 +234,7 @@ class FTBEntryWithTag(implicit p: Parameters) extends XSBundle with FTBParams wi
 class FTBMeta(implicit p: Parameters) extends XSBundle with FTBParams {
   val writeWay = UInt(log2Ceil(numWays).W)
   val hit = Bool()
-  val pred_cycle = UInt(64.W) // TODO: Use Option
+  val pred_cycle = if (!env.FPGAPlatform) Some(UInt(64.W)) else None
 }
 
 object FTBMeta {
@@ -248,7 +242,7 @@ object FTBMeta {
     val e = Wire(new FTBMeta)
     e.writeWay := writeWay
     e.hit := hit
-    e.pred_cycle := pred_cycle
+    e.pred_cycle.map(_ := pred_cycle)
     e
   }
 }
@@ -320,13 +314,13 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
     val total_hits = VecInit((0 until numWays).map(b => read_tags(b) === req_tag && read_entries(b).valid && io.s1_fire))
     val hit = total_hits.reduce(_||_)
     // val hit_way_1h = VecInit(PriorityEncoderOH(total_hits))
-    val hit_way = PriorityEncoder(total_hits)
+    val hit_way = OHToUInt(total_hits)
 
     val u_total_hits = VecInit((0 until numWays).map(b =>
         ftb.io.r.resp.data(b).tag === u_req_tag && ftb.io.r.resp.data(b).entry.valid && RegNext(io.update_access)))
     val u_hit = u_total_hits.reduce(_||_)
     // val hit_way_1h = VecInit(PriorityEncoderOH(total_hits))
-    val u_hit_way = PriorityEncoder(u_total_hits)
+    val u_hit_way = OHToUInt(u_total_hits)
 
     assert(PopCount(total_hits) === 1.U || PopCount(total_hits) === 0.U)
     assert(PopCount(u_total_hits) === 1.U || PopCount(u_total_hits) === 0.U)
@@ -381,7 +375,7 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
       }
     }
 
-    io.read_resp := PriorityMux(total_hits, read_entries) // Mux1H
+    io.read_resp := Mux1H(total_hits, read_entries) // Mux1H
     io.read_hits.valid := hit
     // io.read_hits.bits := Mux(hit, hit_way_1h, VecInit(UIntToOH(allocWriteWay).asBools()))
     io.read_hits.bits := hit_way
@@ -407,7 +401,7 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
     ftb.io.w.apply(u_valid, u_data, u_idx, u_mask)
 
     // print hit entry info
-    PriorityMux(total_hits, ftb.io.r.resp.data).display(true.B)
+    Mux1H(total_hits, ftb.io.r.resp.data).display(true.B)
   } // FTBBank
 
   val ftbBank = Module(new FTBBank(numSets, numWays))
@@ -433,10 +427,6 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
   io.out.resp.s2.preds.fromFtbEntry(ftb_entry, s2_pc)
 
   io.out.s3_meta := RegEnable(RegEnable(FTBMeta(writeWay.asUInt(), s1_hit, GTimer()).asUInt(), io.s1_fire), io.s2_fire)
-
-  when(!s2_hit) {
-    io.out.resp.s2.ftb_entry.onNotHit(s2_pc)
-  }
 
   // always taken logic
   when (s2_hit) {
