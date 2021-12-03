@@ -531,8 +531,8 @@ class ICacheImp(outer: ICache) extends LazyModuleImp(outer) with HasICacheParame
   val probeReqVidx  = get_idx(probe.io.req.bits.vaddr)
 
   //send to probe state machine and cancel the probe
-  val probe_need_merge = VecInit(hasVictim.zip(victimSetSeq).zip(victimTagSeq).map{case((valid, idx), tag) =>  valid && probeReqValid && idx === probeReqVidx && tag === probeReqPtag}).reduce(_||_)
-  probe.io.probe_should_merge := RegNext(probe_need_merge)
+  // val probe_need_merge = VecInit(hasVictim.zip(victimSetSeq).zip(victimTagSeq).map{case((valid, idx), tag) =>  valid && probeReqValid && idx === probeReqVidx && tag === probeReqPtag}).reduce(_||_)
+  probe.io.probe_should_merge := DontCare//RegNext(probe_need_merge)
 
    val hasMiss = VecInit(Seq(
     mainpipe.io.setInfor.s1(0).valid,
@@ -559,7 +559,7 @@ class ICacheImp(outer: ICache) extends LazyModuleImp(outer) with HasICacheParame
 
 
   //raise a flag to inform the MissUnit you have a merged Probe
-  releaseUnit.io.probeMerge.valid := probe_need_merge
+  releaseUnit.io.probeMerge.valid := DontCare//probe_need_merge
   releaseUnit.io.probeMerge.bits.valid := DontCare
   releaseUnit.io.probeMerge.bits.ptag  := probeReqPtag
   releaseUnit.io.probeMerge.bits.vidx  := probeReqVidx

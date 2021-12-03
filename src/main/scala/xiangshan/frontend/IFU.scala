@@ -436,7 +436,7 @@ with HasCircularQueuePtrHelper
   io.toIbuffer.bits.ipf         := f3_pf_vec
   io.toIbuffer.bits.acf         := f3_af_vec
   io.toIbuffer.bits.crossPageIPFFix := f3_crossPageFault
-  io.toIbuffer.bits.triggered   := f2_triggered
+  io.toIbuffer.bits.triggered   := DontCare//f2_triggered
 
   //MMIO write back and flush
   val f3_cache_fetch = f3_valid && !(f2_fire && !f2_flush)

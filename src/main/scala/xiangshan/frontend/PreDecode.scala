@@ -122,10 +122,11 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
     tdata(io.in.frontendTrigger.t.bits.addr) := io.in.frontendTrigger.t.bits.tdata
   }
   io.out.triggered.map{i => i := 0.U.asTypeOf(new TriggerCf)}
-  val triggerEnable = RegInit(VecInit(Seq.fill(4)(false.B))) // From CSR, controlled by priv mode, etc.
-  triggerEnable := io.in.csrTriggerEnable
-  val triggerMapping = Map(0 -> 0, 1 -> 1, 2 -> 6, 3 -> 8)
-  val chainMapping = Map(0 -> 0, 2 -> 3, 3 -> 4)
+  // val triggerEnable = RegInit(VecInit(Seq.fill(4)(false.B))) // From CSR, controlled by priv mode, etc.
+  // triggerEnable := io.in.csrTriggerEnable
+  // val triggerMapping = Map(0 -> 0, 1 -> 1, 2 -> 6, 3 -> 8)
+  // val chainMapping = Map(0 -> 0, 2 -> 3, 3 -> 4)
+
 
   for (i <- 0 until PredictWidth) {
     val inst           =WireInit(rawInsts(i))
@@ -142,16 +143,13 @@ class PreDecode(implicit p: Parameters) extends XSModule with HasPdConst{
     validStart(i)   := (lastIsValidEnd || !HasCExtension.B)
     validEnd(i)     := validStart(i) && currentIsRVC || !validStart(i) || !HasCExtension.B
 
-    io.out.triggered(i).triggerTiming   := DontCare//VecInit(Seq.fill(10)(false.B))
-    io.out.triggered(i).triggerHitVec   := DontCare//VecInit(Seq.fill(10)(false.B))
-    io.out.triggered(i).triggerChainVec := DontCare//VecInit(Seq.fill(5)(false.B))
-    for (j <- 0 until 4) {
-      val hit = Mux(tdata(j).select, TriggerCmp(Mux(currentIsRVC, inst(15, 0), inst), tdata(j).tdata2, tdata(j).matchType, triggerEnable(j)),
-        TriggerCmp(currentPC, tdata(j).tdata2, tdata(j).matchType, triggerEnable(j)))
-      io.out.triggered(i).triggerHitVec(triggerMapping(j)) := hit
-      io.out.triggered(i).triggerTiming(triggerMapping(j)) := hit && tdata(j).timing
-      if(chainMapping.contains(j)) io.out.triggered(i).triggerChainVec(chainMapping(j)) := hit && tdata(j).chain
-    }
+    // for (j <- 0 until 4) {
+    //   val hit = Mux(tdata(j).select, TriggerCmp(Mux(currentIsRVC, inst(15, 0), inst), tdata(j).tdata2, tdata(j).matchType, triggerEnable(j)),
+    //     TriggerCmp(currentPC, tdata(j).tdata2, tdata(j).matchType, triggerEnable(j)))
+    //   io.out.triggered(i).triggerHitVec(triggerMapping(j)) := hit
+    //   io.out.triggered(i).triggerTiming(triggerMapping(j)) := hit && tdata(j).timing
+    //   if(chainMapping.contains(j)) io.out.triggered(i).triggerChainVec(chainMapping(j)) := hit && tdata(j).chain
+    // }
 
     io.out.pd(i).valid         := validStart(i)
     io.out.pd(i).isRVC         := currentIsRVC
