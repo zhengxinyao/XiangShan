@@ -102,6 +102,7 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
 
   //IFU-Ftq
   ifu.io.ftqInter <> io.ftqInter
+  dontTouch(ifu.io.ftqInter)
   //IFU-ICache
   for(i <- 0 until 2){
     ifu.io.icacheInter(i).req       <>      icache.io.fetch(i).req
