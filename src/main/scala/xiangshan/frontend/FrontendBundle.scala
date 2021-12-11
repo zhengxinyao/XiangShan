@@ -46,8 +46,8 @@ class FetchRequestBundle(implicit p: Parameters) extends XSBundle {
     this.startAddr := resp.pc
     this.target := resp.target
     this.ftqOffset := resp.genCfiIndex
-    this.fallThruAddr := resp.fallThroughAddr
-    this.oversize := resp.ftb_entry.oversize
+    this.fallThruAddr := resp.preds.fallThroughAddr
+    this.oversize := resp.preds.oversize
     this
   }
   override def toPrintable: Printable = {
@@ -284,6 +284,9 @@ class BranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUConst
   val slot_valids = Vec(totalSlot, Bool())
 
   val targets = Vec(totalSlot, UInt(VAddrBits.W))
+  val offsets = Vec(totalSlot, UInt(log2Ceil(PredictWidth).W))
+  val fallThroughAddr = UInt(VAddrBits.W)
+  val oversize = Bool()
 
   val is_jal = Bool()
   val is_jalr = Bool()
@@ -324,11 +327,27 @@ class BranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUConst
   def fromFtbEntry(entry: FTBEntry, pc: UInt) = {
     slot_valids := entry.brSlots.map(_.valid) :+ entry.tailSlot.valid
     targets := entry.getTargetVec(pc)
+    offsets := entry.getOffsetVec
+    fallThroughAddr := entry.getFallThrough(pc)
+    oversize := entry.oversize
     is_jal := entry.tailSlot.valid && entry.isJal
     is_jalr := entry.tailSlot.valid && entry.isJalr
     is_call := entry.tailSlot.valid && entry.isCall
     is_ret := entry.tailSlot.valid && entry.isRet
     is_br_sharing := entry.tailSlot.valid && entry.tailSlot.sharing
+  }
+
+  def fromMicroBTBEntry(entry: MicroBTBEntry) = {
+    slot_valids := entry.slot_valids
+    targets := entry.targets
+    offsets := entry.offsets
+    fallThroughAddr := entry.fallThroughAddr
+    oversize := entry.oversize
+    is_jal := DontCare
+    is_jalr := DontCare
+    is_call := DontCare
+    is_ret := DontCare
+    is_br_sharing := entry.last_is_br
   }
   // override def toPrintable: Printable = {
   //   p"-----------BranchPrediction----------- " +
@@ -412,19 +431,32 @@ class BranchPredictionBundle(implicit p: Parameters) extends XSBundle with HasBP
   def hit_taken_on_ret  = hit_taken_on_jmp && preds.is_ret
   def hit_taken_on_jalr = hit_taken_on_jmp && preds.is_jalr
 
-  def fallThroughAddr = getFallThroughAddr(pc, ftb_entry.carry, ftb_entry.pftAddr)
-
   def target(): UInt = {
-    val targetVec = preds.targets :+ fallThroughAddr :+ (pc + (FetchWidth*4).U)
-    val selVec = real_slot_taken_mask() :+ (preds.hit && !real_slot_taken_mask().asUInt.orR) :+ true.B
-    PriorityMux(selVec zip targetVec)
+    val targetVecOnHit = preds.targets :+ preds.fallThroughAddr
+    val targetOnNotHit = pc + (FetchWidth * 4).U
+    val taken_mask = preds.taken_mask_on_slot
+    val selVecOHOnHit =
+      taken_mask.zipWithIndex.map{ case (t, i) => !taken_mask.take(i).fold(false.B)(_||_) && t} :+ !taken_mask.asUInt.orR
+    val targetOnHit = Mux1H(selVecOHOnHit, targetVecOnHit)
+    Mux(preds.hit, targetOnHit, targetOnNotHit)
   }
+
+  def targetDiffFrom(addr: UInt) = {
+    val targetVec = preds.targets :+ preds.fallThroughAddr :+ (pc + (FetchWidth*4).U)
+    val taken_mask = preds.taken_mask_on_slot
+    val selVecOH =
+      taken_mask.zipWithIndex.map{ case (t, i) => !taken_mask.take(i).fold(false.B)(_||_) && t && preds.hit} :+
+      (!taken_mask.asUInt.orR && preds.hit) :+ !preds.hit
+    val diffVec = targetVec map (_ =/= addr)
+    Mux1H(selVecOH, diffVec)
+  }
+
   def genCfiIndex = {
     val cfiIndex = Wire(ValidUndirectioned(UInt(log2Ceil(PredictWidth).W)))
     cfiIndex.valid := real_slot_taken_mask().asUInt.orR
     // when no takens, set cfiIndex to PredictWidth-1
     cfiIndex.bits :=
-      ParallelPriorityMux(real_slot_taken_mask(), ftb_entry.getOffsetVec) |
+      ParallelPriorityMux(real_slot_taken_mask(), preds.offsets) |
       Fill(log2Ceil(PredictWidth), (!real_slot_taken_mask().asUInt.orR).asUInt)
     cfiIndex
   }
@@ -442,21 +474,18 @@ class BranchPredictionResp(implicit p: Parameters) extends XSBundle with HasBPUC
   // val valids = Vec(3, Bool())
   val s1 = new BranchPredictionBundle()
   val s2 = new BranchPredictionBundle()
-  val s3 = new BranchPredictionBundle()
 
   def selectedResp =
     PriorityMux(Seq(
-      ((s3.valid && s3.hasRedirect) -> s3),
       ((s2.valid && s2.hasRedirect) -> s2),
       (s1.valid -> s1)
     ))
   def selectedRespIdx =
     PriorityMux(Seq(
-      ((s3.valid && s3.hasRedirect) -> BP_S3),
       ((s2.valid && s2.hasRedirect) -> BP_S2),
       (s1.valid -> BP_S1)
     ))
-  def lastStage = s3
+  def lastStage = s2
 }
 
 class BpuToFtqBundle(implicit p: Parameters) extends BranchPredictionResp with HasBPUConst {
@@ -468,7 +497,6 @@ object BpuToFtqBundle {
     val e = Wire(new BpuToFtqBundle())
     e.s1 := resp.s1
     e.s2 := resp.s2
-    e.s3 := resp.s3
 
     e.meta := DontCare
     e

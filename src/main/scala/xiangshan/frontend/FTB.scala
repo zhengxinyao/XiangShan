@@ -29,7 +29,7 @@ import os.copy
 
 
 trait FTBParams extends HasXSParameter with HasBPUConst {
-  val numEntries = 4096
+  val numEntries = 2048
   val numWays    = 4
   val numSets    = numEntries/numWays // 512
   val tagSize    = 20
@@ -234,7 +234,7 @@ class FTBEntryWithTag(implicit p: Parameters) extends XSBundle with FTBParams wi
 class FTBMeta(implicit p: Parameters) extends XSBundle with FTBParams {
   val writeWay = UInt(log2Ceil(numWays).W)
   val hit = Bool()
-  val pred_cycle = UInt(64.W) // TODO: Use Option
+  val pred_cycle = if (!env.FPGAPlatform) Some(UInt(64.W)) else None
 }
 
 object FTBMeta {
@@ -242,7 +242,7 @@ object FTBMeta {
     val e = Wire(new FTBMeta)
     e.writeWay := writeWay
     e.hit := hit
-    e.pred_cycle := pred_cycle
+    e.pred_cycle.map(_ := pred_cycle)
     e
   }
 }
@@ -427,7 +427,7 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
   io.out.resp.s2.ftb_entry           := ftb_entry
   io.out.resp.s2.preds.fromFtbEntry(ftb_entry, s2_pc)
 
-  io.out.s3_meta := RegEnable(RegEnable(FTBMeta(writeWay.asUInt(), s1_hit, GTimer()).asUInt(), io.s1_fire), io.s2_fire)
+  io.out.last_stage_meta := RegEnable(FTBMeta(writeWay.asUInt(), s1_hit, GTimer()).asUInt(), io.s1_fire)
 
   // always taken logic
   when (s2_hit) {

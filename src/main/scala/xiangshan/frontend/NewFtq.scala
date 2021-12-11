@@ -93,16 +93,21 @@ class Ftq_RF_Components(implicit p: Parameters) extends XSBundle with BPUUtils {
     startLower >= endLowerwithCarry || (endLowerwithCarry - startLower) > (PredictWidth+1).U
   }
   def fromBranchPrediction(resp: BranchPredictionBundle) = {
+    def carryPos(addr: UInt) = addr(instOffsetBits+log2Ceil(PredictWidth)+1)
     this.startAddr := resp.pc
     this.nextRangeAddr := resp.pc + (FetchWidth * 4 * 2).U
     this.pftAddr :=
-      Mux(resp.preds.hit, resp.ftb_entry.pftAddr,
+      Mux(resp.preds.hit, resp.preds.fallThroughAddr(instOffsetBits+log2Ceil(PredictWidth),instOffsetBits),
         resp.pc(instOffsetBits + log2Ceil(PredictWidth), instOffsetBits) ^ (1 << log2Ceil(PredictWidth)).U)
     this.isNextMask := VecInit((0 until PredictWidth).map(i =>
       (resp.pc(log2Ceil(PredictWidth), 1) +& i.U)(log2Ceil(PredictWidth)).asBool()
     ))
-    this.oversize := Mux(resp.preds.hit, resp.ftb_entry.oversize, false.B)
-    this.carry := Mux(resp.preds.hit, resp.ftb_entry.carry, resp.pc(instOffsetBits + log2Ceil(PredictWidth)).asBool)
+    this.oversize := Mux(resp.preds.hit, resp.preds.oversize, false.B)
+    this.carry :=
+      Mux(resp.preds.hit,
+        carryPos(resp.pc) ^ carryPos(resp.preds.fallThroughAddr),
+        resp.pc(instOffsetBits + log2Ceil(PredictWidth)).asBool
+      )
     this
   }
   override def toPrintable: Printable = {
@@ -229,12 +234,12 @@ class FtqToIfuIO(implicit p: Parameters) extends XSBundle with HasCircularQueueP
     // when ifu pipeline is not stalled,
     // a packet from bpu s3 can reach f1 at most
     val s2 = Valid(new FtqPtr)
-    val s3 = Valid(new FtqPtr)
+    // val s3 = Valid(new FtqPtr)
     def shouldFlushBy(src: Valid[FtqPtr], idx_to_flush: FtqPtr) = {
       src.valid && !isAfter(src.bits, idx_to_flush)
     }
     def shouldFlushByStage2(idx: FtqPtr) = shouldFlushBy(s2, idx)
-    def shouldFlushByStage3(idx: FtqPtr) = shouldFlushBy(s3, idx)
+    // def shouldFlushByStage3(idx: FtqPtr) = shouldFlushBy(s3, idx)
   }
 }
 
@@ -482,13 +487,13 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   io.fromBpu.resp.ready := new_entry_ready
 
   val bpu_s2_resp = io.fromBpu.resp.bits.s2
-  val bpu_s3_resp = io.fromBpu.resp.bits.s3
+  // val bpu_s3_resp = io.fromBpu.resp.bits.s3
   val bpu_s2_redirect = bpu_s2_resp.valid && bpu_s2_resp.hasRedirect
-  val bpu_s3_redirect = bpu_s3_resp.valid && bpu_s3_resp.hasRedirect
+  // val bpu_s3_redirect = bpu_s3_resp.valid && bpu_s3_resp.hasRedirect
 
   io.toBpu.enq_ptr := bpuPtr
   val enq_fire = io.fromBpu.resp.fire() && allowBpuIn // from bpu s1
-  val bpu_in_fire = (io.fromBpu.resp.fire() || bpu_s2_redirect || bpu_s3_redirect) && allowBpuIn
+  val bpu_in_fire = (io.fromBpu.resp.fire() || bpu_s2_redirect/*  || bpu_s3_redirect */) && allowBpuIn
 
   val bpu_in_resp = WireInit(io.fromBpu.resp.bits.selectedResp)
   val bpu_in_stage = WireInit(io.fromBpu.resp.bits.selectedRespIdx)
@@ -567,16 +572,16 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
     }
   }
 
-  io.toIfu.flushFromBpu.s3.valid := bpu_s3_redirect
-  io.toIfu.flushFromBpu.s3.bits := bpu_s3_resp.ftq_idx
-  when (bpu_s3_resp.valid && bpu_s3_resp.hasRedirect) {
-    bpuPtr := bpu_s3_resp.ftq_idx + 1.U
-    // only when ifuPtr runs ahead of bpu s2 resp should we recover it
-    when (!isBefore(ifuPtr, bpu_s3_resp.ftq_idx)) {
-      ifuPtr := bpu_s3_resp.ftq_idx
-    }
-    XSError(true.B, "\ns3_redirect mechanism not implemented!\n")
-  }
+  // io.toIfu.flushFromBpu.s3.valid := bpu_s3_redirect
+  // io.toIfu.flushFromBpu.s3.bits := bpu_s3_resp.ftq_idx
+  // when (bpu_s3_resp.valid && bpu_s3_resp.hasRedirect) {
+  //   bpuPtr := bpu_s3_resp.ftq_idx + 1.U
+  //   // only when ifuPtr runs ahead of bpu s2 resp should we recover it
+  //   when (!isBefore(ifuPtr, bpu_s3_resp.ftq_idx)) {
+  //     ifuPtr := bpu_s3_resp.ftq_idx
+  //   }
+  //   XSError(true.B, "\ns3_redirect mechanism not implemented!\n")
+  // }
 
   XSError(isBefore(bpuPtr, ifuPtr) && !isFull(bpuPtr, ifuPtr), "\nifuPtr is before bpuPtr!\n")
 
@@ -608,8 +613,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   // when fall through is smaller in value than start address, there must be a false hit
   when (io.toIfu.req.bits.fallThruError && entry_hit_status(ifuPtr.value) === h_hit) {
     when (io.toIfu.req.fire &&
-      !(bpu_s2_redirect && bpu_s2_resp.ftq_idx === ifuPtr) &&
-      !(bpu_s3_redirect && bpu_s3_resp.ftq_idx === ifuPtr)
+      !(bpu_s2_redirect && bpu_s2_resp.ftq_idx === ifuPtr)/*  &&
+      !(bpu_s3_redirect && bpu_s3_resp.ftq_idx === ifuPtr) */
     ) {
       entry_hit_status(ifuPtr.value) := h_false_hit
       XSDebug(true.B, "FTB false hit by fallThroughError, startAddr: %x, fallTHru: %x\n", io.toIfu.req.bits.startAddr, io.toIfu.req.bits.fallThruAddr)
@@ -618,8 +623,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   }
 
   val ifu_req_should_be_flushed =
-    io.toIfu.flushFromBpu.shouldFlushByStage2(io.toIfu.req.bits.ftqIdx) ||
-    io.toIfu.flushFromBpu.shouldFlushByStage3(io.toIfu.req.bits.ftqIdx)
+    io.toIfu.flushFromBpu.shouldFlushByStage2(io.toIfu.req.bits.ftqIdx)/*  ||
+    io.toIfu.flushFromBpu.shouldFlushByStage3(io.toIfu.req.bits.ftqIdx) */
 
   when (io.toIfu.req.fire && !ifu_req_should_be_flushed) {
     entry_fetch_status(ifuPtr.value) := f_sent
@@ -1001,7 +1006,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   }
   val s1_entry_len_map = in_entry_len_map_gen(from_bpu.s1)("s1")
   val s2_entry_len_map = in_entry_len_map_gen(from_bpu.s2)("s2")
-  val s3_entry_len_map = in_entry_len_map_gen(from_bpu.s3)("s3")
+  // val s3_entry_len_map = in_entry_len_map_gen(from_bpu.s3)("s3")
 
   val to_ifu = io.toIfu.req.bits
   val to_ifu_entry_len = (to_ifu.fallThruAddr - to_ifu.startAddr) >> instOffsetBits
@@ -1113,7 +1118,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
     "ftb_modified_entry_br_full"   -> PopCount(ftb_modified_entry_br_full),
     "ftb_modified_entry_always_taken" -> PopCount(ftb_modified_entry_always_taken)
   ) ++ ftb_init_entry_len_map ++ ftb_modified_entry_len_map ++ s1_entry_len_map ++
-  s2_entry_len_map ++ s3_entry_len_map ++
+  s2_entry_len_map ++ /* s3_entry_len_map ++ */
   to_ifu_entry_len_map ++ commit_num_inst_map ++ ftq_occupancy_map ++
   mispred_stage_map ++ br_mispred_stage_map ++ jalr_mispred_stage_map ++
   correct_stage_map ++ br_correct_stage_map ++ jalr_correct_stage_map
@@ -1198,7 +1203,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   val perfEvents = Seq(
     ("bpu_s2_redirect        ", bpu_s2_redirect                                                             ),
-    ("bpu_s3_redirect        ", bpu_s3_redirect                                                             ),
+    // ("bpu_s3_redirect        ", bpu_s3_redirect                                                             ),
     ("bpu_to_ftq_stall       ", enq.valid && ~enq.ready                                                     ),
     ("mispredictRedirect     ", perf_redirect.valid && RedirectLevel.flushAfter === perf_redirect.bits.level),
     ("replayRedirect         ", perf_redirect.valid && RedirectLevel.flushItself(perf_redirect.bits.level)  ),
