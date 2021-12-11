@@ -99,6 +99,7 @@ class NewIFU(implicit p: Parameters) extends XSModule
   with HasIFUConst
   with HasPdConst
   with HasPerfEvents
+  with HasCircularQueuePtrHelper
 {
   println(s"icache ways: ${nWays} sets:${nSets}")
   val io = IO(new NewIFUIO)
