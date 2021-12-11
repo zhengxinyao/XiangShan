@@ -41,7 +41,6 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   with HasExceptionNO
 {
   val io = IO(new Bundle() {
-    val ftqInter        = new FtqInterface
     val fencei = Input(Bool())
     val ptw = new TlbPtwIO(2)
     val backend = new FrontendToCtrlIO
@@ -59,15 +58,13 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
     }
   })
 
-  dontTouch(io.ftqInter)
-
   //decouped-frontend modules
   val instrUncache = outer.instrUncache.module
   val icache       = outer.icache.module
-  // val bpu     = Module(new Predictor)
+  val bpu     = Module(new Predictor)
   val ifu     = Module(new NewIFU)
   val ibuffer =  Module(new Ibuffer)
-  // val ftq = Module(new Ftq)
+  val ftq = Module(new Ftq)
 
   //PFEvent
   val pfevent = Module(new PFEvent)
@@ -102,7 +99,10 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   val needFlush = io.backend.toFtq.stage3Redirect.valid
 
   //IFU-Ftq
-  ifu.io.ftqInter <> io.ftqInter
+  ifu.io.ftqInter.fromFtq <> ftq.io.toIfu
+  ftq.io.fromIfu          <> ifu.io.ftqInter.toFtq
+  bpu.io.ftq_to_bpu       <> ftq.io.toBpu
+  ftq.io.fromBpu          <> bpu.io.bpu_to_ftq
   //IFU-ICache
   for(i <- 0 until 2){
     ifu.io.icacheInter(i).req       <>      icache.io.fetch(i).req
@@ -121,8 +121,9 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   //IFU-Ibuffer
   ifu.io.toIbuffer    <> ibuffer.io.in
 
-  io.backend.fromFtq <> DontCare
-  io.frontendInfo.bpuInfo <> DontCare
+  ftq.io.fromBackend <> io.backend.toFtq
+  io.backend.fromFtq <> ftq.io.toBackend
+  io.frontendInfo.bpuInfo <> ftq.io.bpuInfo
 
   ifu.io.rob_commits <> io.backend.toFtq.rob_commits
 
@@ -142,7 +143,9 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
     val ifu_perf     = ifu.perfEvents.map(_._1).zip(ifu.perfinfo.perfEvents.perf_events)
     val ibuffer_perf = ibuffer.perfEvents.map(_._1).zip(ibuffer.perfinfo.perfEvents.perf_events)
     val icache_perf  = icache.perfEvents.map(_._1).zip(icache.perfinfo.perfEvents.perf_events)
-    val perfEvents = ifu_perf ++ ibuffer_perf ++ icache_perf
+    val ftq_perf     = ftq.perfEvents.map(_._1).zip(ftq.perfinfo.perfEvents.perf_events)
+    val bpu_perf     = bpu.perfEvents.map(_._1).zip(bpu.perfinfo.perfEvents.perf_events)
+    val perfEvents = ifu_perf ++ ibuffer_perf ++ icache_perf ++ ftq_perf ++ bpu_perf
 
     for (((perf_name,perf),i) <- perfEvents.zipWithIndex) {
       println(s"frontend perf $i: $perf_name")
@@ -150,7 +153,8 @@ class FrontendImp (outer: Frontend) extends LazyModuleImp(outer)
   }
 
   val hpmEvents = ifu.perfinfo.perfEvents.perf_events ++ ibuffer.perfinfo.perfEvents.perf_events ++
-                  icache.perfinfo.perfEvents.perf_events 
+                  icache.perfinfo.perfEvents.perf_events ++ ftq.perfinfo.perfEvents.perf_events ++
+                  bpu.perfinfo.perfEvents.perf_events
   val perf_length = hpmEvents.length
   val csrevents = pfevent.io.hpmevent.slice(0,8)
   val perfinfo = IO(new Bundle(){
