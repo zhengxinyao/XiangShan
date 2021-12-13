@@ -397,6 +397,7 @@ package object xiangshan {
     def cbo_inval = "b1110".U
 
     def isCbo(op: UInt): Bool = op(3, 2) === "b11".U
+    def getCboOp(op: UInt): UInt = op(1, 0) | "b10000".U
 
     // atomics
     // bit(1, 0) are size

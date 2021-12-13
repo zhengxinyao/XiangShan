@@ -99,9 +99,7 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
   })
 
   // mmio cbo decoder
-  val is_mmio_cbo = io.in.bits.uop.ctrl.fuOpType === LSUOpType.cbo_clean ||
-    io.in.bits.uop.ctrl.fuOpType === LSUOpType.cbo_flush ||
-    io.in.bits.uop.ctrl.fuOpType === LSUOpType.cbo_inval
+  val is_mmio_cbo = LSUOpType.isCbo(io.in.bits.uop.ctrl.fuOpType)
 
   val s1_paddr = io.dtlbResp.bits.paddr
   val s1_tlb_miss = io.dtlbResp.bits.miss

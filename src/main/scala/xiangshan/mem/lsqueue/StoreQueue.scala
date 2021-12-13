@@ -428,13 +428,13 @@ class StoreQueue(implicit p: Parameters) extends XSModule
 
   // CBO op type check can be delayed for 1 cycle,
   // as uncache op will not start in s_idle
-  val cbo_mmio_addr = paddrModule.io.rdata(0) >> 2 << 2 // clear lowest 2 bits for op
-  val cbo_mmio_op = 0.U //TODO
+  val cbo_mmio_addr = paddrModule.io.rdata(0) >> 5 << 5 // clear lowest 5 bits for op
+  val cbo_mmio_op = RegNext(LSUOpType.isCbo(uop(deqPtr).ctrl.fuOpType))
   val cbo_mmio_data = cbo_mmio_addr | cbo_mmio_op
-  when(RegNext(LSUOpType.isCbo(uop(deqPtr).ctrl.fuOpType))){
-    io.uncache.req.bits.addr := DontCare // TODO
-    io.uncache.req.bits.data := paddrModule.io.rdata(0)
-    io.uncache.req.bits.mask := DontCare // TODO
+  when(RegNext(LSUOpType.getCboOp(uop(deqPtr).ctrl.fuOpType))){
+    io.uncache.req.bits.addr := "h39000000".U // TODO
+    io.uncache.req.bits.data := cbo_mmio_data
+    io.uncache.req.bits.mask := "hff".U
   }
 
   io.uncache.req.bits.id   := DontCare
