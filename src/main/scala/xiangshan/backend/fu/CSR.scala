@@ -341,7 +341,8 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
   csrio.customCtrl.mem_trigger.t.bits.tdata := GenTdataDistribute(tdata1Phy(tselectPhy), tdata2Phy(tselectPhy))
 
   // Machine-Level CSRs
-
+  // mtvec: {BASE (WARL), MODE (WARL)} where mode is 0 or 1
+  val mtvecMask = ~(0x2.U(XLEN.W))
   val mtvec = RegInit(UInt(XLEN.W), 0.U)
   val mcounteren = RegInit(UInt(XLEN.W), 0.U)
   val mcause = RegInit(UInt(XLEN.W), 0.U)
@@ -441,6 +442,8 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
   // -------------------------------------------------------
   val sstatusRmask = sstatusWmask | "h8000000300018000".U
   // Sstatus Read Mask = (SSTATUS_WMASK | (0xf << 13) | (1ull << 63) | (3ull << 32))
+  // stvec: {BASE (WARL), MODE (WARL)} where mode is 0 or 1
+  val stvecMask = ~(0x2.U(XLEN.W))
   val stvec = RegInit(UInt(XLEN.W), 0.U)
   // val sie = RegInit(0.U(XLEN.W))
   val sieMask = "h222".U & mideleg
@@ -493,11 +496,13 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
   // bits 0-3: store buffer flush threshold (default: 8 entries)
   val smblockctl_init_val =
     ("hf".U & StoreBufferThreshold.U) |
-    (EnableLdVioCheckAfterReset.B.asUInt << 4)
+    (EnableLdVioCheckAfterReset.B.asUInt << 4) |
+    GenMask(5) // enable soft prefetch by default
   val smblockctl = RegInit(UInt(XLEN.W), smblockctl_init_val)
   csrio.customCtrl.sbuffer_threshold := smblockctl(3, 0)
   // bits 4: enable load load violation check
-  csrio.customCtrl.ldld_vio_check := smblockctl(4)
+  csrio.customCtrl.ldld_vio_check_enable := smblockctl(4)
+  csrio.customCtrl.soft_prefetch_enable := smblockctl(5)
 
   val srnctl = RegInit(UInt(XLEN.W), "h3".U)
   csrio.customCtrl.move_elim_enable := srnctl(0)
@@ -617,7 +622,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
     // MaskedRegMap(Sedeleg, Sedeleg),
     // MaskedRegMap(Sideleg, Sideleg),
     MaskedRegMap(Sie, mie, sieMask, MaskedRegMap.NoSideEffect, sieMask),
-    MaskedRegMap(Stvec, stvec),
+    MaskedRegMap(Stvec, stvec, stvecMask, MaskedRegMap.NoSideEffect, stvecMask),
     MaskedRegMap(Scounteren, scounteren),
 
     //--- Supervisor Trap Handling ---
@@ -651,7 +656,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
     MaskedRegMap(Medeleg, medeleg, "hf3ff".U(XLEN.W)),
     MaskedRegMap(Mideleg, mideleg, "h222".U(XLEN.W)),
     MaskedRegMap(Mie, mie),
-    MaskedRegMap(Mtvec, mtvec),
+    MaskedRegMap(Mtvec, mtvec, mtvecMask, MaskedRegMap.NoSideEffect, mtvecMask),
     MaskedRegMap(Mcounteren, mcounteren),
 
     //--- Machine Trap Handling ---
@@ -994,11 +999,17 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
     retTargetReg := retTarget
   }
   csrio.isXRet := isXRetFlag
+  val tvec = Mux(delegS, stvec, mtvec)
+  val tvecBase = tvec(VAddrBits - 1, 2)
   csrio.trapTarget := Mux(isXRetFlag,
     retTargetReg,
     Mux(raiseDebugExceptionIntr || ebreakEnterParkLoop, debugTrapTarget,
-      Mux(delegS, stvec, mtvec))(VAddrBits-1, 0)
-  )
+      // When MODE=Vectored, all synchronous exceptions into M/S mode
+      // cause the pc to be set to the address in the BASE field, whereas
+      // interrupts cause the pc to be set to the address in the BASE field
+      // plus four times the interrupt cause number.
+      Cat(tvecBase + Mux(tvec(0) && raiseIntr, causeNO(3, 0), 0.U), 0.U(2.W))
+  ))
 
   when (raiseExceptionIntr) {
     val mstatusOld = WireInit(mstatus.asTypeOf(new MstatusStruct))
