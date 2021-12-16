@@ -162,7 +162,9 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
     val stopcycle = Output(Bool())
     val stoptime = Output(Bool())
     val cause = Output(UInt(3.W))
-    val zero1 = Output(UInt(3.W))
+    val zero1 = Output(Bool())
+    val mprven = Output(Bool())
+    val nmmip = Output(Bool())
     val step = Output(Bool())
     val prv = Output(UInt(2.W))
   }
@@ -206,7 +208,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
   }
 
   // Debug CSRs
-  val dcsr = RegInit(UInt(32.W), 0x4000b010.U)
+  val dcsr = RegInit(UInt(32.W), 0x4000b000.U)
   val dpc = Reg(UInt(64.W))
   val dscratch = Reg(UInt(64.W))
   val dscratch1 = Reg(UInt(64.W))
@@ -238,7 +240,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
 
   val dcsrData = Wire(new DcsrStruct)
   dcsrData := dcsr.asTypeOf(new DcsrStruct)
-  val dcsrMask = ZeroExt(GenMask(15) | GenMask(13, 11) | GenMask(2, 0), XLEN)// Dcsr write mask
+  val dcsrMask = ZeroExt(GenMask(15) | GenMask(13, 11) | GenMask(4) | GenMask(2, 0), XLEN)// Dcsr write mask
   def dcsrUpdateSideEffect(dcsr: UInt): UInt = {
     val dcsrOld = WireInit(dcsr.asTypeOf(new DcsrStruct))
     val dcsrNew = dcsr | (dcsrOld.prv(0) | dcsrOld.prv(1)).asUInt // turn 10 priv into 11
@@ -818,7 +820,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
   tlbBundle.priv.mxr   := mstatusStruct.mxr.asBool
   tlbBundle.priv.sum   := mstatusStruct.sum.asBool
   tlbBundle.priv.imode := priviledgeMode
-  tlbBundle.priv.dmode := Mux(mstatusStruct.mprv.asBool, mstatusStruct.mpp, priviledgeMode)
+  tlbBundle.priv.dmode := Mux(debugMode && dcsr.asTypeOf(new DcsrStruct).mprven, ModeM, Mux(mstatusStruct.mprv.asBool, mstatusStruct.mpp, priviledgeMode))
 
   // Branch control
   val retTarget = Wire(UInt(VAddrBits.W))
@@ -1028,7 +1030,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
         debugModeNew := true.B
         mstatusNew.mprv := false.B
         dpc := SignExt(csrio.exception.bits.uop.cf.pc, XLEN)
-        dcsrNew.cause := 1.U
+        dcsrNew.cause := 3.U
         dcsrNew.prv := priviledgeMode
         priviledgeMode := ModeM
         XSDebug(raiseDebugIntr, "Debug Mode: Trap to %x at pc %x\n", debugTrapTarget, dpc)
@@ -1043,6 +1045,8 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
       }
       dcsr := dcsrNew.asUInt
       debugIntrEnable := false.B
+    }.elsewhen (debugMode) {
+      // do nothing
     }.elsewhen (delegS) {
       scause := causeNO
       sepc := SignExt(csrio.exception.bits.uop.cf.pc, XLEN)
