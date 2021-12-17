@@ -174,9 +174,12 @@ class TlbEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parameters) 
             else UInt(ppnLen.W)
   val perm = new TlbPermBundle
 
-  def hit(vpn: UInt, asid: UInt, ignoreAsid: Boolean = false): Bool = {
+  def hit(vpn: UInt, asid: UInt, nSets: Int = 1, ignoreAsid: Boolean = false): Bool = {
     val asid_hit = if (ignoreAsid) true.B else (this.asid === asid)
-    if (!pageSuper) asid_hit && vpn === tag
+
+    // NOTE: for timing, dont care low set index bits at hit check
+    //       do not need store the low bits actually
+    if (!pageSuper) asid_hit && drop_set_equal(vpn, tag, nSets)
     else if (!pageNormal) asid_hit && MuxLookup(level.get, false.B, Seq(
       0.U -> (tag(vpnnLen*2-1, vpnnLen) === vpn(vpnLen-1, vpnnLen*2)),
       1.U -> (tag === vpn(vpnLen-1, vpnnLen)),
@@ -184,7 +187,7 @@ class TlbEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parameters) 
     else asid_hit && MuxLookup(level.get, false.B, Seq(
       0.U -> (tag(vpnLen-1, vpnnLen*2) === vpn(vpnLen-1, vpnnLen*2)),
       1.U -> (tag(vpnLen-1, vpnnLen) === vpn(vpnLen-1, vpnnLen)),
-      2.U -> (tag === vpn) // if pageNormal is false, this will always be false
+      2.U -> drop_set_equal(tag, vpn, nSets) // if pageNormal is false, this will always be false
     ))
   }
 
@@ -211,8 +214,8 @@ class TlbEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parameters) 
     this
   }
 
-  def genPPN(vpn: UInt) : UInt = {
-    if (!pageSuper) ppn
+  def genPPN(saveLevel: Boolean = false, valid: Bool = false.B)(vpn: UInt) : UInt = {
+    val ppn_res = if (!pageSuper) ppn
     else if (!pageNormal) MuxLookup(level.get, 0.U, Seq(
       0.U -> Cat(ppn(ppn.getWidth-1, vpnnLen), vpn(vpnnLen*2-1, 0)),
       1.U -> Cat(ppn, vpn(vpnnLen-1, 0))
@@ -222,6 +225,10 @@ class TlbEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parameters) 
       1.U -> Cat(ppn(ppn.getWidth-1, vpnnLen), vpn(vpnnLen-1, 0)),
       2.U -> ppn
     ))
+
+    val static_part_length = ppn_res.getWidth - vpnnLen*2
+    if (saveLevel) Cat(ppn(ppn.getWidth-1, ppn.getWidth-static_part_length), RegEnable(ppn_res(vpnnLen*2-1, 0), valid))
+    else ppn_res
   }
 
   override def toPrintable: Printable = {
@@ -352,6 +359,7 @@ class TlbExceptionBundle(implicit p: Parameters) extends TlbBundle {
 class TlbResp(implicit p: Parameters) extends TlbBundle {
   val paddr = Output(UInt(PAddrBits.W))
   val miss = Output(Bool())
+  val fast_miss = Output(Bool()) // without sram part for timing optimization
   val excp = new Bundle {
     val pf = new TlbExceptionBundle()
     val af = new TlbExceptionBundle()
@@ -479,7 +487,7 @@ class PtwEntry(tagLen: Int, hasPerm: Boolean = false, hasLevel: Boolean = false)
 
   def hit(vpn: UInt, asid: UInt, allType: Boolean = false, ignoreAsid: Boolean = false) = {
     require(vpn.getWidth == vpnLen)
-    require(this.asid.getWidth <= asid.getWidth)
+//    require(this.asid.getWidth <= asid.getWidth)
     val asid_hit = if (ignoreAsid) true.B else (this.asid === asid)
     if (allType) {
       require(hasLevel)
@@ -669,7 +677,6 @@ class PtwIO(implicit p: Parameters) extends PtwBundle {
     val tlb = Input(new TlbCsrBundle)
     val distribute_csr = Flipped(new DistributedCSRIO)
   }
-  val perfEvents      = Output(new PerfEventsBundle(numPCntPtw))
 }
 
 class L2TlbMemReqBundle(implicit p: Parameters) extends PtwBundle {

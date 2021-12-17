@@ -26,6 +26,8 @@ import xiangshan.{DebugOptions, DebugOptionsKey}
 import chipsalliance.rocketchip.config._
 import freechips.rocketchip.devices.debug._
 import difftest._
+import freechips.rocketchip.util.ElaborationArtefacts
+import top.TopMain.writeOutputFile
 
 class SimTop(implicit p: Parameters) extends Module {
   val debugOpts = p(DebugOptionsKey)
@@ -34,7 +36,7 @@ class SimTop(implicit p: Parameters) extends Module {
   val l_soc = LazyModule(new XSTop())
   val soc = Module(l_soc.module)
 
-  l_soc.module.dma <> DontCare
+  l_soc.module.dma <> 0.U.asTypeOf(l_soc.module.dma)
 
   val l_simMMIO = LazyModule(new SimMMIO(l_soc.misc.peripheralNode.in.head._2))
   val simMMIO = Module(l_simMMIO.module)
@@ -52,7 +54,8 @@ class SimTop(implicit p: Parameters) extends Module {
   soc.io.reset := reset.asBool
   soc.io.extIntrs := simMMIO.io.interrupt.intrVec
   soc.io.sram_config := 0.U
-  soc.io.pll0_lock := false.B
+  soc.io.pll0_lock := true.B
+  soc.io.cacheable_check := DontCare
 
   val success = Wire(Bool())
   val jtag = Module(new SimJTAG(tickDelay=3)(p)).connect(soc.io.systemjtag.jtag, clock, reset.asBool, ~reset.asBool, success)
@@ -74,14 +77,14 @@ class SimTop(implicit p: Parameters) extends Module {
     io.memAXI <> soc.memory
   }
 
-  if (debugOpts.EnableDebug || debugOpts.EnablePerfDebug) {
+  if (!debugOpts.FPGAPlatform && (debugOpts.EnableDebug || debugOpts.EnablePerfDebug)) {
     val timer = GTimer()
     val logEnable = (timer >= io.logCtrl.log_begin) && (timer < io.logCtrl.log_end)
     ExcitingUtils.addSource(logEnable, "DISPLAY_LOG_ENABLE")
     ExcitingUtils.addSource(timer, "logTimestamp")
   }
 
-  if (debugOpts.EnablePerfDebug) {
+  if (!debugOpts.FPGAPlatform && debugOpts.EnablePerfDebug) {
     val clean = io.perfInfo.clean
     val dump = io.perfInfo.dump
     ExcitingUtils.addSource(clean, "XSPERF_CLEAN")
@@ -94,15 +97,16 @@ class SimTop(implicit p: Parameters) extends Module {
 }
 
 object SimTop extends App {
-
   override def main(args: Array[String]): Unit = {
-    val (config, firrtlOpts) = ArgParser.parse(args, fpga = false)
-    // generate verilog
-    XiangShanStage.execute(
-      firrtlOpts,
-      Seq(
-        ChiselGeneratorAnnotation(() => DisableMonitors(p => new SimTop()(p))(config))
-      )
-    )
+    // Keep this the same as TopMain except that SimTop is used here instead of XSTop
+    val (config, firrtlOpts) = ArgParser.parse(args)
+    XiangShanStage.execute(firrtlOpts, Seq(
+      ChiselGeneratorAnnotation(() => {
+        DisableMonitors(p => new SimTop()(p))(config)
+      })
+    ))
+    ElaborationArtefacts.files.foreach{ case (extension, contents) =>
+      writeOutputFile("./build", s"XSTop.${extension}", contents())
+    }
   }
 }

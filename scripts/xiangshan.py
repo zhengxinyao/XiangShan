@@ -23,6 +23,8 @@ import subprocess
 import sys
 import time
 
+import psutil
+
 
 class XSArgs(object):
     script_path = os.path.realpath(__file__)
@@ -48,11 +50,12 @@ class XSArgs(object):
         for (arg_in, env, default, set_func) in all_path:
             set_func(self.__extract_path(arg_in, env, default))
         # Chisel arguments
-        self.disable_log = args.disable_log
+        self.enable_log = args.enable_log
         self.num_cores = args.num_cores
         # Makefile arguments
         self.threads = args.threads
         self.with_dramsim3 = 1 if args.with_dramsim3 else None
+        self.is_release = 1 if args.release else None
         self.trace = 1 if args.trace or not args.disable_fork  else None
         self.config = args.config
         # emu arguments
@@ -79,7 +82,7 @@ class XSArgs(object):
 
     def get_chisel_args(self, prefix=None):
         chisel_args = [
-            (self.disable_log, "disable-log")
+            (self.enable_log, "enable-log")
         ]
         args = map(lambda x: x[1], filter(lambda arg: arg[0], chisel_args))
         if prefix is not None:
@@ -90,6 +93,7 @@ class XSArgs(object):
         makefile_args = [
             (self.threads,       "EMU_THREADS"),
             (self.with_dramsim3, "WITH_DRAMSIM3"),
+            (self.is_release,    "RELEASE"),
             (self.trace,         "EMU_TRACE"),
             (self.config,        "CONFIG"),
             (self.num_cores,     "NUM_CORES")
@@ -180,7 +184,8 @@ class XiangShan(object):
         self.show()
         emu_args = " ".join(map(lambda arg: f"--{arg[1]} {arg[0]}", self.args.get_emu_args()))
         print("workload:", workload)
-        numa_args = f"numactl -m 1 -C 64-{64+self.args.threads-1}" if self.args.numa else ""
+        numa_info = get_free_cores(self.args.threads)
+        numa_args = f"numactl -m {numa_info[0]} -C {numa_info[1]}-{numa_info[2]}" if self.args.numa else ""
         fork_args = "--enable-fork" if self.args.fork else ""
         return_code = self.__exec_cmd(f'{numa_args} $NOOP_HOME/build/emu -i {workload} {emu_args} {fork_args}')
         return return_code
@@ -240,6 +245,8 @@ class XiangShan(object):
             "Svinval/rv64mi-p-svinval.bin",
             "pmp/pmp.riscv.bin",
             "asid/asid.bin",
+            "isa_misc/xret_clear_mprv.bin",
+            "isa_misc/satp_ppn.bin",
             "cache-management/softprefetch-riscv64-noop.bin"
         ]
         misc_tests = map(lambda x: os.path.join(base_dir, x), workloads)
@@ -285,6 +292,18 @@ class XiangShan(object):
                 return ret
         return 0
 
+def get_free_cores(n):
+    while True:
+        # To avoid potential conflicts, we allow CI to use SMT.
+        num_logical_core = psutil.cpu_count(logical=True)
+        core_usage = psutil.cpu_percent(interval=1, percpu=True)
+        num_window = num_logical_core // n
+        for i in range(num_window):
+            window_usage = core_usage[i * n : i * n + n]
+            if sum(window_usage) < 0.3 * n and True not in map(lambda x: x > 0.5, window_usage):
+                return (((i * n) % 128)// 64, i * n, i * n + n - 1)
+        print(f"No free {n} cores found. CPU usage: {core_usage}\n")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Python wrapper for XiangShan')
     parser.add_argument('workload', nargs='?', type=str, default="",
@@ -300,9 +319,10 @@ if __name__ == "__main__":
     parser.add_argument('--rvtest', nargs='?', type=str, help='path to riscv-tests')
     parser.add_argument('--wave-dump', nargs='?', type=str , help='path to dump wave')
     # chisel arguments
-    parser.add_argument('--disable-log', action='store_true', help='disable log')
+    parser.add_argument('--enable-log', action='store_true', help='enable log')
     parser.add_argument('--num-cores', type=int, help='number of cores')
     # makefile arguments
+    parser.add_argument('--release', action='store_true', help='enable release')
     parser.add_argument('--with-dramsim3', action='store_true', help='enable dramsim3')
     parser.add_argument('--threads', nargs='?', type=int, help='number of emu threads')
     parser.add_argument('--trace', action='store_true', help='enable waveform')

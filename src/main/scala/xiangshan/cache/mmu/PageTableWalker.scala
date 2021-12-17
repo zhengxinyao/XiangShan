@@ -59,7 +59,7 @@ class PtwFsmIO()(implicit p: Parameters) extends MMUIOBaseBundle with HasPtwCons
 }
 
 @chiselName
-class PtwFsm()(implicit p: Parameters) extends XSModule with HasPtwConst {
+class PtwFsm()(implicit p: Parameters) extends XSModule with HasPtwConst with HasPerfEvents {
   val io = IO(new PtwFsmIO)
 
   val sfence = io.sfence
@@ -117,21 +117,21 @@ class PtwFsm()(implicit p: Parameters) extends XSModule with HasPtwConst {
     }
 
     is (s_check_pte) {
-      when (io.resp.valid) {
+      when (io.resp.valid) { // find pte already or accessFault (mentioned below)
         when (io.resp.fire()) {
           state := s_idle
         }
         finish := true.B
-      }.otherwise {
-        when (io.pmp.resp.ld) {
-          // do nothing
-        }.elsewhen (io.mq.valid) {
-          when (io.mq.fire()) {
-            state := s_idle
-          }
-          finish := true.B
-        }.otherwise { // when level is 1.U, finish
-          assert(level =/= 2.U)
+      }.elsewhen(io.mq.valid) { // the next level is pte, go to miss queue
+        when (io.mq.fire()) {
+          state := s_idle
+        }
+        finish := true.B
+      } otherwise { // go to next level, access the memory, need pmp check first
+        when (io.pmp.resp.ld) { // pmp check failed, raise access-fault
+          // do nothing, RegNext the pmp check result and do it later (mentioned above)
+        }.otherwise { // go to next level.
+          assert(level === 0.U)
           level := levelNext
           state := s_mem_req
         }
@@ -193,9 +193,6 @@ class PtwFsm()(implicit p: Parameters) extends XSModule with HasPtwConst {
 
   TimeOutAssert(state =/= s_idle, timeOutThreshold, "page table walker time out")
 
-  val perfinfo = IO(new Bundle(){
-    val perfEvents = Output(new PerfEventsBundle(7))
-  })
   val perfEvents = Seq(
     ("fsm_count         ", io.req.fire()                                     ),
     ("fsm_busy          ", state =/= s_idle                                  ),
@@ -205,8 +202,5 @@ class PtwFsm()(implicit p: Parameters) extends XSModule with HasPtwConst {
     ("mem_cycle         ", BoolStopWatch(mem.req.fire, mem.resp.fire(), true)),
     ("mem_blocked       ", mem.req.valid && !mem.req.ready                   ),
   )
-
-  for (((perf_out,(perf_name,perf)),i) <- perfinfo.perfEvents.perf_events.zip(perfEvents).zipWithIndex) {
-    perf_out.incr_step := RegNext(perf)
-  }
+  generatePerfEvent()
 }

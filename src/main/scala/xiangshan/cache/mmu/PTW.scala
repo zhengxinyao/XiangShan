@@ -42,7 +42,7 @@ class PTW()(implicit p: Parameters) extends LazyModule with HasPtwConst {
 }
 
 @chiselName
-class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with HasCSRConst {
+class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with HasCSRConst with HasPerfEvents {
 
   val (mem, edge) = outer.node.out.head
 
@@ -74,8 +74,8 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
 
   difftestIO <> DontCare
 
-  val sfence = RegNext(io.sfence)
-  val csr    = RegNext(io.csr.tlb)
+  val sfence = DelayN(io.sfence, 2)
+  val csr    = DelayN(io.csr.tlb, 2)
   val satp   = csr.satp
   val priv   = csr.priv
   val flush  = sfence.valid || csr.satp.changed
@@ -83,11 +83,7 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
   val pmp = Module(new PMP())
   val pmp_check = VecInit(Seq.fill(2)(Module(new PMPChecker(lgMaxSize = 3, sameCycle = true)).io))
   pmp.io.distribute_csr := io.csr.distribute_csr
-  for (p <- pmp_check) {
-    p.env.mode := ModeS
-    p.env.pmp := pmp.io.pmp
-    p.env.pma := pmp.io.pma
-  }
+  pmp_check.foreach(_.check_env.apply(ModeS, pmp.io.pmp, pmp.io.pma))
 
   val missQueue = Module(new L2TlbMissQueue)
   val cache = Module(new PtwCache)
@@ -98,6 +94,7 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
     val source = UInt(bSourceWidth.W)
   }, if (l2tlbParams.enablePrefetch) 3 else 2))
   val outArb = (0 until PtwWidth).map(i => Module(new Arbiter(new PtwResp, 3)).io)
+  val outArbCachePort = 0
   val outArbFsmPort = 1
   val outArbMqPort = 2
 
@@ -130,7 +127,9 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
   cache.io.req.bits.isFirst := arb2.io.chosen =/= InArbMissQueuePort.U
   cache.io.sfence := sfence
   cache.io.csr := csr
-  cache.io.resp.ready := Mux(cache.io.resp.bits.hit, true.B, missQueue.io.in.ready || (!cache.io.resp.bits.toFsm.l2Hit && fsm.io.req.ready))
+  cache.io.resp.ready := Mux(cache.io.resp.bits.hit,
+    outReady(cache.io.resp.bits.req_info.source, outArbCachePort),
+    missQueue.io.in.ready || (!cache.io.resp.bits.toFsm.l2Hit && fsm.io.req.ready))
 
   val mq_in_arb = Module(new Arbiter(new L2TlbMQInBundle, 2))
   mq_in_arb.io.in(0).valid := cache.io.resp.valid && !cache.io.resp.bits.hit && (cache.io.resp.bits.toFsm.l2Hit || !fsm.io.req.ready)
@@ -150,8 +149,7 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
   fsm.io.req.bits.ppn := cache.io.resp.bits.toFsm.ppn
   fsm.io.csr := csr
   fsm.io.sfence := sfence
-  fsm.io.resp.ready := MuxLookup(fsm.io.resp.bits.source, true.B,
-    (0 until PtwWidth).map(i => i.U -> outArb(i).in(outArbFsmPort).ready))
+  fsm.io.resp.ready := outReady(fsm.io.resp.bits.source, outArbFsmPort)
 
   // mem req
   def blockBytes_align(addr: UInt) = {
@@ -239,13 +237,12 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
   pmp_check(1).req <> missQueue.io.pmp.req
   missQueue.io.pmp.resp <> pmp_check(1).resp
 
-  mq_out.ready := MuxLookup(missQueue.io.out.bits.req_info.source, true.B,
-    (0 until PtwWidth).map(i => i.U -> outArb(i).in(outArbMqPort).ready))
+  mq_out.ready := outReady(mq_out.bits.req_info.source, outArbMqPort)
   for (i <- 0 until PtwWidth) {
-    outArb(i).in(0).valid := cache.io.resp.valid && cache.io.resp.bits.hit && cache.io.resp.bits.req_info.source===i.U
-    outArb(i).in(0).bits.entry := cache.io.resp.bits.toTlb
-    outArb(i).in(0).bits.pf := false.B
-    outArb(i).in(0).bits.af := false.B
+    outArb(i).in(outArbCachePort).valid := cache.io.resp.valid && cache.io.resp.bits.hit && cache.io.resp.bits.req_info.source===i.U
+    outArb(i).in(outArbCachePort).bits.entry := cache.io.resp.bits.toTlb
+    outArb(i).in(outArbCachePort).bits.pf := false.B
+    outArb(i).in(outArbCachePort).bits.af := false.B
     outArb(i).in(outArbFsmPort).valid := fsm.io.resp.valid && fsm.io.resp.bits.source===i.U
     outArb(i).in(outArbFsmPort).bits := fsm.io.resp.bits.resp
     outArb(i).in(outArbMqPort).valid := mq_out.valid && mq_out.bits.req_info.source===i.U
@@ -297,6 +294,11 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
     ptw_resp
   }
 
+  def outReady(source: UInt, port: Int): Bool = {
+    MuxLookup(source, true.B,
+      (0 until PtwWidth).map(i => i.U -> outArb(i).in(port).ready))
+  }
+
   // debug info
   for (i <- 0 until PtwWidth) {
     XSDebug(p"[io.tlb(${i.U})] ${io.tlb(i)}\n")
@@ -325,22 +327,8 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
   }
 
 
-  if(print_perfcounter){
-    val missq_perf     = missQueue.perfEvents.map(_._1).zip(missQueue.perfinfo.perfEvents.perf_events)
-    val cache_perf     = cache.perfEvents.map(_._1).zip(cache.perfinfo.perfEvents.perf_events)
-    val fsm_perf       = fsm.perfEvents.map(_._1).zip(fsm.perfinfo.perfEvents.perf_events)
-    val perfEvents  = missq_perf ++ cache_perf ++ fsm_perf
-    for (((perf_name,perf),i) <- perfEvents.zipWithIndex) {
-      println(s"ptw perf $i: $perf_name")
-    }
-  }
-  val perf_list = missQueue.perfinfo.perfEvents.perf_events ++ cache.perfinfo.perfEvents.perf_events ++ fsm.perfinfo.perfEvents.perf_events
-  val perf_length = perf_list.length
-  val perfinfo = IO(new Bundle(){
-    val perfEvents = Output(new PerfEventsBundle(perf_list.length))
-  })
-  perfinfo.perfEvents.perf_events := perf_list
-
+  val perfEvents  = Seq(missQueue, cache, fsm).flatMap(_.getPerfEvents)
+  generatePerfEvent()
 }
 
 class PTEHelper() extends ExtModule {
@@ -387,18 +375,17 @@ class PTWWrapper()(implicit p: Parameters) extends LazyModule with HasXSParamete
     node := ptw.node
   }
 
-  lazy val module = new LazyModuleImp(this) {
+  lazy val module = new LazyModuleImp(this) with HasPerfEvents {
     val io = IO(new PtwIO)
-    val perfinfo = IO(new Bundle(){
-      val perfEvents = Output(new PerfEventsBundle(ptw.asInstanceOf[PTW].module.perf_length))
-    })
-    if(useSoftPTW) {
+    val perfEvents = if (useSoftPTW) {
       val fake_ptw = Module(new FakePTW())
       io <> fake_ptw.io
+      Seq()
     }
     else {
         io <> ptw.module.io
-        perfinfo := ptw.asInstanceOf[PTW].module.perfinfo
+        ptw.module.getPerfEvents
     }
+    generatePerfEvent()
   }
 }

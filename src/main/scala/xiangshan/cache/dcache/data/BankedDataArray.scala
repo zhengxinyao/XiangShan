@@ -129,6 +129,8 @@ class BankedDataArray(implicit p: Parameters) extends AbstractBankedDataArray {
     encWord(encWordBits - 1, wordBits)
   }
 
+  val ReduceReadlineConflict = false
+
   io.write.ready := true.B
 
   // wrap data rows of 8 ways
@@ -250,8 +252,16 @@ class BankedDataArray(implicit p: Parameters) extends AbstractBankedDataArray {
   val row_error = Wire(Vec(DCacheBanks, Bool()))
   dontTouch(row_error)
   val rr_bank_conflict = bank_addrs(0) === bank_addrs(1) && io.read(0).valid && io.read(1).valid
-  val rrl_bank_conflict_0 = io.read(0).valid && io.readline.valid && io.readline.bits.rmask(bank_addrs(0))
-  val rrl_bank_conflict_1 = io.read(1).valid && io.readline.valid && io.readline.bits.rmask(bank_addrs(1))
+  val rrl_bank_conflict_0 = Wire(Bool())
+  val rrl_bank_conflict_1 = Wire(Bool())
+  if (ReduceReadlineConflict) {
+    rrl_bank_conflict_0 := io.read(0).valid && io.readline.valid && io.readline.bits.rmask(bank_addrs(0))
+    rrl_bank_conflict_1 := io.read(1).valid && io.readline.valid && io.readline.bits.rmask(bank_addrs(1))
+  } else {
+    rrl_bank_conflict_0 := io.read(0).valid && io.readline.valid
+    rrl_bank_conflict_1 := io.read(1).valid && io.readline.valid
+  }
+  
   val rw_bank_conflict_0 = io.read(0).valid && rwhazard
   val rw_bank_conflict_1 = io.read(1).valid && rwhazard
   val perf_multi_read = io.read(0).valid && io.read(1).valid
@@ -288,7 +298,12 @@ class BankedDataArray(implicit p: Parameters) extends AbstractBankedDataArray {
     val bank_addr_matchs = WireInit(VecInit(List.tabulate(LoadPipelineWidth)(i => {
       bank_addrs(i) === bank_index.U && io.read(i).valid
     })))
-    val readline_match = io.readline.valid && io.readline.bits.rmask(bank_index)
+    val readline_match = Wire(Bool())
+    if (ReduceReadlineConflict) {
+      readline_match := io.readline.valid && io.readline.bits.rmask(bank_index)
+    } else {
+      readline_match := io.readline.valid
+    }
     val bank_way_en = Mux(readline_match,
       io.readline.bits.way_en,
       Mux(bank_addr_matchs(0), way_en(0), way_en(1))
@@ -318,7 +333,8 @@ class BankedDataArray(implicit p: Parameters) extends AbstractBankedDataArray {
 
   // Select final read result
   (0 until LoadPipelineWidth).map(rport_index => {
-    io.errors(rport_index).ecc_error.valid := RegNext(io.read(rport_index).fire()) && row_error.asUInt.orR()
+    io.errors(rport_index).ecc_error.valid := RegNext(io.read(rport_index).fire()) && row_error.asUInt.orR() &&
+      !io.bank_conflict_slow(rport_index)
     io.errors(rport_index).ecc_error.bits := true.B
     io.errors(rport_index).paddr.valid := io.errors(rport_index).ecc_error.valid
     io.errors(rport_index).paddr.bits := RegNext(io.read(rport_index).bits.addr)
@@ -356,12 +372,10 @@ class BankedDataArray(implicit p: Parameters) extends AbstractBankedDataArray {
   // deal with customized cache op
   require(nWays <= 32)
   io.cacheOp.resp.bits := DontCare
-  val cacheOpShouldResp = WireInit(false.B) 
+  val cacheOpShouldResp = WireInit(false.B)
+  val eccReadResult = Wire(Vec(DCacheBanks, UInt(eccBits.W)))
   when(io.cacheOp.req.valid){
-    when(
-      CacheInstrucion.isReadData(io.cacheOp.req.bits.opCode) ||
-      CacheInstrucion.isReadDataECC(io.cacheOp.req.bits.opCode)
-    ){
+    when (CacheInstrucion.isReadData(io.cacheOp.req.bits.opCode)) { 
       for (bank_index <- 0 until DCacheBanks) {
         val data_bank = data_banks(bank_index)
         data_bank.io.r.en := true.B
@@ -370,6 +384,14 @@ class BankedDataArray(implicit p: Parameters) extends AbstractBankedDataArray {
       }
       cacheOpShouldResp := true.B
     }
+	when (CacheInstrucion.isReadDataECC(io.cacheOp.req.bits.opCode)) {
+      for (bank_index <- 0 until DCacheBanks) {
+        val ecc_bank = ecc_banks(bank_index)
+		ecc_bank.io.r.req.valid := true.B
+		ecc_bank.io.r.req.bits.setIdx := io.cacheOp.req.bits.index
+	  }
+	  cacheOpShouldResp := true.B
+	}
     when(CacheInstrucion.isWriteData(io.cacheOp.req.bits.opCode)){
       for (bank_index <- 0 until DCacheBanks) {
         val data_bank = data_banks(bank_index)
@@ -396,9 +418,10 @@ class BankedDataArray(implicit p: Parameters) extends AbstractBankedDataArray {
   io.cacheOp.resp.valid := RegNext(io.cacheOp.req.valid && cacheOpShouldResp)
   for (bank_index <- 0 until DCacheBanks) {
     io.cacheOp.resp.bits.read_data_vec(bank_index) := bank_result(bank_index).raw_data
+	eccReadResult(bank_index) := ecc_banks(bank_index).io.r.resp.data(RegNext(io.cacheOp.req.bits.wayNum(4, 0)))
   }
   io.cacheOp.resp.bits.read_data_ecc := Mux(io.cacheOp.resp.valid, 
-    bank_result(io.cacheOp.req.bits.bank_num).ecc, 
+    eccReadResult(RegNext(io.cacheOp.req.bits.bank_num)),
     0.U
   )
 }

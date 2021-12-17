@@ -20,11 +20,10 @@ import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
 import utils._
+import xiangshan.ExceptionNO._
 import xiangshan._
-import xiangshan.backend.decode.ImmUnion
 import xiangshan.backend.fu.PMPRespBundle
-import xiangshan.cache._
-import xiangshan.cache.mmu.{TLB, TlbCmd, TlbPtwIO, TlbReq, TlbRequestIO, TlbResp}
+import xiangshan.cache.mmu.{TlbCmd, TlbReq, TlbRequestIO, TlbResp}
 
 // Store Pipeline Stage 0
 // Generate addr, use addr to query DCache and DTLB
@@ -94,6 +93,7 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new LsPipelineBundle))
     val out = Decoupled(new LsPipelineBundle)
+    val lsq = ValidIO(new LsPipelineBundle())
     val dtlbResp = Flipped(DecoupledIO(new TlbResp))
     val rsFeedback = ValidIO(new RSFeedback)
   })
@@ -106,7 +106,7 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
   val s1_paddr = io.dtlbResp.bits.paddr
   val s1_tlb_miss = io.dtlbResp.bits.miss
   val s1_mmio = is_mmio_cbo
-  val s1_exception = selectStore(io.out.bits.uop.cf.exceptionVec, false).asUInt.orR
+  val s1_exception = ExceptionNO.selectByFu(io.out.bits.uop.cf.exceptionVec, staCfg).asUInt.orR
 
   io.in.ready := true.B
 
@@ -135,6 +135,10 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
   io.out.bits.uop.cf.exceptionVec(storePageFault) := io.dtlbResp.bits.excp.pf.st
   io.out.bits.uop.cf.exceptionVec(storeAccessFault) := io.dtlbResp.bits.excp.af.st
 
+  io.lsq.valid := io.in.valid
+  io.lsq.bits := io.out.bits
+  io.lsq.bits.miss := s1_tlb_miss
+
   // mmio inst with exception will be writebacked immediately
   // io.out.valid := io.in.valid && (!io.out.bits.mmio || s1_exception) && !s1_tlb_miss
 
@@ -152,13 +156,14 @@ class StoreUnit_S2(implicit p: Parameters) extends XSModule {
     val out = Decoupled(new LsPipelineBundle)
   })
 
-  val s2_exception = selectStore(io.out.bits.uop.cf.exceptionVec, false).asUInt.orR
+  val s2_exception = ExceptionNO.selectByFu(io.out.bits.uop.cf.exceptionVec, staCfg).asUInt.orR
+  val is_mmio = io.in.bits.mmio || io.pmpResp.mmio
 
   io.in.ready := true.B
   io.out.bits := io.in.bits
-  io.out.bits.mmio := (io.in.bits.mmio || io.pmpResp.mmio) && !s2_exception
+  io.out.bits.mmio := is_mmio && !s2_exception
   io.out.bits.uop.cf.exceptionVec(storeAccessFault) := io.in.bits.uop.cf.exceptionVec(storeAccessFault) || io.pmpResp.st
-  io.out.valid := io.in.valid && (!io.out.bits.mmio || s2_exception)
+  io.out.valid := io.in.valid && (!is_mmio || s2_exception)
 }
 
 class StoreUnit_S3(implicit p: Parameters) extends XSModule {
@@ -175,7 +180,8 @@ class StoreUnit_S3(implicit p: Parameters) extends XSModule {
   io.stout.bits.redirectValid := false.B
   io.stout.bits.redirect := DontCare
   io.stout.bits.debug.isMMIO := io.in.bits.mmio
-  io.stout.bits.debug.paddr := DontCare
+  io.stout.bits.debug.paddr := io.in.bits.paddr
+  io.stout.bits.debug.vaddr := io.in.bits.vaddr
   io.stout.bits.debug.isPerfCnt := false.B
   io.stout.bits.fflags := DontCare
 
@@ -210,8 +216,7 @@ class StoreUnit(implicit p: Parameters) extends XSModule {
 
   store_s1.io.dtlbResp <> io.tlb.resp
   store_s1.io.rsFeedback <> io.feedbackSlow
-  io.lsq.bits := store_s1.io.out.bits
-  io.lsq.valid := store_s1.io.out.valid
+  io.lsq <> store_s1.io.lsq
 
   PipelineConnect(store_s1.io.out, store_s2.io.in, true.B, store_s1.io.out.bits.uop.robIdx.needFlush(io.redirect))
 

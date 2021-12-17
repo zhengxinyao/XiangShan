@@ -81,6 +81,7 @@ trait HasCSRConst {
   val Marchid       = 0xF12
   val Mimpid        = 0xF13
   val Mhartid       = 0xF14
+  val Mconfigptr    = 0xF15
 
   // Machine Trap Setup
   val Mstatus       = 0x300
@@ -104,7 +105,7 @@ trait HasCSRConst {
   val PmpaddrBase   = 0x3B0
   // Machine level PMA
   val PmacfgBase    = 0x7C0
-  val PmaaddrBase   = 0x7C8 // 84 entry at most
+  val PmaaddrBase   = 0x7C8 // 64 entry at most
 
   // Machine Counter/Timers
   // Currently, we uses perfcnt csr set instead of standard Machine Counter/Timers
@@ -142,7 +143,6 @@ trait HasCSRConst {
   val Mhpmcounter30 = 0xB1E
   val Mhpmcounter31 = 0xB1F
 
-  // Machine Counter Setup (not implemented)
   val Mcountinhibit = 0x320
   val Mhpmevent3    = 0x323
   val Mhpmevent4    = 0x324
@@ -175,6 +175,14 @@ trait HasCSRConst {
   val Mhpmevent31   = 0x33F
 
   // Debug/Trace Registers (shared with Debug Mode) (not implemented)
+
+  // Trigger Registers
+  val Tselect = 0x7A0
+  val Tdata1 = 0x7A1
+  val Tdata2 = 0x7A2
+  val Tinfo = 0x7A4
+  val Tcontrol = 0x7A5
+
   // Debug Mode Registers
   val Dcsr          = 0x7B0
   val Dpc           = 0x7B1
@@ -207,20 +215,12 @@ trait HasCSRConst {
 
   def IRQ_DEBUG = 12
 
-  val Asid_true_len = 16
-  
-  def Asid_true_mask(AsidLength : Int) : UInt = {
-    val res = Wire(Vec(Asid_true_len,Bool()))
-    (0 until Asid_true_len).map(i => {
-      res(i) := (i <= AsidLength).B
-  })
-    Cat(res.reverse)
-  // val zero = "h0".U(1.W)
-  // val one = "h1".U(1.W)
-  // val mask_high = Fill(Asid_true_len - AsidLength, zero)
-  // val mask_low  = Fill(AsidLength, one)
-
-  // Cat(mask_high, mask_low)
+  val Satp_Mode_len = 4
+  val Satp_Asid_len = 16
+  val Satp_Addr_len = 44
+  def satp_part_wmask(max_length: Int, length: Int) : UInt = {
+    require(length > 0 && length <= max_length)
+    ((1L << length) - 1).U(max_length.W)
   }
 
   val IntPriority = Seq(
@@ -239,5 +239,16 @@ trait HasCSRConst {
   def perfcntPermissionCheck(addr: UInt, mode: UInt, mmask: UInt, smask: UInt): Bool = {
     val index = UIntToOH(addr & 31.U)
     Mux(mode === ModeM, true.B, Mux(mode === ModeS, (index & mmask) =/= 0.U, (index & mmask & smask) =/= 0.U))
+  }
+
+  def dcsrPermissionCheck(addr: UInt, mModeCanWrite: UInt, debug: Bool): Bool = {
+    // debug mode write only regs
+    val isDebugReg = addr(11, 4) === "h7b".U
+    Mux(!mModeCanWrite && isDebugReg, debug, true.B)
+  }
+
+  def triggerPermissionCheck(addr: UInt, mModeCanWrite: UInt, debug: Bool): Bool = {
+    val isTriggerReg = addr(11, 4) === "h7a".U
+    Mux(!mModeCanWrite && isTriggerReg, debug, true.B)
   }
 }
