@@ -26,6 +26,7 @@ import xiangshan.backend.rob.RobLsqIO
 import xiangshan.cache._
 import xiangshan.cache.mmu.{BTlbPtwIO, PtwResp, TLB, TlbReplace}
 import xiangshan.mem._
+import xiangshan.mem.mdp._
 import xiangshan.backend.fu.{FenceToSbuffer, FunctionUnit, HasExceptionNO, PMP, PMPChecker, PMPModule, PFEvent}
 import utils._
 import xiangshan.backend.exu.StdExeUnit
@@ -124,7 +125,6 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   io.otherFastWakeup := DontCare
   io.otherFastWakeup.take(2).zip(loadUnits.map(_.io.fastUop)).foreach{case(a,b)=> a := b}
 
-  // TODO: fast load wakeup
   val lsq     = Module(new LsqWrappper)
   val sbuffer = Module(new Sbuffer)
   // if you wants to stress test dcache store, use FakeSbuffer
@@ -135,6 +135,9 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   lsq.io.hartId := io.hartId
   sbuffer.io.hartId := io.hartId
   atomicsUnit.io.hartId := io.hartId
+
+  // generate feedback for memory dependency predictor  
+  val mdpFeedbackGen = Module(new MDPFeedbackGen(32))
 
   // dtlb
   val sfence = RegNext(io.sfence)
@@ -241,10 +244,18 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     lsq.io.loadIn(i)              <> loadUnits(i).io.lsq.loadIn
     lsq.io.ldout(i)               <> loadUnits(i).io.lsq.ldout
     lsq.io.loadDataForwarded(i)   <> loadUnits(i).io.lsq.loadDataForwarded
-
-    // update mem dependency predictor
-    io.memPredUpdate(i) := DontCare
     lsq.io.needReplayFromRS(i)    <> loadUnits(i).io.lsq.needReplayFromRS
+
+    // update mem dependency predictor (not used for now)
+    io.memPredUpdate(i) := DontCare
+
+    // trigger mem dependency predictor feedback
+    // currently we only send feedback when load hit in dcache
+    mdpFeedbackGen.io.req(i).valid := loadUnits(i).io.lsq.loadIn.valid && loadUnits(i).io.lsq.loadIn.bits.uop.cf.loadWaitBit
+    mdpFeedbackGen.io.req(i).bits.ssid := loadUnits(i).io.lsq.loadIn.bits.uop.cf.ssid
+    mdpFeedbackGen.io.req(i).bits.ld_foldpc := loadUnits(i).io.lsq.loadIn.bits.uop.cf.foldpc
+    mdpFeedbackGen.io.req(i).bits.vaddr := loadUnits(i).io.lsq.loadIn.bits.vaddr
+    mdpFeedbackGen.io.req(i).bits.hit_store_queue := lsq.io.forward(i).forwardMask.asUInt.orR
 
     // Trigger Regs
     // addr: 0-2 for store, 3-5 for load
@@ -308,6 +319,9 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     io.stOut(i).valid := stu.io.stout.valid
     io.stOut(i).bits  := stu.io.stout.bits
     stu.io.stout.ready := true.B
+
+    // provide store vaddr for mdpFeedbackGen
+    mdpFeedbackGen.io.storeIn(i) := stu.io.lsq
 
     // TODO: debug trigger
     // store vaddr 
@@ -458,6 +472,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     assert(!storeUnits(1).io.feedbackSlow.valid)
   }
 
+  // provide info for other components
   lsq.io.exceptionAddr.lsIdx  := io.lsqio.exceptionAddr.lsIdx
   lsq.io.exceptionAddr.isStore := io.lsqio.exceptionAddr.isStore
   io.lsqio.exceptionAddr.vaddr := Mux(atomicsUnit.io.exceptionAddr.valid, atomicsUnit.io.exceptionAddr.bits, lsq.io.exceptionAddr.vaddr)
