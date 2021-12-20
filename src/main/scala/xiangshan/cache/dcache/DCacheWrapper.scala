@@ -138,6 +138,7 @@ trait HasDCacheParameters extends HasL1CacheParameters {
   val DCacheTagOffset = DCacheAboveIndexOffset min DCacheSameVPAddrLength
   val DCacheLineOffset = DCacheSetOffset
   val DCacheIndexOffset = DCacheBankOffset
+  val DCacheAliasBits = DCacheAboveIndexOffset - DCacheTagOffset
 
   def addr_to_dcache_bank(addr: UInt) = {
     require(addr.getWidth >= DCacheSetOffset)
@@ -157,6 +158,14 @@ trait HasDCacheParameters extends HasL1CacheParameters {
   def get_mask_of_bank(bank: Int, data: UInt) = {
     require(data.getWidth >= (bank+1)*DCacheSRAMRowBytes)
     data(DCacheSRAMRowBytes * (bank + 1) - 1, DCacheSRAMRowBytes * bank)
+  }
+
+  def addr_to_alias_bit(addr: UInt): UInt = {
+    if(DCacheAliasBits > 0) {
+      addr(DCacheAboveIndexOffset - 1, DCacheTagOffset)
+    } else {
+      0.U // DontCare
+    }
   }
 
   def arbiter[T <: Bundle](
