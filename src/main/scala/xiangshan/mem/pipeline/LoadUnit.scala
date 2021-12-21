@@ -412,7 +412,7 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper {
   io.out.bits.uop.ctrl.replayInst := forwardFailReplay || ldldVioReplay
   io.out.bits.mmio := s2_mmio
   io.out.bits.uop.ctrl.flushPipe := s2_mmio && io.sentFastUop
-  io.out.bits.uop.cf.exceptionVec := s2_exception_with_error_vec
+  io.out.bits.uop.cf.exceptionVec := RegNext(s2_exception_with_error_vec)
 
   // For timing reasons, sometimes we can not let
   // io.out.bits.miss := s2_cache_miss && !s2_exception && !fullForward
