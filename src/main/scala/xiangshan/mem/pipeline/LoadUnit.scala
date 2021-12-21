@@ -45,7 +45,7 @@ class LoadToLoadIO(implicit p: Parameters) extends XSBundle {
 class LoadUnitTriggerIO(implicit p: Parameters) extends XSBundle {
   val tdata2 = Input(UInt(64.W)) 
   val matchType = Input(UInt(2.W)) 
-  val tEnable = Input(Bool()) 
+  val tEnable = Input(Bool()) // timing is calculated before this
   val addrHit = Output(Bool())
   val lastDataHit = Output(Bool())
 }
@@ -645,10 +645,6 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper with 
     io.trigger(i).lastDataHit := TriggerCmp(lastValidData, tdata2, matchType, tEnable)
   }}
   io.lsq.trigger.hitLoadAddrTriggerHitVec := hitLoadAddrTriggerHitVec
-
-  val perfinfo = IO(new Bundle(){
-    val perfEvents = Output(new PerfEventsBundle(12))
-  })
 
   val perfEvents = Seq(
     ("load_s0_in_fire         ", load_s0.io.in.fire()                                                                                                            ),
