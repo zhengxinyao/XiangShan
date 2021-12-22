@@ -92,7 +92,10 @@ class MinimalConfig(n: Int = 1) extends Config(
           dataECC = Some("parity"),
           replacer = Some("setplru"),
           nMissEntries = 2,
-          nReleaseEntries = 2
+          nReleaseEntries = 2,
+          nProbeEntries = 2,
+          nPrefetchEntries = 4,
+          hasPrefetch = false
         ),
         dcacheParametersOpt = Some(DCacheParameters(
           nSets = 64, // 32KB DCache
@@ -127,6 +130,7 @@ class MinimalConfig(n: Int = 1) extends Config(
           normalReplacer = Some("setplru"),
           superNWays = 4,
           normalAsVictim = true,
+          partialStaticPMP = true,
           outReplace = true
         ),
         sttlbParameters = TLBParameters(
@@ -137,6 +141,7 @@ class MinimalConfig(n: Int = 1) extends Config(
           normalReplacer = Some("setplru"),
           normalAsVictim = true,
           superNWays = 4,
+          partialStaticPMP = true,
           outReplace = true
         ),
         btlbParameters = TLBParameters(
