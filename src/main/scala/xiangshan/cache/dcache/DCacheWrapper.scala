@@ -340,7 +340,7 @@ class DCacheLineIO(implicit p: Parameters) extends DCacheBundle
   val resp = Flipped(DecoupledIO(new DCacheLineResp))
 }
 
-class DCacheToSbufferIO(implicit p: Parameters) extends DCacheBundle { 
+class DCacheToSbufferIO(implicit p: Parameters) extends DCacheBundle {
   // sbuffer will directly send request to dcache main pipe
   val req = Flipped(Decoupled(new DCacheLineReq))
 
@@ -357,7 +357,7 @@ class DCacheToLsuIO(implicit p: Parameters) extends DCacheBundle {
   val lsq = ValidIO(new Refill)  // refill to load queue, wake up load misses
   val store = new DCacheToSbufferIO // for sbuffer
   val atomics  = Flipped(new DCacheWordIOWithVaddr)  // atomics reqs
-  val release = ValidIO(new Release) // cacheline release hint for ld-ld violation check 
+  val release = ValidIO(new Release) // cacheline release hint for ld-ld violation check
 }
 
 class DCacheIO(implicit p: Parameters) extends DCacheBundle {
@@ -427,7 +427,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
 
   val errors = bankedDataArray.io.errors ++ // data ecc error
     ldu.map(_.io.tag_error) ++ // load tag ecc error
-    Seq(mainPipe.io.error) // store / misc tag ecc error 
+    Seq(mainPipe.io.error) // store / misc tag ecc error
   io.error <> RegNext(Mux1H(errors.map(e => e.ecc_error.valid -> e)))
 
   //----------------------------------------
@@ -642,13 +642,13 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   // assertions
   // dcache should only deal with DRAM addresses
   when (bus.a.fire()) {
-    assert(bus.a.bits.address >= 0x80000000L.U)
+    assert(bus.a.bits.address >= 0x40000000L.U)
   }
   when (bus.b.fire()) {
-    assert(bus.b.bits.address >= 0x80000000L.U)
+    assert(bus.b.bits.address >= 0x40000000L.U)
   }
   when (bus.c.fire()) {
-    assert(bus.c.bits.address >= 0x80000000L.U)
+    assert(bus.c.bits.address >= 0x40000000L.U)
   }
 
   //----------------------------------------

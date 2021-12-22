@@ -101,7 +101,7 @@ trait HaveSlaveAXI4Port {
   )))
   private val errorDevice = LazyModule(new TLError(
     params = DevNullParams(
-      address = Seq(AddressSet(0x0, 0x7fffffffL)),
+      address = Seq(AddressSet(0x0, 0x1fffffffL)),
       maxAtomic = 8,
       maxTransfer = 64),
     beatBytes = L3InnerBusWidth / 8
@@ -132,7 +132,7 @@ trait HaveAXI4MemPort {
   this: BaseSoC =>
   val device = new MemoryDevice
   // 36-bit physical address
-  val memRange = AddressSet(0x00000000L, 0xfffffffffL).subtract(AddressSet(0x0L, 0x7fffffffL))
+  val memRange = AddressSet(0x00000000L, 0xfffffffffL).subtract(AddressSet(0x0L, 0x3fffffffL))
   val memAXI4SlaveNode = AXI4SlaveNode(Seq(
     AXI4SlavePortParameters(
       slaves = Seq(
@@ -183,7 +183,7 @@ trait HaveAXI4MemPort {
 trait HaveAXI4PeripheralPort { this: BaseSoC =>
   // on-chip devices: 0x3800_0000 - 0x3fff_ffff 0x0000_0000 - 0x0000_0fff
   val onChipPeripheralRange = AddressSet(0x38000000L, 0x07ffffffL)
-  val uartRange = AddressSet(0x40600000, 0xf)
+  val uartRange = AddressSet(0x20000000L, 0xf)
   val uartDevice = new SimpleDevice("serial", Seq("xilinx,uartlite"))
   val uartParams = AXI4SlaveParameters(
     address = Seq(uartRange),
@@ -193,7 +193,7 @@ trait HaveAXI4PeripheralPort { this: BaseSoC =>
     resources = uartDevice.reg
   )
   val peripheralRange = AddressSet(
-    0x0, 0x7fffffff
+    0x0, 0x3fffffff
   ).subtract(onChipPeripheralRange).flatMap(x => x.subtract(uartRange))
   val peripheralNode = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
     Seq(AXI4SlaveParameters(

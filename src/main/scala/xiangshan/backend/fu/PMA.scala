@@ -145,8 +145,9 @@ trait PMAMethod extends PMAConst {
     idx = idx - 1
 
     // NOTE: (0x0_0000_0000L, 0x0_8000_0000L) are default set to MMIO, only RW
+    // new Note: set it to DDR only for tmp test
     addr(idx) := get_napot(0x00000000L, 0x80000000L)
-    cfg(idx).a := 3.U; cfg(idx).r := true.B; cfg(idx).w := true.B
+    cfg(idx).a := 3.U; cfg(idx).r := true.B; cfg(idx).w := true.B; cfg(idx).x := true.B; cfg(idx).c := true.B; cfg(idx).atomic := true.B
     mask(idx) := match_mask(addr(idx), cfg(idx))
     idx = idx - 1
 
@@ -187,7 +188,7 @@ trait PMAMethod extends PMAConst {
     idx = idx - 1
 
     addr(idx) := shift_addr( 0x30010000)
-    cfg(idx).a := 1.U; cfg(idx).r := true.B; cfg(idx).w := true.B
+    cfg(idx).a := 1.U; cfg(idx).r := true.B; cfg(idx).w := true.B // for uart
     idx = idx - 1
 
     addr(idx) := shift_addr( 0x20000000)
@@ -197,7 +198,7 @@ trait PMAMethod extends PMAConst {
     addr(idx) := shift_addr( 0x10000000)
     cfg(idx).a := 1.U; cfg(idx).r := true.B; cfg(idx).w := true.B
     idx = idx - 1
-    
+
     require(idx >= 0)
     addr(idx) := shift_addr(0)
 

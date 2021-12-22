@@ -43,7 +43,7 @@ trait HasBPUConst extends HasXSParameter {
   val numBpStages = BP_STAGES.length
 
   val debug = true
-  val resetVector = 0x10000000L
+  val resetVector = 0x40000000L
   // TODO: Replace log2Up by log2Ceil
 }
 
@@ -568,7 +568,7 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst with H
   // TODO: remove these below
   val shouldShiftVec = Mux(shift === 0.U, VecInit(0.U((1 << (log2Ceil(numBr) + 1)).W).asBools), VecInit((LowerMask(1.U << (shift-1.U))).asBools()))
   // TODO end
-  
+
   val isBr = redirect.cfiUpdate.pd.isBr
   val taken = redirect.cfiUpdate.taken
   val real_br_taken_mask = (0 until numBr).map(i => shift === (i+1).U && taken && addIntoHist )
