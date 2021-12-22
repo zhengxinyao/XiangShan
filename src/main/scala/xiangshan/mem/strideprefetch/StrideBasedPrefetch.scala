@@ -170,7 +170,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
 
   //to solve the r/w in the same address and time
   val rw_same_self = RegInit(false.B)
-  rw_same_self := (idx(io.train.req.bits.pc) === idx(pc_forwrite)) && io.train.req.valid
+  rw_same_self := (idx(io.train.req.bits.pc) === idx(pc_forwrite)) && io.train.req.valid && valid_forwrite
   //to solve write&&read at the same entry in the same time
   when(rw_same_self) {
     oldEntryRespToSelfRpt.tag := RegNext(tag_new)
@@ -181,7 +181,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     oldEntryRespToSelfRpt.updown := RegNext(updown_new)
   }
   val rw_same_other = RegInit(false.B)
-  rw_same_other := (idx(io.train.reqFromAnotherRpt.bits.pc) === idx(pc_forwrite)) && io.train.req.valid
+  rw_same_other := (idx(io.train.reqFromAnotherRpt.bits.pc) === idx(pc_forwrite)) && io.train.req.valid && valid_forwrite
   when(rw_same_other) {
     oldEntryRespToAnotherRpt.tag := RegNext(tag_new)
     oldEntryRespToAnotherRpt.preVaddr := RegNext(preVaddr_new)
@@ -192,7 +192,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   }
   //to solve r/r back to back
   val rr_same_self = RegInit(false.B)
-  rr_same_self := idx(io.train.req.bits.pc) === idx(pc_forupdate) && io.train.req.valid
+  rr_same_self := idx(io.train.req.bits.pc) === idx(pc_forupdate) && io.train.req.valid && valid_forupdate
   when(rr_same_self) {
     oldEntryRespToSelfRpt.tag := tag_new
     oldEntryRespToSelfRpt.preVaddr := preVaddr_new
@@ -202,7 +202,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
     oldEntryRespToSelfRpt.updown := updown_new
   }
   val rr_same_other = RegInit(false.B)
-  rr_same_other := idx(io.train.req.bits.pc) === idx(pc_forupdate) && io.train.req.valid
+  rr_same_other := idx(io.train.reqFromAnotherRpt.bits.pc) === idx(pc_forupdate) && io.train.req.valid && valid_forupdate
   when(rr_same_other) {
     oldEntryRespToAnotherRpt.tag := tag_new
     oldEntryRespToAnotherRpt.preVaddr := preVaddr_new

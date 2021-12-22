@@ -5,6 +5,7 @@ import chisel3._
 import chisel3.util._
 import utils._
 import xiangshan._
+import xiangshan.ExceptionNO._
 import xiangshan.backend.decode.ImmUnion
 import xiangshan.backend.fu.PMPRespBundle
 import xiangshan.cache._
@@ -59,7 +60,7 @@ class L1DPUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
       "b10".U    -> (io.out.bits.vaddr(1,0) === 0.U),
       "b11".U    -> (io.out.bits.vaddr(2,0) === 0.U) 
   ))
-  io.out.bits.uop.cf.exceptionVec(storeAddrMisaligned) := !addrAligned
+  io.out.bits.uop.cf.exceptionVec(loadAddrMisaligned) := !addrAligned
 }
 
 // L1DPrefetch Pipeline Stage 1

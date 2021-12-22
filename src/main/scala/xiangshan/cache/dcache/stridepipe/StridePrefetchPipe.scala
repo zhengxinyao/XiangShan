@@ -4,7 +4,7 @@ import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
 import freechips.rocketchip.tilelink.ClientMetadata
-import utils.{XSDebug, XSPerfAccumulate, PerfEventsBundle}
+import utils.{HasPerfEvents, XSDebug, XSPerfAccumulate}
 
 class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
   def metaBits = (new Meta).getWidth

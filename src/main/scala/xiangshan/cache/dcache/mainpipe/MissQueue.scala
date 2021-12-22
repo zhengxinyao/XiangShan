@@ -563,7 +563,9 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
 
   XSPerfAccumulate("miss_req", io.req.fire())
   XSPerfAccumulate("miss_req_load", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_XRD)
+  XSPerfAccumulate("miss_req_load_alloc", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_XRD && alloc)
   XSPerfAccumulate("miss_req_prefetch", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_PFR)
+  XSPerfAccumulate("miss_req_prefetch_alloc", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_PFR && alloc)
   XSPerfAccumulate("miss_req_allocate", io.req.fire() && alloc)
   XSPerfAccumulate("miss_req_merge_load", io.req.fire() && merge && io.req.bits.isLoad)
   XSPerfAccumulate("miss_req_reject_load", io.req.valid && reject && io.req.bits.isLoad)

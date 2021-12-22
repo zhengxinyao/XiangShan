@@ -414,8 +414,8 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   //----------------------------------------
   // core data structures
   val bankedDataArray = Module(new BankedDataArray)
-  val metaArray = Module(new AsynchronousMetaArray(readPorts = 4 + L1DPrefetchPipelineWidth, writePorts = 2))
-  val tagArray = Module(new DuplicatedTagArray(readPorts = LoadPipelineWidth + 1))
+  val metaArray = Module(new AsynchronousMetaArray(readPorts = 3 + L1DPrefetchPipelineWidth, writePorts = 2))
+  val tagArray = Module(new DuplicatedTagArray(readPorts = LoadPipelineWidth + 1 + L1DPrefetchPipelineWidth))
   bankedDataArray.dump()
 
   //----------------------------------------
@@ -532,7 +532,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   val MainPipeMissReqPort = 0
 
   // Request
-  val missReqArb = Module(new Arbiter(new MissReq, MissReqPortCount))
+  val missReqArb = Module(new RRArbiter(new MissReq, MissReqPortCount))
 
   missReqArb.io.in(MainPipeMissReqPort) <> mainPipe.io.miss_req
   for (w <- 0 until LoadPipelineWidth) { missReqArb.io.in(w + 1) <> ldu(w).io.miss_req }
