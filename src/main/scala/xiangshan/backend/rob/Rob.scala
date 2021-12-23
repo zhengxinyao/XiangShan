@@ -829,7 +829,8 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     exc_wb.bits.singleStep      := false.B
     exc_wb.bits.crossPageIPFFix := false.B
     // TODO: make trigger configurable
-    exc_wb.bits.trigger         := wb.bits.uop.cf.trigger
+    exc_wb.bits.trigger.clear()
+    exc_wb.bits.trigger.backendHit         := wb.bits.uop.cf.trigger.backendHit
     println(s"  [$i] ${configs.map(_.name)}: exception ${exceptionCases(i)}, " +
       s"flushPipe ${configs.exists(_.flushPipe)}, " +
       s"replayInst ${configs.exists(_.replayInst)}")
