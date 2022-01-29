@@ -14,22 +14,20 @@ import system.HasSoCParameter
 import top.BusPerfMonitor
 import utils.{ResetGen, TLClientsMerger, TLEdgeBuffer}
 
-class L1CacheErrorInfo(implicit val p: Parameters) extends Bundle with HasSoCParameter {
-  val paddr = Valid(UInt(soc.PAddrBits.W))
-  // for now, we only detect ecc
-  val ecc_error = Valid(Bool())
+class L1BusErrorUnitInfo(implicit val p: Parameters) extends Bundle with HasSoCParameter {
+  val ecc_error = Valid(UInt(soc.PAddrBits.W)) 
 }
 
 class XSL1BusErrors()(implicit val p: Parameters) extends BusErrors {
-  val icache = new L1CacheErrorInfo
-  val dcache = new L1CacheErrorInfo
+  val icache = new L1BusErrorUnitInfo
+  val dcache = new L1BusErrorUnitInfo
+  val l2 = new L1BusErrorUnitInfo
 
   override def toErrorList: List[Option[(ValidIO[UInt], String, String)]] =
     List(
-      Some(icache.paddr, s"IBUS", s"Icache bus error"),
-      Some(icache.ecc_error, s"I_ECC", s"Icache ecc error"),
-      Some(dcache.paddr, s"DBUS", s"Dcache bus error"),
-      Some(dcache.ecc_error, s"D_ECC", s"Dcache ecc error")
+      Some(icache.ecc_error, "I_ECC", "Icache ecc error"),
+      Some(dcache.ecc_error, "D_ECC", "Dcache ecc error"),
+      Some(l2.ecc_error, "L2_ECC", "L2Cache ecc error")
     )
 }
 
@@ -96,22 +94,27 @@ class XSTile()(implicit p: Parameters) extends LazyModule
   val beu_int_source = misc.beu.intNode
   val core_reset_sink = BundleBridgeSink(Some(() => Bool()))
 
-  if (coreParams.dcacheParametersOpt.nonEmpty) {
-    misc.l1d_logger :=
-      TLBuffer.chainNode(1, Some("L1D_to_L2_buffer")) :=
-      core.memBlock.dcache.clientNode
+  val l1d_to_l2_bufferOpt = coreParams.dcacheParametersOpt.map { _ =>
+    val buffer = LazyModule(new TLBuffer)
+    misc.l1d_logger := buffer.node := core.memBlock.dcache.clientNode
+    buffer
   }
+
+  val l1i_to_l2_buffer = LazyModule(new TLBuffer)
   misc.busPMU :=
     TLLogger(s"L2_L1I_${coreParams.HartId}", !debugOpts.FPGAPlatform) :=
-    TLBuffer.chainNode(1, Some("L1I_to_L2_buffer")) :=
+    l1i_to_l2_buffer.node :=
     core.frontend.icache.clientNode
 
-  if (!coreParams.softPTW) {
+  val ptw_to_l2_bufferOpt = if (!coreParams.softPTW) {
+    val buffer = LazyModule(new TLBuffer)
     misc.busPMU :=
       TLLogger(s"L2_PTW_${coreParams.HartId}", !debugOpts.FPGAPlatform) :=
-      TLBuffer.chainNode(3, Some("PTW_to_L2_buffer")) :=
-      core.ptw.node
-  }
+      buffer.node :=
+      core.ptw_to_l2_buffer.node
+    Some(buffer)
+  } else None
+
   l2cache match {
     case Some(l2) =>
       misc.l2_binder.get :*= l2.node :*= TLBuffer() :*= misc.l1_xbar
@@ -138,16 +141,24 @@ class XSTile()(implicit p: Parameters) extends LazyModule
       core.module.io.perfEvents <> DontCare
     }
 
-    misc.module.beu_errors <> core.module.io.beu_errors
+    misc.module.beu_errors.icache <> core.module.io.beu_errors.icache
+    misc.module.beu_errors.dcache <> core.module.io.beu_errors.dcache
+    if(l2cache.isDefined){
+      misc.module.beu_errors.l2.ecc_error.valid := l2cache.get.module.io.ecc_error.valid
+      misc.module.beu_errors.l2.ecc_error.bits := l2cache.get.module.io.ecc_error.bits
+    } else {
+      misc.module.beu_errors.l2 <> 0.U.asTypeOf(misc.module.beu_errors.l2)
+    }
 
     // Modules are reset one by one
     // io_reset ----
     //             |
     //             v
     // reset ----> OR_SYNC --> {Misc, L2 Cache, Cores}
-    val l2cacheMod = if (l2cache.isDefined) Seq(l2cache.get.module) else Seq()
     val resetChain = Seq(
-      Seq(misc.module, core.module) ++ l2cacheMod
+      Seq(misc.module, core.module, l1i_to_l2_buffer.module) ++
+        l2cache.map(_.module) ++
+        l1d_to_l2_bufferOpt.map(_.module) ++ ptw_to_l2_bufferOpt.map(_.module)
     )
     ResetGen(resetChain, reset.asBool || core_soft_rst, !debugOpts.FPGAPlatform)
   }

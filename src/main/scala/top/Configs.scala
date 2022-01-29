@@ -92,9 +92,9 @@ class MinimalConfig(n: Int = 1) extends Config(
           dataECC = Some("parity"),
           replacer = Some("setplru"),
           nMissEntries = 2,
-          nReleaseEntries = 2,
+          nReleaseEntries = 1,
           nProbeEntries = 2,
-          nPrefetchEntries = 4,
+          nPrefetchEntries = 2,
           hasPrefetch = false
         ),
         dcacheParametersOpt = Some(DCacheParameters(
@@ -231,7 +231,8 @@ class WithNKBL2
         enablePerf = true,
         sramDepthDiv = 2,
         tagECC = Some("secded"),
-        dataECC = Some("secded")
+        dataECC = Some("secded"),
+        simulation = !site(DebugOptionsKey).FPGAPlatform
       )),
       L2NBanks = banks
     ))
@@ -264,7 +265,8 @@ class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1
         sramClkDivBy2 = true,
         sramDepthDiv = 4,
         tagECC = Some("secded"),
-        dataECC = Some("secded")
+        dataECC = Some("secded"),
+        simulation = !site(DebugOptionsKey).FPGAPlatform
       ))
     )
 })

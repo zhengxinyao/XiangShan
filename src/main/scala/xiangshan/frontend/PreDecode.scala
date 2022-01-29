@@ -177,7 +177,8 @@ object FaultType {
   def jalFault        = "b001".U    //not CFI taken or invalid instruction taken
   def retFault        = "b010".U    //not CFI taken or invalid instruction taken
   def targetFault     = "b011".U
-  def faulsePred      = "b100".U    //not CFI taken or invalid instruction taken
+  def notCFIFault    = "b100".U    //not CFI taken or invalid instruction taken
+  def invalidTaken    = "b101".U
   def apply() = UInt(3.W)
 }
 
@@ -186,7 +187,8 @@ class CheckInfo extends Bundle {  // 8 bit
   def isjalFault      = value === FaultType.jalFault
   def isRetFault      = value === FaultType.retFault
   def istargetFault   = value === FaultType.targetFault
-  def isfaulsePred    = value === FaultType.faulsePred
+  def invalidTakenFault    = value === FaultType.invalidTaken
+  def notCFIFault          = value === FaultType.notCFIFault
 }
 
 class PredCheckerResp(implicit p: Parameters) extends XSBundle with HasPdConst {
@@ -243,7 +245,8 @@ class PredChecker(implicit p: Parameters) extends XSModule with HasPdConst {
   io.out.faultType.zipWithIndex.map{case(faultType, i) => faultType.value := Mux(jalFaultVec(i) , FaultType.jalFault ,
                                                                              Mux(retFaultVec(i), FaultType.retFault ,
                                                                              Mux(targetFault(i), FaultType.targetFault , 
-                                                                             Mux(notCFITaken(i) || invalidTaken(i) ,FaultType.faulsePred, FaultType.noFault))))}
+                                                                             Mux(notCFITaken(i) , FaultType.notCFIFault, 
+                                                                             Mux(invalidTaken(i), FaultType.invalidTaken,  FaultType.noFault)))))}
 
   io.out.fixedMissPred.zipWithIndex.map{case(missPred, i ) => missPred := jalFaultVec(i) || retFaultVec(i) || notCFITaken(i) || invalidTaken(i) || targetFault(i)}
   io.out.fixedTarget.zipWithIndex.map{case(target, i) => target := Mux(jalFaultVec(i) || targetFault(i), jumpTargets(i),  seqTargets(i) )}
@@ -267,14 +270,13 @@ class FrontendTrigger(implicit p: Parameters) extends XSModule {
   val rawInsts = if (HasCExtension) VecInit((0 until PredictWidth).map(i => Cat(data(i+1), data(i))))
                         else         VecInit((0 until PredictWidth).map(i => data(i)))
 
-  val tdata = Reg(Vec(4, new MatchTriggerIO))
+  val tdata = RegInit(VecInit(Seq.fill(4)(0.U.asTypeOf(new MatchTriggerIO))))
   when(io.frontendTrigger.t.valid) {
     tdata(io.frontendTrigger.t.bits.addr) := io.frontendTrigger.t.bits.tdata
   }
   io.triggered.map{i => i := 0.U.asTypeOf(new TriggerCf)}
   val triggerEnable = RegInit(VecInit(Seq.fill(4)(false.B))) // From CSR, controlled by priv mode, etc.
   triggerEnable := io.csrTriggerEnable
-  val triggerHitVec = Wire(Vec(4, Bool()))
   XSDebug(triggerEnable.asUInt.orR, "Debug Mode: At least one frontend trigger is enabled\n")
 
   for (i <- 0 until 4) {PrintTriggerInfo(triggerEnable(i), tdata(i))}
@@ -283,6 +285,7 @@ class FrontendTrigger(implicit p: Parameters) extends XSModule {
     val currentPC = io.pc(i)
     val currentIsRVC = io.pds(i).isRVC
     val inst = WireInit(rawInsts(i))
+    val triggerHitVec = Wire(Vec(4, Bool()))
 
     for (j <- 0 until 4) {
       triggerHitVec(j) := Mux(tdata(j).select, TriggerCmp(Mux(currentIsRVC, inst(15, 0), inst), tdata(j).tdata2, tdata(j).matchType, triggerEnable(j)),

@@ -185,8 +185,10 @@ class XiangShan(object):
         self.show()
         emu_args = " ".join(map(lambda arg: f"--{arg[1]} {arg[0]}", self.args.get_emu_args()))
         print("workload:", workload)
-        numa_info = get_free_cores(self.args.threads)
-        numa_args = f"numactl -m {numa_info[0]} -C {numa_info[1]}-{numa_info[2]}" if self.args.numa else ""
+        numa_args = ""
+        if self.args.numa:
+            numa_info = get_free_cores(self.args.threads)
+            numa_args = f"numactl -m {numa_info[0]} -C {numa_info[1]}-{numa_info[2]}"
         fork_args = "--enable-fork" if self.args.fork else ""
         diff_args = "--no-diff" if self.args.disable_diff else ""
         return_code = self.__exec_cmd(f'{numa_args} $NOOP_HOME/build/emu -i {workload} {emu_args} {fork_args} {diff_args}')
@@ -235,7 +237,7 @@ class XiangShan(object):
         return riscv_tests
 
     def __get_ci_misc(self, name=None):
-        base_dir = "/home/ci-runner/xsenv/workloads"
+        base_dir = "/nfs/home/share/ci-workloads"
         workloads = [
             "bitmanip/bitMisc.bin",
             "crypto/crypto-riscv64-noop.bin",
@@ -255,7 +257,7 @@ class XiangShan(object):
         return misc_tests
 
     def __get_ci_nodiff(self, name=None):
-        base_dir = "/home/ci-runner/xsenv/workloads"
+        base_dir = "/nfs/home/share/ci-workloads"
         workloads = [
             "cache-management/cacheoptest-riscv64-xs.bin"
         ]
@@ -280,7 +282,7 @@ class XiangShan(object):
             "wrf": "_1916220000000_.gz",
             "astar": "_122060000000_.gz"
         }
-        return [os.path.join("/home/ci-runner/xsenv/workloads", name, workloads[name])]
+        return [os.path.join("/nfs/home/share/ci-workloads", name, workloads[name])]
 
     def run_ci(self, test):
         all_tests = {

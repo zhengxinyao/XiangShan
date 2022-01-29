@@ -108,6 +108,10 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   dcache.io.csr.distribute_csr <> csrCtrl.distribute_csr
   io.csrUpdate := RegNext(dcache.io.csr.update)
   io.error <> RegNext(RegNext(dcache.io.error))
+  when(!csrCtrl.cache_error_enable){
+    io.error.report_to_beu := false.B
+    io.error.valid := false.B
+  }
 
   val loadUnits = Seq.fill(exuParameters.LduCnt)(Module(new LoadUnit))
   val storeUnits = Seq.fill(exuParameters.StuCnt)(Module(new StoreUnit))
@@ -230,10 +234,10 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   dtlb_ld.map(_.ptw_replenish := pmp_check_ptw.io.resp)
   dtlb_st.map(_.ptw_replenish := pmp_check_ptw.io.resp)
 
-  val tdata = Reg(Vec(6, new MatchTriggerIO))
+  val tdata = RegInit(VecInit(Seq.fill(6)(0.U.asTypeOf(new MatchTriggerIO))))
   val tEnable = RegInit(VecInit(Seq.fill(6)(false.B)))
   val en = csrCtrl.trigger_enable
-  tEnable := VecInit(en(2), en (3), en(7), en(4), en(5), en(9))
+  tEnable := VecInit(en(2), en (3), en(4), en(5), en(7), en(9))
   when(csrCtrl.mem_trigger.t.valid) {
     tdata(csrCtrl.mem_trigger.t.bits.addr) := csrCtrl.mem_trigger.t.bits.tdata
   }
@@ -301,11 +305,11 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     // --------------------------------
     val hit = Wire(Vec(3, Bool()))
     for (j <- 0 until 3) {
-      loadUnits(i).io.trigger(j).tdata2 := tdata(j + 3).tdata2
+      loadUnits(i).io.trigger(j).tdata2 := tdata(lTriggerMapping(j)).tdata2
       loadUnits(i).io.trigger(j).matchType := tdata(lTriggerMapping(j)).matchType
       loadUnits(i).io.trigger(j).tEnable := tEnable(lTriggerMapping(j))
       // Just let load triggers that match data unavailable
-      hit(j) := loadUnits(i).io.trigger(j).addrHit && tdata(j).select // Mux(tdata(j + 3).select, loadUnits(i).io.trigger(j).lastDataHit, loadUnits(i).io.trigger(j).addrHit)
+      hit(j) := loadUnits(i).io.trigger(j).addrHit && !tdata(lTriggerMapping(j)).select // Mux(tdata(j + 3).select, loadUnits(i).io.trigger(j).lastDataHit, loadUnits(i).io.trigger(j).addrHit)
       io.writeback(i).bits.uop.cf.trigger.backendHit(lTriggerMapping(j)) := hit(j)
 //      io.writeback(i).bits.uop.cf.trigger.backendTiming(lTriggerMapping(j)) := tdata(lTriggerMapping(j)).timing
       //      if (lChainMapping.contains(j)) io.writeback(i).bits.uop.cf.trigger.triggerChainVec(lChainMapping(j)) := hit && tdata(j+3).chain
@@ -378,22 +382,28 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
     stu.io.stout.ready := true.B
 
-   // store vaddr
-   when(stOut(i).fire()){
-     val hit = Wire(Vec(3, Bool()))
-     for (j <- 0 until 3) {
-       when(!tdata(sTriggerMapping(j)).select) {
-         hit(j) := TriggerCmp(stOut(i).bits.data, tdata(sTriggerMapping(j)).tdata2, tdata(sTriggerMapping(j)).matchType, tEnable(sTriggerMapping(j)))
-         stOut(i).bits.uop.cf.trigger.backendHit(sTriggerMapping(j)) := hit(j)
-//         stOut(i).bits.uop.cf.trigger.backendTiming(sTriggerMapping(j)) := tdata(sTriggerMapping(j)).timing
-//          if (sChainMapping.contains(j)) stOut(i).bits.uop.cf.trigger.triggerChainVec(sChainMapping(j)) := hit && tdata(j + 3).chain
-       } .otherwise {
-         hit := VecInit(Seq.fill(3)(false.B))
-       }
+    // -------------------------
+    // Store Triggers
+    // -------------------------
+    when(stOut(i).fire()){
+      val hit = Wire(Vec(3, Bool()))
+      for (j <- 0 until 3) {
+         hit(j) := !tdata(sTriggerMapping(j)).select && TriggerCmp(
+           stOut(i).bits.debug.vaddr,
+           tdata(sTriggerMapping(j)).tdata2,
+           tdata(sTriggerMapping(j)).matchType,
+           tEnable(sTriggerMapping(j))
+         )
+       stOut(i).bits.uop.cf.trigger.backendHit(sTriggerMapping(j)) := hit(j)
+     }
 
-       when(!stOut(i).bits.uop.cf.trigger.backendEn(0)) {
-         stOut(i).bits.uop.cf.trigger.backendHit(4) := false.B
-       }
+     when(tdata(0).chain) {
+       io.writeback(i).bits.uop.cf.trigger.backendHit(0) := hit(0) && hit(1)
+       io.writeback(i).bits.uop.cf.trigger.backendHit(1) := hit(0) && hit(1)
+     }
+
+     when(!stOut(i).bits.uop.cf.trigger.backendEn(0)) {
+       stOut(i).bits.uop.cf.trigger.backendHit(4) := false.B
      }
    }
     // store data
@@ -430,11 +440,17 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     lsq.io.mmioStout.ready := true.B
   }
 
-  // atom inst will use store writeback port 0 to writeback exception info
+  // atomic exception / trigger writeback
   when (atomicsUnit.io.out.valid) {
+    // atom inst will use store writeback port 0 to writeback exception info
     stOut(0).valid := true.B
     stOut(0).bits  := atomicsUnit.io.out.bits
     assert(!lsq.io.mmioStout.valid && !storeUnits(0).io.stout.valid)
+
+    // when atom inst writeback, surpress normal load trigger
+    (0 until 2).map(i => {
+      io.writeback(i).bits.uop.cf.trigger.backendHit := VecInit(Seq.fill(6)(false.B))
+    })
   }
 
   // Lsq
@@ -545,10 +561,17 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   }
 
   lsq.io.exceptionAddr.isStore := io.lsqio.exceptionAddr.isStore
-  // Address is delayed by one cycle, so does the atomics address
-  val atomicsException = RegNext(atomicsUnit.io.exceptionAddr.valid)
-  val atomicsExceptionAddress = RegNext(atomicsUnit.io.exceptionAddr.bits)
+  // Exception address is used serveral cycles after flush.
+  // We delay it by 10 cycles to ensure its flush safety.
+  val atomicsException = RegInit(false.B)
+  when (DelayN(io.redirect.valid, 10) && atomicsException) {
+    atomicsException := false.B
+  }.elsewhen (atomicsUnit.io.exceptionAddr.valid) {
+    atomicsException := true.B
+  }
+  val atomicsExceptionAddress = RegEnable(atomicsUnit.io.exceptionAddr.bits, atomicsUnit.io.exceptionAddr.valid)
   io.lsqio.exceptionAddr.vaddr := Mux(atomicsException, atomicsExceptionAddress, lsq.io.exceptionAddr.vaddr)
+  XSError(atomicsException && atomicsUnit.io.in.valid, "new instruction before exception triggers\n")
 
   io.memInfo.sqFull := RegNext(lsq.io.sqFull)
   io.memInfo.lqFull := RegNext(lsq.io.lqFull)

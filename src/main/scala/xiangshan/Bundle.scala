@@ -40,6 +40,7 @@ import chisel3.util.BitPat.bitPatToUInt
 import xiangshan.backend.fu.PMPEntry
 import xiangshan.frontend.Ftq_Redirect_SRAMEntry
 import xiangshan.frontend.AllFoldedHistories
+import xiangshan.frontend.AllAheadFoldedHistoryOldestBits
 
 class ValidUndirectioned[T <: Data](gen: T) extends Bundle {
   val valid = Bool()
@@ -79,10 +80,11 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val rasEntry = new RASEntry
   // val hist = new ShiftingGlobalHistory
   val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+  val afhob = new AllAheadFoldedHistoryOldestBits(foldedGHistInfos)
+  val lastBrNumOH = UInt((numBr+1).W)
+  val ghr = UInt(UbtbGHRLength.W)
   val histPtr = new CGHPtr
-  val phist = UInt(PathHistoryLength.W)
   val specCnt = Vec(numBr, UInt(10.W))
-  val phNewBit = Bool()
   // need pipeline update
   val br_hit = Bool()
   val predTaken = Bool()
@@ -95,12 +97,11 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   def fromFtqRedirectSram(entry: Ftq_Redirect_SRAMEntry) = {
     // this.hist := entry.ghist
     this.folded_hist := entry.folded_hist
+    this.lastBrNumOH := entry.lastBrNumOH
+    this.afhob := entry.afhob
     this.histPtr := entry.histPtr
-    this.phist := entry.phist
-    this.phNewBit := entry.phNewBit
     this.rasSp := entry.rasSp
     this.rasEntry := entry.rasEntry
-    this.specCnt := entry.specCnt
     this
   }
 }
@@ -442,8 +443,10 @@ class MemPredUpdateReq(implicit p: Parameters) extends XSBundle  {
 
 class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
   // Prefetcher
-  val l1plus_pf_enable = Output(Bool())
+  val l1I_pf_enable = Output(Bool())
   val l2_pf_enable = Output(Bool())
+  // ICache
+  val icache_parity_enable = Output(Bool())
   // Labeled XiangShan
   val dsid = Output(UInt(8.W)) // TODO: DsidWidth as parameter
   // Load violation predictor
@@ -501,6 +504,38 @@ class DistributedCSRUpdateReq(implicit p: Parameters) extends XSBundle {
   }
 }
 
+class L1CacheErrorInfo(implicit p: Parameters) extends XSBundle {
+  // L1CacheErrorInfo is also used to encode customized CACHE_ERROR CSR
+  val source = Output(new Bundle() {
+    val tag = Bool() // l1 tag array
+    val data = Bool() // l1 data array
+    val l2 = Bool()
+  })
+  val opType = Output(new Bundle() {
+    val fetch = Bool()
+    val load = Bool()
+    val store = Bool()
+    val probe = Bool()
+    val release = Bool()
+    val atom = Bool()
+  })
+  val paddr = Output(UInt(PAddrBits.W))
+
+  // report error and paddr to beu
+  // bus error unit will receive error info iff ecc_error.valid
+  val report_to_beu = Output(Bool())
+
+  // there is an valid error
+  // l1 cache error will always be report to CACHE_ERROR csr
+  val valid = Output(Bool())
+
+  def toL1BusErrorUnitInfo(): L1BusErrorUnitInfo = {
+    val beu_info = Wire(new L1BusErrorUnitInfo)
+    beu_info.ecc_error.valid := report_to_beu
+    beu_info.ecc_error.bits := paddr
+    beu_info
+  }
+}
 
 /* TODO how to trigger on next inst?
 1. If hit is determined at frontend, then set a "next instr" trap at dispatch like singlestep
@@ -545,6 +580,11 @@ class TriggerCf(implicit p: Parameters) extends XSBundle {
   def getHitFrontend = frontendHit.reduce(_ || _)
   def getHitBackend = backendHit.reduce(_ || _)
   def hit = getHitFrontend || getHitBackend
+  def clear(): Unit = {
+    frontendHit.foreach(_ := false.B)
+    backendEn.foreach(_ := false.B)
+    backendHit.foreach(_ := false.B)
+  }
 }
 
 // these 3 bundles help distribute trigger control signals from CSR

@@ -79,7 +79,9 @@ class ICacheMissEntry(edge: TLEdgeOut, id: Int)(implicit p: Parameters) extends 
 
     val release_req    =  DecoupledIO(new ReplacePipeReq)
     val release_resp   =  Flipped(ValidIO(UInt(ReplaceIdWid.W)))
-    val victimInfor        =  Output(new ICacheVictimInfor())
+    val victimInfor    =  Output(new ICacheVictimInfor())
+
+    val toPrefetch    = ValidIO(UInt(PAddrBits.W))
 
   })
 
@@ -121,12 +123,16 @@ class ICacheMissEntry(edge: TLEdgeOut, id: Int)(implicit p: Parameters) extends 
   io.release_req.bits.vaddr := req.vaddr
   io.release_req.bits.voluntary := true.B
   io.release_req.bits.waymask   := req.waymask
+  io.release_req.bits.needData   := false.B
   io.release_req.bits.id   := release_id
   io.release_req.bits.param := DontCare //release will not care tilelink param
 
   io.req.ready := (state === s_idle)
   io.mem_acquire.valid := (state === s_send_mem_aquire)
   io.release_req.valid := (state === s_send_replace)
+
+  io.toPrefetch.valid := (state =/= s_idle)
+  io.toPrefetch.bits  :=  addrAlign(req.paddr, blockBytes, PAddrBits)
 
   val grantack = RegEnable(edge.GrantAck(io.mem_grant.bits), io.mem_grant.fire())
   val grant_param = Reg(UInt(TLPermissions.bdWidth.W))
@@ -264,7 +270,9 @@ class ICacheMissUnit(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMiss
 
     val victimInfor = Vec(PortNumber, Output(new ICacheVictimInfor()))
 
-    val prefetch_req =  Flipped(DecoupledIO(new PIQReq))
+    val prefetch_req          =  Flipped(DecoupledIO(new PIQReq))
+    val prefetch_check        =  Vec(PortNumber,ValidIO(UInt(PAddrBits.W)))
+
 
   })
   // assign default values to output signals
@@ -300,6 +308,7 @@ class ICacheMissUnit(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMiss
     io.resp(i) <> entry.io.resp
 
     io.victimInfor(i) := entry.io.victimInfor
+    io.prefetch_check(i) <> entry.io.toPrefetch
 
     entry.io.release_resp <> io.release_resp
 
@@ -317,7 +326,7 @@ class ICacheMissUnit(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMiss
 
   val alloc = Wire(UInt(log2Ceil(nPrefetchEntries).W))
 
-  val prefEntries = (PortNumber until PortNumber + nPrefetchEntries - 1) map { i =>
+  val prefEntries = (PortNumber until PortNumber + nPrefetchEntries) map { i =>
     val prefetchEntry = Module(new IPrefetchEntry(edge, PortNumber))
 
     prefetchEntry.io.mem_hint_ack.valid := false.B
@@ -327,12 +336,8 @@ class ICacheMissUnit(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheMiss
       prefetchEntry.io.mem_hint_ack <> io.mem_grant
     }
 
-    prefetchEntry.io.req <> DontCare
-
-    when(i.U === alloc){
-      prefetchEntry.io.req.valid := io.prefetch_req.valid
-      prefetchEntry.io.req.bits  := io.prefetch_req.bits
-    }
+    prefetchEntry.io.req.valid := io.prefetch_req.valid && ((i-PortNumber).U === alloc)
+    prefetchEntry.io.req.bits  := io.prefetch_req.bits
 
     prefetchEntry.io.id := i.U
 
