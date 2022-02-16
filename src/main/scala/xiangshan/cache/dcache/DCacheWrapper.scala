@@ -439,7 +439,6 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   //----------------------------------------
   // meta array
   val meta_read_ports = ldu.map(_.io.meta_read) ++
-<<<<<<< HEAD
     Seq(mainPipe.io.meta_read/*,
       replacePipe.io.meta_read*/,
       l1dpu.io.meta_read)//tjz
@@ -447,11 +446,6 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
     Seq(mainPipe.io.meta_resp/*,
       replacePipe.io.meta_resp*/,
       l1dpu.io.meta_resp)//tjz
-=======
-    Seq(mainPipe.io.meta_read)
-  val meta_resp_ports = ldu.map(_.io.meta_resp) ++
-    Seq(mainPipe.io.meta_resp)
->>>>>>> master
   val meta_write_ports = Seq(
     mainPipe.io.meta_write,
     refillPipe.io.meta_write

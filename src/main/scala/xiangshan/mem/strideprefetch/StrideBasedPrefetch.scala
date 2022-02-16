@@ -76,7 +76,7 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   def idx(pc: UInt) = hash1(pc) ^ hash2(pc)//8.W
   def tag(pc: UInt) = usedPc(pc)(rptTagBits + rptIdxBits - 1, rptIdxBits)//pc(21, 10)//12.W
   //above is relevant about pc
-  def usedVaddr(vaddr: UInt) = vaddr((preVaddrBits + 1), 2)//12.W
+  def usedVaddr(vaddr: UInt) = vaddr((preVaddrBits - 1), 2)//12.W
   //def getPageNum(vaddr: UInt) = vaddr(VAddrBits - 1, untagBits)//vaddr(38, 14), 25.W
   def getIdxNum(vaddr: UInt) = vaddr(offLen - 1, log2Up(dcacheBlockBytes))
   
@@ -273,6 +273,14 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
 
   self_is_good  := stride_is_good_self && tag_is_good_self
   other_is_good := stride_is_good_other && tag_is_good_other
+
+  /*when(!(stride_is_good_self || stride_is_good_other)) {
+    stride_min := (tag_is_good_self.asUInt() & strideSubSelf) | (tag_is_good_other.asUInt() & strideSubAnother) 
+    engage_cc := (tag_is_good_self.asUInt() & oldEntryRespToSelfRpt.cc) | (tag_is_good_other.asUInt() & oldEntryRespFromAnotherRpt.bits.cc)
+  }.otherwise {
+    stride_min := (self_is_good.asUInt() & strideSubSelf) | (other_is_good.asUInt() & strideSubAnother)
+    engage_cc := (self_is_good.asUInt() & oldEntryRespToSelfRpt.cc) | (other_is_good.asUInt() & oldEntryRespFromAnotherRpt.bits.cc)
+  }*/
 
   state_better := ((oldEntryRespFromAnotherRpt.bits.state > oldEntryRespToSelfRpt.state) || !tag_is_good_self) && other_is_good
   engage_state := Mux(state_better, oldEntryRespFromAnotherRpt.bits.state, oldEntryRespToSelfRpt.state)

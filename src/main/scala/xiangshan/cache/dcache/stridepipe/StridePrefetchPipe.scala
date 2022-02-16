@@ -7,21 +7,21 @@ import freechips.rocketchip.tilelink.ClientMetadata
 import utils.{HasPerfEvents, XSDebug, XSPerfAccumulate}
 
 class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
-  def metaBits = (new Meta).getWidth
+  /*def metaBits = (new Meta).getWidth
   def encMetaBits = cacheParams.tagCode.width((new MetaAndTag).getWidth) - tagBits
   def getMeta(encMeta: UInt): UInt = {
     require(encMeta.getWidth == encMetaBits)
     encMeta(metaBits - 1, 0)
-  }
+  }*/
 
   val io = IO(new DCacheBundle {
     val l1dprefetch = Flipped(new DCacheToPrefetchIO)
 
     val meta_read = DecoupledIO(new MetaReadReq)
-    val meta_resp = Input(Vec(nWays, UInt(encMetaBits.W)))
+    val meta_resp = Input(Vec(nWays, new Meta))
 
     val tag_read = DecoupledIO(new TagReadReq)
-    val tag_resp = Input(Vec(nWays, UInt(tagBits.W)))
+    val tag_resp = Input(Vec(nWays, UInt(encTagBits.W)))
 
     val miss_req = DecoupledIO(new MissReq)
 
@@ -75,9 +75,10 @@ class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
   dump_pipeline_reqs("StridePipe s1", s1_valid, s1_req)
 
   //tag check
-  val meta_resp = VecInit(io.meta_resp.map(r => getMeta(r).asTypeOf(new Meta)))
+  val meta_resp = io.meta_resp
+  val tag_resp = io.tag_resp.map(r => r(tagBits - 1, 0))
   def wayMap[T <: Data](f: Int => T) = VecInit((0 until nWays).map(f))
-  val s1_tag_eq_way = wayMap((w: Int) => io.tag_resp(w) === (get_tag(s1_addr))).asUInt
+  val s1_tag_eq_way = wayMap((w: Int) => tag_resp(w) === (get_tag(s1_addr))).asUInt
   val s1_tag_match_way = wayMap((w: Int) => s1_tag_eq_way(w) && meta_resp(w).coh.isValid()).asUInt
   val s1_tag_match = s1_tag_match_way.orR
   assert(RegNext(PopCount(s1_tag_match_way) <= 1.U), "tag should not match with more than 1 way")
@@ -95,7 +96,7 @@ class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
   io.replace_way.set.valid := RegNext(s0_fire)
   io.replace_way.set.bits := get_idx(s1_vaddr)
   val s1_repl_way_en = UIntToOH(io.replace_way.way)
-  val s1_repl_tag = Mux1H(s1_repl_way_en, wayMap(w => io.tag_resp(w)))
+  val s1_repl_tag = Mux1H(s1_repl_way_en, wayMap(w => tag_resp(w)))
   val s1_repl_coh = Mux1H(s1_repl_way_en, wayMap(w => meta_resp(w).coh))
 
   val s1_need_replacement = !s1_tag_match
