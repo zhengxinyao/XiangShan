@@ -203,13 +203,15 @@ object TopMain extends App with HasRocketChipStageUtils {
   override def main(args: Array[String]): Unit = {
     val (config, firrtlOpts) = ArgParser.parse(args)
     val soc = DisableMonitors(p => LazyModule(new XSTop()(p)))(config)
-    XiangShanStage.execute(firrtlOpts, Seq(
-      ChiselGeneratorAnnotation(() => {
-        soc.module
-      })
-    ))
+    val sv = circt.stage.ChiselStage.emitSystemVerilog(soc.module)
+//    XiangShanStage.execute(firrtlOpts, Seq(
+//      ChiselGeneratorAnnotation(() => {
+//        soc.module
+//      })
+//    ))
     ElaborationArtefacts.files.foreach{ case (extension, contents) =>
       writeOutputFile("./build", s"XSTop.${extension}", contents())
     }
+    writeOutputFile("./build", "XSTop.sv", sv)
   }
 }
