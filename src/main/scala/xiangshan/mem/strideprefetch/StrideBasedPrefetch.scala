@@ -264,11 +264,14 @@ class StrideBasedPrefetch(implicit p: Parameters) extends XSModule with HasTlbCo
   }
   when(oldEntryRespToSelfRpt.state === s_steady || oldEntryRespFromAnotherRpt.bits.state === s_steady){
     stride_is_good_self := (stride_min === oldEntryRespToSelfRpt.stride) && (stride_min =/= 0.U)
+    //stride_is_good_self := (strideSubSelf === oldEntryRespToSelfRpt.stride) && (strideSubSelf =/= 0.U)
     stride_is_good_other := (stride_min === oldEntryRespFromAnotherRpt.bits.stride) && (stride_min =/= 0.U)
-    //stride_is_good := (stride_min === oldEntryRespToSelfRpt.stride || stride_min === oldEntryRespFromAnotherRpt.bits.stride) && (stride_min =/= 0.U)
+    //stride_is_good_other := (strideSubAnother === oldEntryRespFromAnotherRpt.bits.stride) && (strideSubAnother =/= 0.U)
   }.otherwise{
     stride_is_good_self := (stride_min === oldEntryRespToSelfRpt.stride) && (updown_update === oldEntryRespToSelfRpt.updown) && (stride_min =/= 0.U)
+    //stride_is_good_self := (strideSubSelf === oldEntryRespToSelfRpt.stride) && (updown_update === oldEntryRespToSelfRpt.updown) && (strideSubSelf =/= 0.U)
     stride_is_good_other := (stride_min === oldEntryRespFromAnotherRpt.bits.stride) && (updown_update === oldEntryRespFromAnotherRpt.bits.updown) && (stride_min =/= 0.U)
+    //stride_is_good_other := (strideSubAnother === oldEntryRespFromAnotherRpt.bits.stride) && (updown_update === oldEntryRespFromAnotherRpt.bits.updown) && (strideSubAnother =/= 0.U)
   }
 
   self_is_good  := stride_is_good_self && tag_is_good_self
