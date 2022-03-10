@@ -432,9 +432,8 @@ class NewIFU(implicit p: Parameters) extends XSModule
     }
 
     is(m_sendPMP){
-          val pmpExcpAF = io.pmp.resp.instr
-          mmio_state :=  Mux(pmpExcpAF, m_waitCommit , m_resendReq)
-          mmio_resend_af := pmpExcpAF
+          mmio_state :=  m_waitCommit
+          mmio_resend_af := true.B
     }
 
     is(m_resendReq){
@@ -576,7 +575,8 @@ class NewIFU(implicit p: Parameters) extends XSModule
     io.toIbuffer.bits.pd(0).isCall  := isCall
     io.toIbuffer.bits.pd(0).isRet   := isRet
 
-    io.toIbuffer.bits.acf(0) := mmio_resend_af
+    io.toIbuffer.bits.ipf(0)             := mmio_resend_af
+    io.toIbuffer.bits.crossPageIPFFix(0) := mmio_resend_af
 
     io.toIbuffer.bits.enqEnable   := f3_mmio_range.asUInt
   }
