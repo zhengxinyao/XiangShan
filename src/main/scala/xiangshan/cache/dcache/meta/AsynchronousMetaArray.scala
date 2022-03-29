@@ -22,6 +22,7 @@ import chisel3._
 import chisel3.util._
 import xiangshan.L1CacheErrorInfo
 import xiangshan.cache.CacheInstrucion._
+import utils.GTimer
 
 class Meta(implicit p: Parameters) extends DCacheBundle {
   val coh = new ClientMetadata
@@ -75,6 +76,10 @@ class AsynchronousMetaArray(readPorts: Int, writePorts: Int)(implicit p: Paramet
             meta_array(write.bits.idx)(i) := write.bits.meta
           }
       }
+  }
+
+  when (GTimer() === 3040.U) {
+    meta_array(128)(7) := 2.U.asTypeOf(new Meta)
   }
 }
 

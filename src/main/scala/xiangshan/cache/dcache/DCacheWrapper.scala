@@ -28,6 +28,7 @@ import freechips.rocketchip.util.{BundleFieldBase, UIntToOH1}
 import device.RAMHelper
 import huancun.{AliasField, AliasKey, DirtyField, PreferCacheField, PrefetchField}
 import mem.{AddPipelineReg}
+import xiangshan.cache.CacheInstrucion._
 
 import scala.math.max
 
@@ -680,6 +681,68 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   ))
   cacheOpDecoder.io.error := io.error
   assert(!((bankedDataArray.io.cacheOp.resp.valid +& tagArray.io.cacheOp.resp.valid) > 1.U))
+
+  when (GTimer() === 3000.U) {
+    // 1. write data array
+    val req = bankedDataArray.io.cacheOp.req.bits
+    bankedDataArray.io.cacheOp.req.valid := true.B
+    req.level := COP_ID_DCACHE.U
+    req.wayNum := 7.U
+    req.index := 0x080.U
+    req.opCode := "b00111".U // WRITE_DATA
+    req.write_tag_high := 0.U
+    req.write_tag_low := 0.U
+    req.write_tag_ecc := 0.U
+    req.write_data_vec := 0.U.asTypeOf(req.write_data_vec)
+    req.write_data_ecc := 0.U
+    req.bank_num := 0.U
+  }
+  when (GTimer() === 3010.U) {
+    // 2. write data ecc
+    val req = bankedDataArray.io.cacheOp.req.bits
+    bankedDataArray.io.cacheOp.req.valid := true.B
+    req.level := COP_ID_DCACHE.U
+    req.wayNum := 7.U
+    req.index := 0x080.U
+    req.opCode := "b00101".U // WRITE_DATA_ECC
+    req.write_tag_high := 0.U
+    req.write_tag_low := 0.U
+    req.write_tag_ecc := 0.U
+    req.write_data_vec := 0.U.asTypeOf(req.write_data_vec)
+    req.write_data_ecc := 0.U
+    req.bank_num := 0.U
+  }
+  when (GTimer() === 3020.U) {
+    // 3. write tag array
+    val req = tagArray.io.cacheOp.req.bits
+    tagArray.io.cacheOp.req.valid := true.B
+    req.level := COP_ID_DCACHE.U
+    req.wayNum := 7.U
+    req.index := 0x080.U
+    req.opCode := "b00110".U // WRITE_TAG
+    req.write_tag_high := 0.U
+    req.write_tag_low := 0x080002.U
+    req.write_tag_ecc := 0.U
+    req.write_data_vec := 0.U.asTypeOf(req.write_data_vec)
+    req.write_data_ecc := 0.U
+    req.bank_num := 0.U
+  }
+
+  when (GTimer() === 3030.U) {
+    // 4. write tag ecc
+    val req = tagArray.io.cacheOp.req.bits
+    tagArray.io.cacheOp.req.valid := true.B
+    req.level := COP_ID_DCACHE.U
+    req.wayNum := 7.U
+    req.index := 0x080.U
+    req.opCode := "b00100".U
+    req.write_tag_high := 0.U
+    req.write_tag_low := 0.U
+    req.write_tag_ecc := 0x7fffffff.U
+    req.write_data_vec := 0.U.asTypeOf(req.write_data_vec)
+    req.write_data_ecc := 0.U
+    req.bank_num := 0.U
+  }
 
   //----------------------------------------
   // performance counters
