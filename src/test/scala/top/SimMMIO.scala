@@ -19,8 +19,8 @@ package top
 import chisel3._
 import chipsalliance.rocketchip.config
 import device._
-import freechips.rocketchip.amba.axi4.{AXI4EdgeParameters, AXI4MasterNode, AXI4Xbar}
-import freechips.rocketchip.diplomacy.{AddressSet, InModuleBody, LazyModule, LazyModuleImp}
+import freechips.rocketchip.amba.axi4.{AXI4Buffer, AXI4EdgeParameters, AXI4MasterNode, AXI4Xbar}
+import freechips.rocketchip.diplomacy.{AddressSet, BufferParams, InModuleBody, LazyModule, LazyModuleImp}
 import difftest._
 
 class SimMMIO(edge: AXI4EdgeParameters)(implicit p: config.Parameters) extends LazyModule {
@@ -41,9 +41,11 @@ class SimMMIO(edge: AXI4EdgeParameters)(implicit p: config.Parameters) extends L
 
   uart.node := axiBus
   vga.node :*= axiBus
-  flash.node := axiBus
   sd.node := axiBus
   intrGen.node := axiBus
+
+  flash.node :=
+    AXI4Buffer(BufferParams(depth = 10, flow = false, pipe = false)) := axiBus
 
   axiBus := node
 
