@@ -29,6 +29,7 @@ class FlashHelper extends ExtModule with HasExtModuleInline {
   val data = IO(Output(UInt(64.W)))
   val addr = IO(Input(UInt(32.W)))
 
+
   setInline("FlashHelper.v",
     s"""
        |import "DPI-C" function void flash_read
@@ -63,11 +64,21 @@ class AXI4Flash
   override lazy val module = new AXI4SlaveModuleImp(this){
     def getOffset(addr: UInt) = addr(15,0)
 
+    //TODO: change flash address range if core PMP/PMA config changes
+    val flash_start = 0x10000000.U(32.W)
+    val flash_end  = 0x1FFFFFFF.U(32.W)
+
     val flash = Module(new FlashHelper)
     flash.clk := clock
     flash.ren := in.ar.fire()
     flash.addr := Cat(0.U(16.W), getOffset(raddr))
 
+    assert( !in.aw.valid, "[axi-device] write data to flash is not allowed!")
+
+    when(in.ar.fire()){
+        assert(  raddr >= flash_start && raddr <= flash_end,
+      "[axi-device] flash has illegal adderss access!    adderss:0x%x", raddr)
+    }
     in.r.bits.data := flash.data
   }
 }
