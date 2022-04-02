@@ -58,6 +58,7 @@ class XSArgs(object):
         self.is_release = 1 if args.release else None
         self.trace = 1 if args.trace or not args.disable_fork  else None
         self.config = args.config
+        self.mfc = 1 if args.mfc else None
         # emu arguments
         self.max_instr = args.max_instr
         self.seed = random.randint(0, 9999)
@@ -97,7 +98,8 @@ class XSArgs(object):
             (self.is_release,    "RELEASE"),
             (self.trace,         "EMU_TRACE"),
             (self.config,        "CONFIG"),
-            (self.num_cores,     "NUM_CORES")
+            (self.num_cores,     "NUM_CORES"),
+            (self.mfc,           "MFC")
         ]
         args = filter(lambda arg: arg[0] is not None, makefile_args)
         return args
@@ -358,6 +360,7 @@ if __name__ == "__main__":
     parser.add_argument('--threads', nargs='?', type=int, help='number of emu threads')
     parser.add_argument('--trace', action='store_true', help='enable waveform')
     parser.add_argument('--config', nargs='?', type=str, help='config')
+    parser.add_argument('--mfc', action='store_true', help='use circt')
     # emu arguments
     parser.add_argument('--numa', action='store_true', help='use numactl')
     parser.add_argument('--diff', nargs='?', default="./ready-to-run/riscv64-nemu-interpreter-so", type=str, help='nemu so')
