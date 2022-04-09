@@ -151,6 +151,8 @@ class AtomicsReplayEntry(implicit p: Parameters) extends DCacheModule
     io.lsu.resp.bits.dump()
   }
 
+  HWDebug(state) // 2 bits
+
 //  when (io.pipe_req.fire()) {
 //    io.pipe_req.bits.dump()
 //  }

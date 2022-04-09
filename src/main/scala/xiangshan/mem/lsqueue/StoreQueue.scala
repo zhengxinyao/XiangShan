@@ -656,6 +656,7 @@ class StoreQueue(implicit p: Parameters) extends XSModule
 
   // debug info
   XSDebug("enqPtrExt %d:%d deqPtrExt %d:%d\n", enqPtrExt(0).flag, enqPtr, deqPtrExt(0).flag, deqPtr)
+  HWDebug(Cat(enqPtrExt(0).flag, enqPtr, deqPtrExt.flag, deqPtr, cmtPtrExt(0).flag, cmtPtrExt(0).value, uncacheState)) // 1+7 + 1+7 + 1+7 + 3 = 26 bits
 
   def PrintFlag(flag: Bool, name: String): Unit = {
     when(flag) {

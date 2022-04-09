@@ -475,6 +475,8 @@ class WritebackQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
   // performance counters
   XSPerfAccumulate("wb_req", io.req.fire())
 
+  HWDebug(PopCount(entries.map(e => e.io.block_addr.valid)) // 5 bit
+
   val perfEvents = Seq(
     ("dcache_wbq_req      ", io.req.fire()                                                                                                                                                              ),
     ("dcache_wbq_1_4_valid", (PopCount(entries.map(e => e.io.block_addr.valid)) < (cfg.nReleaseEntries.U/4.U))                                                                                          ),

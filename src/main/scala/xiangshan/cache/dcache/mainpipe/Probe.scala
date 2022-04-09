@@ -231,6 +231,8 @@ class ProbeQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule w
     XSDebug("lrsc_locked_block: %x\n", io.lrsc_locked_block.bits)
   }
 
+  HWDebug(PopCount(entries.map(e => e.io.block_addr.valid)) // 5 bit
+
   val perfEvents = Seq(
     ("dcache_probq_req      ", io.pipe_req.fire()                                                                                                                                                                       ),
     ("dcache_probq_1_4_valid", (PopCount(entries.map(e => e.io.block_addr.valid)) < (cfg.nProbeEntries.U/4.U))                                                                                       ),

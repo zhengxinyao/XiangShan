@@ -387,6 +387,8 @@ class AtomicsUnit(implicit p: Parameters) extends XSModule with MemoryOpConstant
     io.out.bits.uop.cf.trigger.backendHit(4) := backendTriggerHitReg(4) 
   }
 
+  HWDebug(state) // 3 bits
+
   if (env.EnableDifftest) {
     val difftest = Module(new DifftestAtomicEvent)
     difftest.io.clock      := clock

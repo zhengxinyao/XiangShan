@@ -865,9 +865,11 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   )
   generatePerfEvent()
 
+  
   // debug info
   XSDebug("enqPtrExt %d:%d deqPtrExt %d:%d\n", enqPtrExt(0).flag, enqPtr, deqPtrExt.flag, deqPtr)
-
+  HWDebug(Cat(enqPtrExt(0).flag, enqPtr, deqPtrExt.flag, deqPtr)) // 1+7 + 1+7 + 2 = 18 bits
+  
   def PrintFlag(flag: Bool, name: String): Unit = {
     when(flag) {
       XSDebug(false, true.B, name)

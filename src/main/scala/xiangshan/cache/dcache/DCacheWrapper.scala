@@ -716,6 +716,14 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
       })
   }
   XSPerfAccumulate("access_early_replace", PopCount(Cat(access_early_replace)))
+  
+  HWDebug(Cat(
+    bus.a.ready, bus.a.valid,
+    bus.b.ready, bus.b.valid,
+    bus.c.ready, bus.c.valid,
+    bus.d.ready, bus.d.valid,
+    bus.e.ready, bus.e.valid
+  )) // 10 bits
 
   val perfEvents = (Seq(wb, mainPipe, missQueue, probeQueue) ++ ldu).flatMap(_.getPerfEvents)
   generatePerfEvent()

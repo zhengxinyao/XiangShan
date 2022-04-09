@@ -587,6 +587,8 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
   io.full := num_valids === cfg.nMissEntries.U
   XSPerfHistogram("num_valids", num_valids, true.B, 0, cfg.nMissEntries, 1)
 
+  HWDebug(PopCount(entries.map(entry => (!entry.io.primary_ready))) // 5 bit
+
   val perfEvents = Seq(
     ("dcache_missq_req      ", io.req.fire()                                                                                                                                                                       ),
     ("dcache_missq_1_4_valid", (PopCount(entries.map(entry => (!entry.io.primary_ready))) < (cfg.nMissEntries.U/4.U))                                                                                              ),
