@@ -12,7 +12,6 @@ import utils._
 class OldListPtr(implicit p: Parameters) extends CircularQueuePtr[OldListPtr](
     p => p(XSCoreParamsKey).StrideOldListSize
 ){
-    override def cloneType = (new OldListPtr).asInstanceOf[this.type]
 }
 
 class OldListResp(implicit p: Parameters) extends XSBundle with HasTlbConst{

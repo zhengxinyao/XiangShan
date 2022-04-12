@@ -157,6 +157,10 @@ trait HasDCacheParameters extends HasL1CacheParameters {
     data(DCacheSRAMRowBytes * (bank + 1) - 1, DCacheSRAMRowBytes * bank)
   }
 
+  def refill_addr_hit(a: UInt, b: UInt): Bool = {
+    a(PAddrBits-1, DCacheIndexOffset) === b(PAddrBits-1, DCacheIndexOffset)
+  }
+
   def arbiter[T <: Bundle](
     in: Seq[DecoupledIO[T]],
     out: DecoupledIO[T],
@@ -263,7 +267,8 @@ class DCacheWordResp(implicit p: Parameters) extends DCacheBundle
   // cache miss, and failed to enter the missqueue, replay from RS is needed
   val replay = Bool()
   // data has been corrupted
-  val error = Bool()
+  val tag_error = Bool() // tag error
+  val error = Bool() // all kinds of errors, include tag error
   def dump() = {
     XSDebug("DCacheWordResp: data: %x id: %d miss: %b replay: %b\n",
       data, id, miss, replay)
@@ -617,8 +622,14 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   bus.c     <> wb.io.mem_release
   wb.io.release_wakeup := refillPipe.io.release_wakeup
   wb.io.release_update := mainPipe.io.release_update
-  io.lsu.release.valid := RegNext(bus.c.fire())
-  io.lsu.release.bits.paddr := RegNext(bus.c.bits.address)
+
+  io.lsu.release.valid := RegNext(wb.io.req.fire())
+  io.lsu.release.bits.paddr := RegNext(wb.io.req.bits.addr)
+  // Note: RegNext() is required by:
+  // * load queue released flag update logic
+  // * load / load violation check logic
+  // * and timing requirements
+  // CHANGE IT WITH CARE
 
   // connect bus d
   missQueue.io.mem_grant.valid := false.B

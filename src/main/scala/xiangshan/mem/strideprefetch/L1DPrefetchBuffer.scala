@@ -13,7 +13,6 @@ import xiangshan.mem._
 class L1dpbPtr(implicit p: Parameters) extends CircularQueuePtr[L1dpbPtr](
     p => p(XSCoreParamsKey).L1dpbSize
 ){
-    override def cloneType = (new L1dpbPtr).asInstanceOf[this.type]
 }
 
 class L1dpBufferReq(implicit p: Parameters) extends XSBundle {
