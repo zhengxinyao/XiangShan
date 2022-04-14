@@ -389,8 +389,12 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
       Cat(wr, toT, true.B)   -> Dirty))
   }
   refill.meta.coh := ClientMetadata(missCohGen(req.cmd, grant_param, isDirty))
-  refill.error := error
-  refill.alias := req.vaddr(13, 12) // TODO
+  refill.error    := error
+  refill.alias    := req.vaddr(13, 12) // TODO
+  refill.cmd      := req.cmd
+  refill.source   := req.source
+  refill.vaddr    := req.vaddr
+
 
   io.main_pipe_req.valid := !s_mainpipe_req && w_grantlast
   io.main_pipe_req.bits := DontCare
@@ -469,6 +473,10 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
     // block probe
     val probe_addr = Input(UInt(PAddrBits.W))
     val probe_block = Output(Bool())
+
+    val prefDebug_read  = DecoupledIO(new PrefDebugReadReq)
+    val prefDebug_resp  = Input(Vec(nWays, new PrefDebugdata))
+    val prefDebug_write = DecoupledIO(new PrefDebugWriteReq)
 
     val full = Output(Bool())
 
@@ -570,6 +578,24 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
     difftest.io.addr := io.refill_to_ldq.bits.addr
     difftest.io.data := io.refill_to_ldq.bits.data_raw.asTypeOf(difftest.io.data)
   }
+
+  //when allocate MissEntry, write prefetch scope
+  val issuePrefetchReq = io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_PFR && alloc
+  def wayMap[T <: Data](f: Int => T) = VecInit((0 until nWays).map(f))
+  io.prefDebug_read.valid := io.req.fire()
+  io.prefDebug_read.bits.idx := get_idx(io.req.bits.vaddr)
+  io.prefDebug_read.bits.way_en := io.req.bits.way_en
+  val prefDebug_resp = io.prefDebug_resp
+  val pref = Mux1H(RegNext(io.req.bits.way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
+  io.prefDebug_write.valid := RegNext(issuePrefetchReq)
+  io.prefDebug_write.bits.idx := get_idx(RegNext(io.req.bits.vaddr))
+  io.prefDebug_write.bits.way_en := RegNext(io.req.bits.way_en)
+  io.prefDebug_write.bits.data.prefetch := true.B
+  io.prefDebug_write.bits.data.used := pref.used
+  io.prefDebug_write.bits.data.dataValid := pref.dataValid
+
+  XSPerfAccumulate("CntL1DCacheMiss", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_XRD && alloc)
+  XSPerfAccumulate("CntL1DPRequest", issuePrefetchReq)
 
   XSPerfAccumulate("miss_req", io.req.fire())
   XSPerfAccumulate("miss_req_load", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_XRD)

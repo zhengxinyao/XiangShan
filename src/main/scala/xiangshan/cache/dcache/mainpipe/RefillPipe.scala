@@ -21,18 +21,20 @@ import chisel3._
 import chisel3.util._
 
 class RefillPipeReq(implicit p: Parameters) extends DCacheBundle {
-  val source = UInt(sourceTypeWidth.W)
-  val addr = UInt(PAddrBits.W)
-  val way_en = UInt(DCacheWays.W)
-  val wmask = UInt(DCacheBanks.W)
-  val data = Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W))
-  val meta = new Meta
-  val alias = UInt(2.W) // TODO: parameterize
+  val source  = UInt(sourceTypeWidth.W)
+  val cmd     = UInt(M_SZ.W)
+  val vaddr   = UInt(VAddrBits.W)
+  val addr    = UInt(PAddrBits.W)
+  val way_en  = UInt(DCacheWays.W)
+  val wmask   = UInt(DCacheBanks.W)
+  val data    = Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W))
+  val meta    = new Meta
+  val alias   = UInt(2.W) // TODO: parameterize
 
   val miss_id = UInt(log2Up(cfg.nMissEntries).W)
 
-  val id = UInt(reqIdWidth.W)
-  val error = Bool()
+  val id      = UInt(reqIdWidth.W)
+  val error   = Bool()
 
   def paddrWithVirtualAlias: UInt = {
     Cat(alias, addr(DCacheSameVPAddrLength - 1, 0))
@@ -52,6 +54,10 @@ class RefillPipe(implicit p: Parameters) extends DCacheModule {
     val store_resp = ValidIO(new DCacheLineResp)
     val release_wakeup = ValidIO(UInt(log2Up(cfg.nMissEntries).W))
     val replace_access = ValidIO(new ReplacementAccessBundle)
+
+    val prefDebug_read  = DecoupledIO(new PrefDebugReadReq)
+    val prefDebug_resp  = Input(Vec(nWays, new PrefDebugdata))
+    val prefDebug_write = DecoupledIO(new PrefDebugWriteReq)
   })
 
   // Assume that write in refill pipe is always ready
@@ -102,4 +108,18 @@ class RefillPipe(implicit p: Parameters) extends DCacheModule {
   io.replace_access.valid := refill_w_valid
   io.replace_access.bits.set := idx
   io.replace_access.bits.way := OHToUInt(refill_w_req.way_en)
+
+  //when refill valid, write dataValid scope
+  val prefetchDataArrived = refill_w_valid && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_PFR
+  def wayMap[T <: Data](f: Int => T) = VecInit((0 until nWays).map(f))
+  io.prefDebug_read.valid := refill_w_valid
+  io.prefDebug_read.bits.idx := get_idx(io.req.bits.vaddr)
+  io.prefDebug_read.bits.way_en := refill_w_req.way_en
+  val pref = Mux1H(RegNext(refill_w_req.way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
+  io.prefDebug_write.valid := RegNext(prefetchDataArrived)
+  io.prefDebug_write.bits.idx := get_idx(RegNext(io.req.bits.vaddr))
+  io.prefDebug_write.bits.way_en := RegNext(refill_w_req.way_en)
+  io.prefDebug_write.bits.data.prefetch := pref.prefetch
+  io.prefDebug_write.bits.data.used := pref.used
+  io.prefDebug_write.bits.data.dataValid := true.B
 }

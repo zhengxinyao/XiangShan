@@ -38,6 +38,10 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
     val tag_read = DecoupledIO(new TagReadReq)
     val tag_resp = Input(Vec(nWays, UInt(encTagBits.W)))
 
+    val prefDebug_read  = DecoupledIO(new PrefDebugReadReq)
+    val prefDebug_resp  = Input(Vec(nWays, new PrefDebugdata))
+    val prefDebug_write = DecoupledIO(new PrefDebugWriteReq)
+
     val banked_data_read = DecoupledIO(new L1BankedDataReadReq)
     val banked_data_resp = Input(Vec(DCacheBanks, new L1BankedDataReadResult()))
     val read_error = Input(Bool())
@@ -298,6 +302,22 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
       XSDebug(s"$pipeline_stage_name $signal_name\n")
     }
   }
+
+  //when used prefetch data, write used scope
+  io.prefDebug_read.valid := io.lsu.resp.fire()
+  io.prefDebug_read.bits.idx := get_idx(s2_vaddr)
+  io.prefDebug_read.bits.way_en := s2_way_en
+  val prefDebug_resp = io.prefDebug_resp
+  val pref = Mux1H(RegNext(s2_way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
+  val usePrefetchData = RegNext(io.lsu.resp.fire() && s2_hit) && pref.prefetch && pref.dataValid
+  io.prefDebug_write.valid := usePrefetchData
+  io.prefDebug_write.bits.idx := get_idx(RegNext(s2_vaddr))
+  io.prefDebug_write.bits.way_en := RegNext(s2_way_en)
+  io.prefDebug_write.bits.data.used := true.B
+  io.prefDebug_write.bits.data.prefetch := pref.prefetch
+  io.prefDebug_write.bits.data.dataValid := pref.dataValid
+
+  XSPerfAccumulate("CntL1DUnTimeliness", RegNext(io.lsu.resp.fire() && !s2_hit) && pref.prefetch && !pref.dataValid)
 
   // performance counters
   XSPerfAccumulate("load_req", io.lsu.req.fire())

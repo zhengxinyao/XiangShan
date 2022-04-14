@@ -125,6 +125,9 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
     val tag_resp = Input(Vec(nWays, UInt(encTagBits.W)))
     val tag_write = DecoupledIO(new TagWriteReq)
 
+    val prefDebug_read  = DecoupledIO(new PrefDebugReadReq)
+    val prefDebug_resp  = Input(Vec(nWays, new PrefDebugdata))
+
     // update state vec in replacement algo
     val replace_access = ValidIO(new ReplacementAccessBundle)
     // find the way to be replaced
@@ -601,6 +604,13 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   io.data_read.bits.rmask := s1_banked_rmask
   io.data_read.bits.way_en := s1_way_en
   io.data_read.bits.addr := s1_req.vaddr
+
+  io.prefDebug_read.valid := s3_valid
+  io.prefDebug_read.bits.idx := get_idx(s3_req.vaddr)
+  io.prefDebug_read.bits.way_en := s3_way_en
+  val pref = Mux1H(RegNext(s3_way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
+
+  XSPerfAccumulate("CntL1DPUseless", RegNext(s3_req.replace) && !pref.used && pref.prefetch && pref.dataValid)
 
   io.miss_req.valid := s2_valid && s2_can_go_to_mq
   val miss_req = io.miss_req.bits
