@@ -127,6 +127,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
 
     val prefDebug_read  = DecoupledIO(new PrefDebugReadReq)
     val prefDebug_resp  = Input(Vec(nWays, new PrefDebugdata))
+    val prefDebug_write = DecoupledIO(new PrefDebugWriteReq)
 
     // update state vec in replacement algo
     val replace_access = ValidIO(new ReplacementAccessBundle)
@@ -605,13 +606,6 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   io.data_read.bits.way_en := s1_way_en
   io.data_read.bits.addr := s1_req.vaddr
 
-  io.prefDebug_read.valid := s3_valid
-  io.prefDebug_read.bits.idx := get_idx(s3_req.vaddr)
-  io.prefDebug_read.bits.way_en := s3_way_en
-  val pref = Mux1H(RegNext(s3_way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
-
-  XSPerfAccumulate("CntL1DPUseless", RegNext(s3_req.replace) && !pref.used && pref.prefetch && pref.dataValid)
-
   io.miss_req.valid := s2_valid && s2_can_go_to_mq
   val miss_req = io.miss_req.bits
   miss_req := DontCare
@@ -732,6 +726,19 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   io.wb.bits.data := s3_data.asUInt()
   io.wb.bits.delay_release := s3_req.replace
   io.wb.bits.miss_id := s3_req.miss_id
+
+  io.prefDebug_read.valid := io.wb.valid
+  io.prefDebug_read.bits.idx := get_idx(s3_req.vaddr)
+  io.prefDebug_read.bits.way_en := s3_way_en
+  val pref = Mux1H(RegNext(s3_way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
+  io.prefDebug_write.valid := RegNext(io.wb.valid)
+  io.prefDebug_write.bits.idx := get_idx(RegNext(s3_req.vaddr))
+  io.prefDebug_write.bits.way_en := RegNext(s3_way_en)
+  io.prefDebug_write.bits.data.prefetch := false.B
+  io.prefDebug_write.bits.data.used := false.B
+  io.prefDebug_write.bits.data.dataValid := false.B
+
+  XSPerfAccumulate("CntL1DPUseless", RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid)
 
   io.replace_access.valid := RegNext(s1_fire && (s1_req.isAMO || s1_req.isStore) && !s1_req.probe)
   io.replace_access.bits.set := s2_idx

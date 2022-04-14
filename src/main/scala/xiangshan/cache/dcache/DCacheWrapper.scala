@@ -419,7 +419,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   //----------------------------------------
   // core data structures
   val bankedDataArray = Module(new BankedDataArray)
-  val prefDebugArray  = Module(new DuplicatedPrefDebugArray(readPorts = LoadPipelineWidth + 1 + 1 + 1, writePorts = LoadPipelineWidth + 1 + 1))
+  val prefDebugArray  = Module(new DuplicatedPrefDebugArray(readPorts = LoadPipelineWidth + 1 + 1 + 1, writePorts = LoadPipelineWidth + 1 + 1 + 1))
   val metaArray       = Module(new AsynchronousMetaArray(readPorts = 3 + L1DPrefetchPipelineWidth, writePorts = 2))
   val errorArray      = Module(new ErrorArray(readPorts = 3, writePorts = 2)) // TODO: add it to meta array
   val tagArray        = Module(new DuplicatedTagArray(readPorts = LoadPipelineWidth + 1 + L1DPrefetchPipelineWidth))
@@ -493,7 +493,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   // PrefDebug array
   val prefDebug_read_ports  = ldu.map(_.io.prefDebug_read)  ++ Seq(missQueue.io.prefDebug_read, mainPipe.io.prefDebug_read, refillPipe.io.prefDebug_read)
   val prefDebug_resp_ports  = ldu.map(_.io.prefDebug_resp)  ++ Seq(missQueue.io.prefDebug_resp, mainPipe.io.prefDebug_resp, refillPipe.io.prefDebug_resp)
-  val prefDebug_write_ports = ldu.map(_.io.prefDebug_write) ++ Seq(missQueue.io.prefDebug_write, refillPipe.io.prefDebug_write)
+  val prefDebug_write_ports = ldu.map(_.io.prefDebug_write) ++ Seq(missQueue.io.prefDebug_write,mainPipe.io.prefDebug_write,refillPipe.io.prefDebug_write)
   prefDebug_read_ports.zip(prefDebugArray.io.read).foreach { case (p, r) => r <> p }
   prefDebug_resp_ports.zip(prefDebugArray.io.resp).foreach { case (p, r) => p := r }
   prefDebug_write_ports.zip(prefDebugArray.io.write).foreach { case (p, w) => w <> p }
