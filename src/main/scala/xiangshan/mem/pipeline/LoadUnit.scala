@@ -542,7 +542,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   //tjz
   io.toStrideReq.bits.pc := load_s0.io.out.bits.uop.cf.pc
   io.toStrideReq.bits.reqVaddr := load_s0.io.out.bits.vaddr
-  io.toStrideReq.valid := load_s0.io.out.valid && load_s0.io.out.bits.isFirstIssue
+  io.toStrideReq.valid := load_s0.io.out.valid && load_s0.io.out.bits.isFirstIssue && io.csrCtrl.l1DStride_pf_enable
   //tjz
   PipelineConnect(load_s0.io.out, load_s1.io.in, true.B, load_s0.io.out.bits.uop.robIdx.needFlush(io.redirect))
 
