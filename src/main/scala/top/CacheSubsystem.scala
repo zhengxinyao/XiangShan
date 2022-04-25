@@ -69,6 +69,12 @@ class CacheSubsystem()(implicit p: Parameters) extends LazyModule() {
     memAXI4SlaveNode.makeIOs()
   }
 
+  val coreParams = p(XSTileKey).head
+  val l2cache = coreParams.L2CacheParamsOpt.map(l2param =>
+    LazyModule(new HuanCun()(new Config((_, _, _) => {
+      case HCCacheParamsKey => l2param
+    })))
+  ).get
 
   val l3cache = p(SoCParamsKey).L3CacheParamsOpt.map(l3param =>
     LazyModule(new HuanCun()(new Config((_, _, _) => {
@@ -87,13 +93,6 @@ class CacheSubsystem()(implicit p: Parameters) extends LazyModule() {
     // TLLogger(s"L3_L2") :=*
     TLBuffer() :=
     l2Tol3
-
-  val coreParams = p(XSTileKey).head
-  val l2cache = coreParams.L2CacheParamsOpt.map(l2param =>
-    LazyModule(new HuanCun()(new Config((_, _, _) => {
-      case HCCacheParamsKey => l2param
-    })))
-  ).get
 
   val l2Binder = coreParams.L2CacheParamsOpt.map(_ => BankBinder(coreParams.L2NBanks, 64)).get
 
