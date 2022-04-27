@@ -11,7 +11,7 @@ import freechips.rocketchip.tilelink._
 import huancun.debug.TLLogger
 import huancun.{HCCacheParamsKey, HuanCun, PrefetchField, PreferCacheField, DirtyField}
 import system.SoCParamsKey
-import utils.{BinaryArbiter, TLClientsMerger, TLEdgeBuffer}
+import utils.{BinaryArbiter, TLClientsMerger}
 import xiangshan.XSTileKey
 import xstransforms.Dumper
 
@@ -46,16 +46,15 @@ class CacheSubsystem()(implicit p: Parameters) extends LazyModule() {
     AXI4Deinterleaver(L3BlockSize) :=
     TLToAXI4() :=
     TLWidthWidget(L3OuterBusWidth / 8) :=
-    TLEdgeBuffer(_ => true, Some("MemXbar_to_DDR_buffer")) :=
+    TLBuffer.chainNode(2) :=
     mem_xbar
 
   val bankedNode = BankBinder(L3NBanks, L3BlockSize)
 
   mem_xbar :=*
     TLXbar() :=*
-    TLEdgeBuffer(i => i == 0, Some("L3EdgeBuffer_1")) :=*
     BinaryArbiter() :=*
-    TLEdgeBuffer(i => i == 0, Some("L3EdgeBuffer_0")) :=*
+    TLBuffer() :=*
     TLCacheCork() :=*
     bankedNode
 

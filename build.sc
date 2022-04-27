@@ -52,6 +52,7 @@ object mychisel3 extends dependencies.chisel3.build.chisel3CrossModule(sv) {
   override def millSourcePath = os.pwd / "dependencies" / "chisel3"
 
   def firrtlModule: Option[PublishModule] = Some(myfirrtl)
+  override def scalacPluginIvyDeps = Agg(ivys.macroParadise, ivys.chisel3Plugin)
 }
 
 
