@@ -25,6 +25,7 @@ import xiangshan.backend.fu.fpu.FPU
 import xiangshan.backend.rob.RobLsqIO
 import xiangshan.cache._
 import xiangshan.frontend.FtqPtr
+import xiangshan.mem.strideprefetch._
 
 
 class LqPtr(implicit p: Parameters) extends CircularQueuePtr[LqPtr](
@@ -124,6 +125,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 
   val debug_mmio = Reg(Vec(LoadQueueSize, Bool())) // mmio: inst is an mmio inst
   val debug_paddr = Reg(Vec(LoadQueueSize, UInt(PAddrBits.W))) // mmio: inst is an mmio inst
+  val debug_vaddr = Reg(Vec(LoadQueueSize, UInt(VAddrBits.W))) // zyh
 
   val enqPtrExt = RegInit(VecInit((0 until io.enq.req.length).map(_.U.asTypeOf(new LqPtr))))
   val deqPtrExt = RegInit(0.U.asTypeOf(new LqPtr))
@@ -239,6 +241,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 
       debug_mmio(loadWbIndex) := io.loadIn(i).bits.mmio
       debug_paddr(loadWbIndex) := io.loadIn(i).bits.paddr
+      debug_vaddr(loadWbIndex) := io.loadIn(i).bits.vaddr
 
       val dcacheMissed = io.loadIn(i).bits.miss && !io.loadIn(i).bits.mmio
       if(EnableFastForward){
@@ -427,6 +430,22 @@ class LoadQueue(implicit p: Parameters) extends XSModule
       XSError(!allocated((deqPtrExt+i.U).value), s"why commit invalid entry $i?\n")
     }
   })
+
+  val l1Pfq = Module(new L1PfQueue)
+  for (i <- 0 until CommitWidth) {
+    when (commitCount > i.U) {
+      l1Pfq.io.in(i).bits.uop   <> uop((deqPtrExt+i.U).value)
+      l1Pfq.io.in(i).bits.vaddr := debug_vaddr((deqPtrExt+i.U).value)
+      l1Pfq.io.in(i).valid      := true.B
+    }.otherwise {
+      l1Pfq.io.in(i).bits.uop   <> DontCare
+      l1Pfq.io.in(i).bits.vaddr := DontCare
+      l1Pfq.io.in(i).valid      := false.B
+    }
+  }
+  l1Pfq.io.out(0).ready := true.B
+  
+
 
   def getFirstOne(mask: Vec[Bool], startMask: UInt) = {
     val length = mask.length

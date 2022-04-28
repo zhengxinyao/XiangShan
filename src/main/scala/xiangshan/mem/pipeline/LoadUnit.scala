@@ -543,6 +543,15 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   io.toStrideReq.bits.pc := load_s0.io.out.bits.uop.cf.pc
   io.toStrideReq.bits.reqVaddr := load_s0.io.out.bits.vaddr
   io.toStrideReq.valid := load_s0.io.out.valid && load_s0.io.out.bits.isFirstIssue && io.csrCtrl.l1DStride_pf_enable
+
+  // when (io.toStrideReq.valid) {
+  //   printf("time=[%d] pc 0x%x robIdx %d lqIdx %d vaddr 0x%x\n", GTimer(), 
+  //   load_s0.io.out.bits.uop.cf.pc,
+  //   load_s0.io.out.bits.uop.robIdx.asUInt,
+  //   load_s0.io.out.bits.uop.lqIdx.asUInt,
+  //   load_s0.io.out.bits.vaddr)
+  // }
+
   //tjz
   PipelineConnect(load_s0.io.out, load_s1.io.in, true.B, load_s0.io.out.bits.uop.robIdx.needFlush(io.redirect))
 

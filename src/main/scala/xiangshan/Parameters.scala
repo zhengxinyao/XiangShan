@@ -145,6 +145,8 @@ case class XSCoreParameters
   RptTimeMax: Int = 1024, //tjz
   SbpPrefetchSize: Int = 2, //tjz
   L1DPrefetchPipelineWidth: Int = 1, //tjz
+
+  L1PfSize: Int = 80,
   
   dpParams: DispatchParameters = DispatchParameters(
     IntDqSize = 16,
@@ -390,6 +392,7 @@ trait HasXSParameter {
   val RptTimeMax = coreParams.RptTimeMax //tjz
   val SbpPrefetchSize = coreParams.SbpPrefetchSize //tjz
   val L1DPrefetchPipelineWidth = coreParams.L1DPrefetchPipelineWidth //tjz
+  val L1PfSize = coreParams.L1PfSize //zyh
 
   val IntRefCounterWidth = log2Ceil(RobSize)
   val LoadQueueSize = coreParams.LoadQueueSize
