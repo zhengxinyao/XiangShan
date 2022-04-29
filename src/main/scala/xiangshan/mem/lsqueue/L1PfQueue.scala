@@ -74,13 +74,13 @@ class L1PfQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePt
 
         io.in(i).ready := true.B
 
-        when (bufMask(i) && io.in(i).fire) {
-            printf("time=[%d] pc 0x%x robIdx %d lqIdx %d vaddr 0x%x input\n", GTimer(), 
-            io.in(i).bits.uop.cf.pc, 
-            io.in(i).bits.uop.robIdx.asUInt, 
-            io.in(i).bits.uop.lqIdx.asUInt, 
-            io.in(i).bits.vaddr)    
-        }
+        // when (bufMask(i) && io.in(i).fire) {
+        //     printf("time=[%d] pc 0x%x robIdx %d lqIdx %d vaddr 0x%x input\n", GTimer(), 
+        //     io.in(i).bits.uop.cf.pc, 
+        //     io.in(i).bits.uop.robIdx.asUInt, 
+        //     io.in(i).bits.uop.lqIdx.asUInt, 
+        //     io.in(i).bits.vaddr)    
+        // }
         
     }
 
@@ -97,13 +97,13 @@ class L1PfQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePt
         io.out(i).bits.reqVaddr := outputWire.prefetchIO.reqVaddr
         io.out(i).bits.pc := outputWire.prefetchIO.pc
 
-        when (validVec(i)) {
-            printf("time=[%d] pc 0x%x robIdx %d lqIdx %d vaddr 0x%x output\n", GTimer(), 
-            outputWire.prefetchIO.pc, 
-            outputWire.uop.robIdx.asUInt, 
-            outputWire.uop.lqIdx.asUInt, 
-            outputWire.prefetchIO.reqVaddr)    
-        }
+        // when (validVec(i)) {
+        //     printf("time=[%d] pc 0x%x robIdx %d lqIdx %d vaddr 0x%x output\n", GTimer(), 
+        //     outputWire.prefetchIO.pc, 
+        //     outputWire.uop.robIdx.asUInt, 
+        //     outputWire.uop.lqIdx.asUInt, 
+        //     outputWire.prefetchIO.reqVaddr)    
+        // }
         
     }
 

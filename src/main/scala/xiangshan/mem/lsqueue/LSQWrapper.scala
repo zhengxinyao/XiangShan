@@ -26,6 +26,7 @@ import xiangshan.cache.{DCacheWordIO, DCacheLineIO, MemoryOpConstants}
 import xiangshan.cache.mmu.{TlbRequestIO}
 import xiangshan.mem._
 import xiangshan.backend.rob.RobLsqIO
+import xiangshan.mem.strideprefetch._
 
 class ExceptionAddrIO(implicit p: Parameters) extends XSBundle {
   val isStore = Input(Bool())
@@ -82,6 +83,7 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
     val sqCancelCnt = Output(UInt(log2Up(StoreQueueSize + 1).W))
     val sqDeq = Output(UInt(2.W))
     val trigger = Vec(LoadPipelineWidth, new LqTriggerIO)
+    val issueStridePrf = DecoupledIO(new RptResp) //zyh
   })
 
   val loadQueue = Module(new LoadQueue)
@@ -125,6 +127,7 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
   loadQueue.io.trigger <> io.trigger
   loadQueue.io.exceptionAddr.isStore := DontCare
   loadQueue.io.lqCancelCnt <> io.lqCancelCnt
+  loadQueue.io.issueStridePrf <> io.issueStridePrf //zyh
 
   // store queue wiring
   // storeQueue.io <> DontCare

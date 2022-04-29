@@ -344,13 +344,24 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     oldList.io.resp(i).ready := l1dpBuffer.io.in.ready
   }
 
-  l1dpBuffer.io.in.bits.bufMask := VecInit(oldList.io.resp.map(_.valid)).asUInt()
-  l1dpBuffer.io.in.bits.vaddr   := VecInit(oldList.io.resp.map(_.bits.respVaddr))
-  l1dpBuffer.io.in.valid := oldList.io.resp.map(_.valid).reduce(_||_)
-  l1dPrefetchUnit.io.l1dpin       <> l1dpBuffer.io.out(0)
+  l1dpBuffer.io.in.bits.bufMask   := VecInit(oldList.io.resp.map(_.valid)).asUInt()
+  l1dpBuffer.io.in.bits.vaddr     := VecInit(oldList.io.resp.map(_.bits.respVaddr))
+  l1dpBuffer.io.in.valid          := oldList.io.resp.map(_.valid).reduce(_||_)
+  // l1dPrefetchUnit.io.l1dpin       <> l1dpBuffer.io.out(0)
+  l1dpBuffer.io.out(0).ready      := DontCare
   l1dPrefetchUnit.io.dtlb         <> dtlb_ld(exuParameters.LduCnt).requestor(0)
   l1dPrefetchUnit.io.pmp          <> pmp_check(exuParameters.LduCnt).resp
   l1dPrefetchUnit.io.toStridePipe <> dcache.io.prefetch
+
+  val l1pfb       = Module(new L1PfBuffer)
+  val l1pfoldlist = Module(new L1PfOldList)
+  l1pfoldlist.io.req(0)         <> lsq.io.issueStridePrf
+  l1pfoldlist.io.resp(0).ready  := l1pfb.io.in.ready
+  l1pfb.io.in.bits.bufMask      := l1pfoldlist.io.resp(0).valid.asUInt()
+  l1pfb.io.in.bits.vaddr(0)     := l1pfoldlist.io.resp(0).bits.respVaddr
+  l1pfb.io.in.valid             := l1pfoldlist.io.resp(0).valid
+  // lsq.io.issueStridePrf.ready := l1pfb.io.in.ready
+  l1dPrefetchUnit.io.l1dpin       <> l1pfb.io.out(0) //zyh
 
   // StoreUnit
   for (i <- 0 until exuParameters.StuCnt) {

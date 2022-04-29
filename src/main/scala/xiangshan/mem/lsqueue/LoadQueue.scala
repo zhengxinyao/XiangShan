@@ -101,6 +101,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val lqFull = Output(Bool())
     val lqCancelCnt = Output(UInt(log2Up(LoadQueueSize + 1).W))
     val trigger = Vec(LoadPipelineWidth, new LqTriggerIO)
+    val issueStridePrf = DecoupledIO(new RptResp) //zyh
   })
 
   println("LoadQueue: size:" + LoadQueueSize)
@@ -431,6 +432,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     }
   })
 
+  //zyh
   val l1Pfq = Module(new L1PfQueue)
   for (i <- 0 until CommitWidth) {
     when (commitCount > i.U) {
@@ -443,9 +445,10 @@ class LoadQueue(implicit p: Parameters) extends XSModule
       l1Pfq.io.in(i).valid      := false.B
     }
   }
-  l1Pfq.io.out(0).ready := true.B
-  
 
+  val sbp = Module(new SBP)
+  sbp.io.train.req <> l1Pfq.io.out(0)
+  io.issueStridePrf <> sbp.io.train.resp
 
   def getFirstOne(mask: Vec[Bool], startMask: UInt) = {
     val length = mask.length
