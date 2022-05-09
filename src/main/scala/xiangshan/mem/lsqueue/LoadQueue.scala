@@ -101,7 +101,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val lqFull = Output(Bool())
     val lqCancelCnt = Output(UInt(log2Up(LoadQueueSize + 1).W))
     val trigger = Vec(LoadPipelineWidth, new LqTriggerIO)
-    val issueStridePrf = DecoupledIO(new RptResp) //zyh
+    val trainingStride = Vec(L1DPrefetchPipelineWidth, DecoupledIO(new ToStrideReq)) //zyh
   })
 
   println("LoadQueue: size:" + LoadQueueSize)
@@ -446,9 +446,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     }
   }
 
-  val sbp = Module(new SBP)
-  sbp.io.train.req <> l1Pfq.io.out(0)
-  io.issueStridePrf <> sbp.io.train.resp
+  io.trainingStride <> l1Pfq.io.out
 
   def getFirstOne(mask: Vec[Bool], startMask: UInt) = {
     val length = mask.length

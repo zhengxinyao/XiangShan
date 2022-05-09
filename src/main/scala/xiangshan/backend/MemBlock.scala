@@ -120,11 +120,6 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   val stdExeUnits = Seq.fill(exuParameters.StuCnt)(Module(new StdExeUnit))
   val stData = stdExeUnits.map(_.io.out)
   val exeUnits = loadUnits ++ storeUnits
-  //tjz
-  val stridePrefetchs = Seq.fill(coreParams.SbpPrefetchSize)(Module(new StrideBasedPrefetch))
-  val oldList = Module(new OldList)
-  val l1dpBuffer = Module(new L1DPrefetchBuffer)
-  val l1dPrefetchUnit = Module(new L1DPrefetchUnit)
 
   loadUnits.zipWithIndex.map(x => x._1.suggestName("LoadUnit_"+x._2))
   storeUnits.zipWithIndex.map(x => x._1.suggestName("StoreUnit_"+x._2))
@@ -294,7 +289,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     lsq.io.dcacheRequireReplay(i)    <> loadUnits(i).io.lsq.dcacheRequireReplay
 
     //prefetch
-    stridePrefetchs(i).io.train.req     <> loadUnits(i).io.toStrideReq
+    // stridePrefetchs(i).io.train.req     <> loadUnits(i).io.toStrideReq
 
     // Trigger Regs
     // addr: 0-2 for store, 3-5 for load
@@ -332,36 +327,28 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   }
 
   //prefetch
-  for (i <- 1 until coreParams.SbpPrefetchSize) {
-    stridePrefetchs(i - 1).io.train.reqFromAnotherRpt  <> stridePrefetchs(i).io.train.reqToAnotherRpt
-    stridePrefetchs(i - 1).io.train.reqToAnotherRpt    <> stridePrefetchs(i).io.train.reqFromAnotherRpt
-    stridePrefetchs(i - 1).io.train.respToAnotherRpt   <> stridePrefetchs(i).io.train.respFromAnotherRpt
-    stridePrefetchs(i - 1).io.train.respFromAnotherRpt <> stridePrefetchs(i).io.train.respToAnotherRpt
+  val sbp     = Module(new SBP)
+  val l1pfold = Module(new L1PfOldList)
+  val l1pfb   = Module(new L1PfBuffer)
+  val l1punit = Module(new L1DPrefetchUnit)
+
+  sbp.io.train.req <> lsq.io.trainingStride
+  for (i <- 0 until LoadPipelineWidth) {
+    sbp.io.issue.req(i) <> loadUnits(i).io.toStrideReq
+  }
+  for (i <- 0 until LoadPipelineWidth) {
+    l1pfold.io.req(i) <> sbp.io.issue.resp(i)
+    l1pfold.io.resp(i).ready := l1pfb.io.in.ready
   }
 
-  for (i <- 0 until coreParams.SbpPrefetchSize) {
-    oldList.io.req(i) <> stridePrefetchs(i).io.train.resp
-    oldList.io.resp(i).ready := l1dpBuffer.io.in.ready
-  }
+  l1pfb.io.in.bits.bufMask  := VecInit(l1pfold.io.resp.map(_.valid)).asUInt()
+  l1pfb.io.in.bits.vaddr    := VecInit(l1pfold.io.resp.map(_.bits.respVaddr))
+  l1pfb.io.in.valid         := l1pfold.io.resp.map(_.valid).reduce(_||_)
 
-  l1dpBuffer.io.in.bits.bufMask   := VecInit(oldList.io.resp.map(_.valid)).asUInt()
-  l1dpBuffer.io.in.bits.vaddr     := VecInit(oldList.io.resp.map(_.bits.respVaddr))
-  l1dpBuffer.io.in.valid          := oldList.io.resp.map(_.valid).reduce(_||_)
-  // l1dPrefetchUnit.io.l1dpin       <> l1dpBuffer.io.out(0)
-  l1dpBuffer.io.out(0).ready      := DontCare
-  l1dPrefetchUnit.io.dtlb         <> dtlb_ld(exuParameters.LduCnt).requestor(0)
-  l1dPrefetchUnit.io.pmp          <> pmp_check(exuParameters.LduCnt).resp
-  l1dPrefetchUnit.io.toStridePipe <> dcache.io.prefetch
-
-  val l1pfb       = Module(new L1PfBuffer)
-  val l1pfoldlist = Module(new L1PfOldList)
-  l1pfoldlist.io.req(0)         <> lsq.io.issueStridePrf
-  l1pfoldlist.io.resp(0).ready  := l1pfb.io.in.ready
-  l1pfb.io.in.bits.bufMask      := l1pfoldlist.io.resp(0).valid.asUInt()
-  l1pfb.io.in.bits.vaddr(0)     := l1pfoldlist.io.resp(0).bits.respVaddr
-  l1pfb.io.in.valid             := l1pfoldlist.io.resp(0).valid
-  // lsq.io.issueStridePrf.ready := l1pfb.io.in.ready
-  l1dPrefetchUnit.io.l1dpin       <> l1pfb.io.out(0) //zyh
+  l1punit.io.l1dpin         <> l1pfb.io.out(0) //zyh
+  l1punit.io.dtlb           <> dtlb_ld(exuParameters.LduCnt).requestor(0)
+  l1punit.io.pmp            <> pmp_check(exuParameters.LduCnt).resp
+  l1punit.io.toStridePipe   <> dcache.io.prefetch
 
   // StoreUnit
   for (i <- 0 until exuParameters.StuCnt) {

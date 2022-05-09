@@ -1,5 +1,5 @@
 package xiangshan.mem.strideprefetch
-//add by tjz
+
 import chipsalliance.rocketchip.config.{Parameters, Field}
 import chisel3._
 import chisel3.util._
@@ -42,14 +42,14 @@ class OLEntry(implicit p: Parameters) extends XSModule with HasTlbConst{
 
 class L1PfOldList(implicit p: Parameters) extends XSModule with HasTlbConst{
   val io = IO(new Bundle{
-    val req  = Vec(L1DPrefetchPipelineWidth, Flipped(DecoupledIO(new RptResp)))
-    val resp = Vec(L1DPrefetchPipelineWidth, DecoupledIO(new RptResp))
+    val req  = Vec(SbpPrefetchSize, Flipped(DecoupledIO(new RptResp)))
+    val resp = Vec(SbpPrefetchSize, DecoupledIO(new RptResp))
   })
   // write ptr.
-  val write_vec = RegInit(VecInit((0 until L1DPrefetchPipelineWidth).map(_.U.asTypeOf(new L1PfOLPtr))))
+  val write_vec = RegInit(VecInit((0 until SbpPrefetchSize).map(_.U.asTypeOf(new L1PfOLPtr))))
   // write action is 1 cycle behind read action.
   val stride_req = io.req
-  val write_reqs = Reg(Vec(L1DPrefetchPipelineWidth, Valid(new RptResp)))
+  val write_reqs = Reg(Vec(SbpPrefetchSize, Valid(new RptResp)))
   // get the 2 dimensions's matrix, which represent the compared result of read reqs. 
   val readMatchVec = stride_req.map(a => stride_req.map(b => b.valid && a.valid && b.bits.respVaddr === a.bits.respVaddr))
   // check the equal situation.
@@ -72,13 +72,13 @@ class L1PfOldList(implicit p: Parameters) extends XSModule with HasTlbConst{
   //check whether exist valid read req
   val exist_readVec = read_reqs.map(a => a.valid)
   //check whether exist valid req after merge
-  val check_result = Wire(Vec(L1DPrefetchPipelineWidth, Bool()))
+  val check_result = Wire(Vec(SbpPrefetchSize, Bool()))
   val check_result_toU = check_result.asUInt()
   //check whether exist valid write req
   val exist_writeVec = write_reqs.map(a => a.valid)
 
     //update the write idx
-  val offset = Wire(Vec(L1DPrefetchPipelineWidth, UInt(log2Up(L1DPrefetchPipelineWidth).W)))
+  val offset = Wire(Vec(SbpPrefetchSize, UInt(log2Up(SbpPrefetchSize).W)))
   //establish entries
   val entries = (0 until StrideOldListSize) map { i =>
     val entry = Module(new OLEntry)
@@ -93,8 +93,8 @@ class L1PfOldList(implicit p: Parameters) extends XSModule with HasTlbConst{
       matchVecs
     }
 
-    val vaddrVec = Wire(Vec(L1DPrefetchPipelineWidth, new RptResp))
-    for (i <- 0 until L1DPrefetchPipelineWidth) {
+    val vaddrVec = Wire(Vec(SbpPrefetchSize, new RptResp))
+    for (i <- 0 until SbpPrefetchSize) {
       vaddrVec(i).respVaddr := Mux(write_matchVec()(i), write_reqs(i).bits.respVaddr, 0.U)
     }
 
@@ -110,14 +110,14 @@ class L1PfOldList(implicit p: Parameters) extends XSModule with HasTlbConst{
   val read_entry_matchVec = read_reqs.map(a => entries.map(b => a.valid && b.io.request_out.bits.full && b.io.request_out.bits.old_vaddr === a.bits.respVaddr))
   
   //update the write reqs
-  for (i <- 0 until L1DPrefetchPipelineWidth) {
+  for (i <- 0 until SbpPrefetchSize) {
     write_reqs(i).bits.respVaddr := read_reqs(i).bits.respVaddr
     //we need to look both in write'Reg and entries.
     check_result(i) := !(Cat(read_write_matchVec(i)).orR || Cat(read_entry_matchVec(i)).orR) && read_reqs(i).valid
     write_reqs(i).valid := check_result(i)
   }
 
-  for(i <- 0 until L1DPrefetchPipelineWidth) {
+  for(i <- 0 until SbpPrefetchSize) {
     if (i == 0) {
       offset(i) := 0.U
     } else {
@@ -129,13 +129,13 @@ class L1PfOldList(implicit p: Parameters) extends XSModule with HasTlbConst{
     write_vec := VecInit(write_vec.map(_ + PopCount(check_result_toU)))
   }
   // send out the filtered prefetch vaddr
-  for(i <- 0 until L1DPrefetchPipelineWidth) {
+  for(i <- 0 until SbpPrefetchSize) {
     io.req(i).ready := true.B
     io.resp(i).valid := check_result(i) && io.req(i).valid
     io.resp(i).bits.respVaddr := io.req(i).bits.respVaddr
   }
 
-  for (i <- 0 until L1DPrefetchPipelineWidth) {
+  for (i <- 0 until SbpPrefetchSize) {
     XSDebug(io.req(i).valid, p"reqvaddr=${Hexadecimal(io.req(i).bits.respVaddr)}\n")
     XSDebug(io.resp(i).valid, p"respvaddr=${Hexadecimal(io.resp(i).bits.respVaddr)}\n")
   }

@@ -134,6 +134,42 @@ bsp:
 idea:
 	mill -i mill.scalalib.GenIdea/idea
 
+A:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/gamess_gradient.bin -I 10000000 --force-dump-result 2>&1 | tee > gamess_gradient.log
+
+B:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/gamess_triazolium.bin -I 10000000 --force-dump-result 2>&1 | tee > gamess_triazolium.log
+
+C:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/gcc_s04.bin -I 10000000 --force-dump-result 2>&1 | tee > gcc_s04.log
+
+D:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/gobmk_13x13.bin -I 10000000 --force-dump-result 2>&1 | tee > gobmk_13x13.log
+
+E:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/gobmk_score2.bin -I 10000000 --force-dump-result 2>&1 | tee > gobmk_score2.log
+
+F:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/gobmk_trevorc.bin -I 10000000 --force-dump-result 2>&1 | tee > gobmk_trevorc.log
+
+G:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/gobmk_trevord.bin -I 10000000 --force-dump-result 2>&1 | tee > gobmk_trevord.log
+
+H:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/hmmer_nph3.bin -I 10000000 --force-dump-result 2>&1 | tee > hmmer_nph3.log
+
+I:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/hmmer_retro.bin -I 10000000 --force-dump-result 2>&1 | tee > hmmer_retro.log		
+
+J:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/perlbench_diffmail.bin -I 10000000 --force-dump-result 2>&1 | tee > perlbench_diffmail.log
+
+K:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/sjeng.bin -I 10000000 --force-dump-result 2>&1 | tee > sjeng.log
+
+L:
+	numactl -C 0-255 ./build/emu -i /nfs/home/share/zyh/10M_SPEC/zeusmp.bin -I 10000000 --force-dump-result 2>&1 | tee > zeusmp.log		
+
 # verilator simulation
 emu:
 	$(MAKE) -C ./difftest emu SIM_TOP=SimTop DESIGN_DIR=$(NOOP_HOME) NUM_CORES=$(NUM_CORES)
