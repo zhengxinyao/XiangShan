@@ -99,6 +99,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val exceptionAddr = new ExceptionAddrIO
     val lqFull = Output(Bool())
     val lqCancelCnt = Output(UInt(log2Up(LoadQueueSize + 1).W))
+    val prefetchLoadVaddr = Vec(LoadPipelineWidth, Valid(UInt(VAddrBits.W)))
     val trigger = Vec(LoadPipelineWidth, new LqTriggerIO)
   })
 
@@ -108,7 +109,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   // val data = Reg(Vec(LoadQueueSize, new LsRobEntry))
   val dataModule = Module(new LoadQueueDataWrapper(LoadQueueSize, wbNumRead = LoadPipelineWidth, wbNumWrite = LoadPipelineWidth))
   dataModule.io := DontCare
-  val vaddrModule = Module(new SyncDataModuleTemplate(UInt(VAddrBits.W), LoadQueueSize, numRead = LoadPipelineWidth + 1, numWrite = LoadPipelineWidth))
+  val vaddrModule = Module(new SyncDataModuleTemplate(UInt(VAddrBits.W), LoadQueueSize, numRead = LoadPipelineWidth + L1PrefetchVaddrGenWidth + 1, numWrite = LoadPipelineWidth))
   vaddrModule.io := DontCare
   val vaddrTriggerResultModule = Module(new SyncDataModuleTemplate(Vec(3, Bool()), LoadQueueSize, numRead = LoadPipelineWidth, numWrite = LoadPipelineWidth))
   vaddrTriggerResultModule.io := DontCare
@@ -124,10 +125,15 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 
   val debug_mmio = Reg(Vec(LoadQueueSize, Bool())) // mmio: inst is an mmio inst
   val debug_paddr = Reg(Vec(LoadQueueSize, UInt(PAddrBits.W))) // mmio: inst is an mmio inst
+  val debug_vaddr = Reg(Vec(LoadQueueSize, UInt(VAddrBits.W))) // mmio: inst is an mmio inst
 
   val enqPtrExt = RegInit(VecInit((0 until io.enq.req.length).map(_.U.asTypeOf(new LqPtr))))
   val deqPtrExt = RegInit(0.U.asTypeOf(new LqPtr))
+  val prefetchPtrExt = RegInit(VecInit((0 until L1PrefetchVaddrGenWidth).map(_.U.asTypeOf(new LqPtr))))
+
+  val enqPtrExtNext = Wire(Vec(io.enq.req.length, new LqPtr))
   val deqPtrExtNext = Wire(new LqPtr)
+  val prefetchPtrExtNext = Wire(Vec(L1PrefetchVaddrGenWidth, new LqPtr))
 
   val enqPtr = enqPtrExt(0).value
   val deqPtr = deqPtrExt.value
@@ -239,6 +245,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 
       debug_mmio(loadWbIndex) := io.loadIn(i).bits.mmio
       debug_paddr(loadWbIndex) := io.loadIn(i).bits.paddr
+      debug_vaddr(loadWbIndex) := io.loadIn(i).bits.vaddr
 
       val dcacheMissed = io.loadIn(i).bits.miss && !io.loadIn(i).bits.mmio
       if(EnableFastForward){
@@ -258,10 +265,12 @@ class LoadQueue(implicit p: Parameters) extends XSModule
       uop(loadWbIndex).debugInfo := io.loadIn(i).bits.uop.debugInfo
     }
 
-    // vaddrModule write is delayed, as vaddrModule will not be read right after write
-    vaddrModule.io.waddr(i) := RegNext(loadWbIndex)
-    vaddrModule.io.wdata(i) := RegNext(io.loadIn(i).bits.vaddr)
-    vaddrModule.io.wen(i) := RegNext(io.loadIn(i).fire())
+    // Now l1 prefetchor get prefetch vaddr from vaddrModule, 
+    // update vaddrModule right after load update load queue (loadIn.fire())
+    // todo: timing opt, vaddrModule write used to be delayed
+    vaddrModule.io.waddr(i) := loadWbIndex
+    vaddrModule.io.wdata(i) := io.loadIn(i).bits.vaddr
+    vaddrModule.io.wen(i) := io.loadIn(i).fire()
   }
 
   when(io.refill.valid) {
@@ -718,6 +727,39 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   })
 
   /**
+    * Prefetch vaddr read ptr (prefetchPtrExt) update logic
+    *
+    * (1) if load addr valid, send load vaddr to l1 prefetcher and update prefetch ptr
+    * (2) when redirect, check if prefetchPtrExt is newer then new load queue enqPtr
+    *     if so, reset prefetchPtrExt = enqPtrExt
+    */
+
+  val numPrefetchVaddrFired = PopCount(io.prefetchLoadVaddr.map(_.valid))
+
+  require(io.enq.req.length >= L1PrefetchVaddrGenWidth)
+  prefetchPtrExtNext := Mux(
+    lastCycleRedirect.valid && isBefore(enqPtrExtNext(0), prefetchPtrExt(0)),
+    // we recover the pointers in the next cycle after redirect
+    VecInit(Seq.tabulate(L1PrefetchVaddrGenWidth){i => enqPtrExtNext(i)}), // set prefetchPtrExt := enqPtrExtNext 
+    // if !brqRedirect, for most cases, prefetchPtrExt newer than enqPtrExt  
+    VecInit(prefetchPtrExt.map(_ + numPrefetchVaddrFired))
+  )
+  prefetchPtrExt := prefetchPtrExtNext
+
+  io.prefetchLoadVaddr.zip(prefetchPtrExt).map{case (out, ptr) => {
+    out.valid := allocated(ptr.value) && writebacked(ptr.value) && !lastCycleRedirect.valid
+    // for prefetch pref analyse only, tobe refactored
+    assert(!out.valid || debug_vaddr(ptr.value) === out.bits)
+  }}
+
+  (0 until L1PrefetchVaddrGenWidth).map(i => {
+    io.prefetchLoadVaddr(i).bits :=  vaddrModule.io.rdata(i+LoadPipelineWidth+1)
+  })
+
+  XSPerfAccumulate("enqPtr_before_prefetchPtr", isBefore(enqPtrExt(0), prefetchPtrExt(0)) && !lastCycleRedirect.valid)
+  XSPerfAccumulate("deqPtr_after_prefetchPtr", isAfter(deqPtrExt, prefetchPtrExt(0)))
+
+  /**
     * Memory mapped IO / other uncached operations
     *
     * States:
@@ -790,15 +832,26 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     XSDebug("uncache resp: data %x\n", io.refill.bits.data)
   }
 
-  // Read vaddr for mem exception
+  // vaddr module read ports
+
+  // port (0) mem exception 
+  // todo: to be refactored
+  // read vaddr for mem exception
   // no inst will be commited 1 cycle before tval update
   vaddrModule.io.raddr(0) := (deqPtrExt + commitCount).value
   io.exceptionAddr.vaddr := vaddrModule.io.rdata(0)
 
-  // Read vaddr for debug
+  // port (1) - (LoadPipelineWidth) // vaddr for debug module
+  // read vaddr for debug
   (0 until LoadPipelineWidth).map(i => {
     vaddrModule.io.raddr(i+1) := loadWbSel(i)
   })
+
+  // port (LoadPipelineWidth + 1) - (LoadPipelineWidth + L1PrefetchVaddrGenWidth)
+  (0 until L1PrefetchVaddrGenWidth).map(i => {
+    vaddrModule.io.raddr(i+LoadPipelineWidth+1) := prefetchPtrExtNext(i).value
+  })
+
 
   (0 until LoadPipelineWidth).map(i => {
     vaddrTriggerResultModule.io.raddr(i) := loadWbSelGen(i)
@@ -825,12 +878,14 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   val lastEnqCancel = PopCount(RegNext(VecInit(canEnqueue.zip(enqCancel).map(x => x._1 && x._2))))
   val lastCycleCancelCount = PopCount(RegNext(needCancel))
   val enqNumber = Mux(io.enq.canAccept && io.enq.sqCanAccept, PopCount(io.enq.req.map(_.valid)), 0.U)
+
   when (lastCycleRedirect.valid) {
     // we recover the pointers in the next cycle after redirect
-    enqPtrExt := VecInit(enqPtrExt.map(_ - (lastCycleCancelCount + lastEnqCancel)))
+    enqPtrExtNext := VecInit(enqPtrExt.map(_ - (lastCycleCancelCount + lastEnqCancel)))
   }.otherwise {
-    enqPtrExt := VecInit(enqPtrExt.map(_ + enqNumber))
+    enqPtrExtNext := VecInit(enqPtrExt.map(_ + enqNumber))
   }
+  enqPtrExt := enqPtrExtNext
 
   deqPtrExtNext := deqPtrExt + commitCount
   deqPtrExt := deqPtrExtNext

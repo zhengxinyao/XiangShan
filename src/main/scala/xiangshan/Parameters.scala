@@ -162,6 +162,7 @@ case class XSCoreParameters
   StoreBufferSize: Int = 16,
   StoreBufferThreshold: Int = 7,
   EnsbufferWidth: Int = 2,
+  L1PrefetchVaddrGenWidth: Int = 2,
   EnableLoadToLoadForward: Boolean = false,
   EnableFastForward: Boolean = false,
   EnableLdVioCheckAfterReset: Boolean = true,
@@ -382,6 +383,7 @@ trait HasXSParameter {
   val StoreBufferSize = coreParams.StoreBufferSize
   val StoreBufferThreshold = coreParams.StoreBufferThreshold
   val EnsbufferWidth = coreParams.EnsbufferWidth
+  val L1PrefetchVaddrGenWidth = coreParams.L1PrefetchVaddrGenWidth
   val EnableLoadToLoadForward = coreParams.EnableLoadToLoadForward
   val EnableFastForward = coreParams.EnableFastForward
   val EnableLdVioCheckAfterReset = coreParams.EnableLdVioCheckAfterReset
