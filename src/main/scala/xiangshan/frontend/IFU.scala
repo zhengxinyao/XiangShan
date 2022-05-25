@@ -355,7 +355,7 @@ class NewIFU(implicit p: Parameters) extends XSModule
   val f3_resend_vaddr   = RegEnable(next = f2_resend_vaddr,      enable = f2_fire)
 
   when(f3_valid && !f3_ftq_req.ftqOffset.valid){
-    assert(f3_ftq_req.startAddr + 32.U >= f3_ftq_req.nextStartAddr , "More tha 32 Bytes fetch is not allowed!")
+    assert(f3_ftq_req.startAddr + 32.U >= f3_ftq_req.nextStartAddr , "More than 32 Bytes fetch is not allowed!")
   }
 
   /*** MMIO State Machine***/
@@ -731,4 +731,19 @@ class NewIFU(implicit p: Parameters) extends XSModule
   XSPerfAccumulate("hit_0_except_1",   f3_perf_info.hit_0_except_1 && io.toIbuffer.fire() )
   XSPerfAccumulate("miss_0_except_1",   f3_perf_info.miss_0_except_1 && io.toIbuffer.fire() )
   XSPerfAccumulate("except_0",   f3_perf_info.except_0 && io.toIbuffer.fire() )
+  XSPerfAccumulate("f3_has_last_half",   f3_lastHalf.valid && io.toIbuffer.fire() )
+
+
+  /** PERF: fetch bandwidth*/
+  val total_instr_cnt = PopCount(io.toIbuffer.bits.valid)
+  val cnt_bound = (1 until 5).map(i => (total_instr_cnt/4.U) * i.U)
+  val valid_instr_cnt = PopCount(io.toIbuffer.bits.valid & io.toIbuffer.bits.enqEnable)
+
+  XSPerfAccumulate("fetch_valid_instrutions_0_1", 0.U  <= valid_instr_cnt && valid_instr_cnt < cnt_bound(0) && io.toIbuffer.fire())
+  XSPerfAccumulate("fetch_valid_instrutions_1_2", cnt_bound(0)  <= valid_instr_cnt && valid_instr_cnt < cnt_bound(1) && io.toIbuffer.fire())
+  XSPerfAccumulate("fetch_valid_instrutions_2_3", cnt_bound(1) <= valid_instr_cnt && valid_instr_cnt < cnt_bound(2) && io.toIbuffer.fire())
+  XSPerfAccumulate("fetch_valid_instrutions_3_4", cnt_bound(2)  <= valid_instr_cnt && valid_instr_cnt < cnt_bound(3) && io.toIbuffer.fire())
+  XSPerfAccumulate("fetch_valid_instrutions_full", valid_instr_cnt >=  total_instr_cnt && io.toIbuffer.fire())
+
+
 }
