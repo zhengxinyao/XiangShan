@@ -188,6 +188,8 @@ class CtrlSignals(implicit p: Parameters) extends XSBundle {
     allSignals.zip(bit.map(bitPatToUInt(_))).foreach{ case (s, d) => s := d }
     this
   }
+
+  def isWFI: Bool = fuType === FuType.csr && fuOpType === CSROpType.wfi
 }
 
 class CfCtrl(implicit p: Parameters) extends XSBundle {
@@ -248,8 +250,11 @@ class MicroOp(implicit p: Parameters) extends CfCtrl {
   }
 }
 
-class MicroOpRbExt(implicit p: Parameters) extends XSBundle {
+class XSBundleWithMicroOp(implicit p: Parameters) extends XSBundle {
   val uop = new MicroOp
+}
+
+class MicroOpRbExt(implicit p: Parameters) extends XSBundleWithMicroOp {
   val flag = UInt(1.W)
 }
 
@@ -291,13 +296,11 @@ class DebugBundle(implicit p: Parameters) extends XSBundle {
   val vaddr = UInt(VAddrBits.W)
 }
 
-class ExuInput(implicit p: Parameters) extends XSBundle {
-  val uop = new MicroOp
+class ExuInput(implicit p: Parameters) extends XSBundleWithMicroOp {
   val src = Vec(3, UInt(XLEN.W))
 }
 
-class ExuOutput(implicit p: Parameters) extends XSBundle {
-  val uop = new MicroOp
+class ExuOutput(implicit p: Parameters) extends XSBundleWithMicroOp {
   val data = UInt(XLEN.W)
   val fflags = UInt(5.W)
   val redirectValid = Bool()
@@ -322,8 +325,7 @@ class CSRSpecialIO(implicit p: Parameters) extends XSBundle {
   val interrupt = Output(Bool())
 }
 
-class ExceptionInfo(implicit p: Parameters) extends XSBundle {
-  val uop = new MicroOp
+class ExceptionInfo(implicit p: Parameters) extends XSBundleWithMicroOp {
   val isInterrupt = Bool()
 }
 
@@ -477,7 +479,7 @@ class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
 }
 
 class DistributedCSRIO(implicit p: Parameters) extends XSBundle {
-  // CSR has been writen by csr inst, copies of csr should be updated
+  // CSR has been written by csr inst, copies of csr should be updated
   val w = ValidIO(new Bundle {
     val addr = Output(UInt(12.W))
     val data = Output(UInt(XLEN.W))

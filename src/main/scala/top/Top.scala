@@ -131,7 +131,10 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
         val version = Input(UInt(4.W))
       }
       val debug_reset = Output(Bool())
+      val rtc_clock = Input(Bool())
       val cacheable_check = new TLPMAIO()
+      val riscv_halt = Output(Vec(NumCores, Bool()))
+      val riscv_rst_vec = Input(Vec(NumCores, UInt(38.W)))
     })
     // override LazyRawModuleImp's clock and reset
     childClock := io.clock.asClock
@@ -146,6 +149,7 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
     dontTouch(peripheral)
     dontTouch(memory)
     misc.module.ext_intrs := io.extIntrs
+    misc.module.rtc_clock := io.rtc_clock
     misc.module.pll0_lock := io.pll0_lock
     misc.module.cacheable_check <> io.cacheable_check
 
@@ -153,6 +157,8 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
 
     for ((core, i) <- core_with_l2.zipWithIndex) {
       core.module.io.hartId := i.U
+      io.riscv_halt(i) := core.module.io.cpu_halt
+      core.module.io.reset_vector := io.riscv_rst_vec(i)
     }
 
     if(l3cacheOpt.isEmpty || l3cacheOpt.get.rst_nodes.isEmpty){

@@ -19,6 +19,7 @@ package xiangshan.cache
 import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
+import huancun.utils._
 
 class RefillPipeReq(implicit p: Parameters) extends DCacheBundle {
   val source  = UInt(sourceTypeWidth.W)
@@ -116,10 +117,17 @@ class RefillPipe(implicit p: Parameters) extends DCacheModule {
   io.prefDebug_read.bits.idx := get_idx(io.req.bits.vaddr)
   io.prefDebug_read.bits.way_en := refill_w_req.way_en
   val pref = Mux1H(RegNext(refill_w_req.way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
-  io.prefDebug_write.valid := RegNext(prefetchDataArrived)
+  io.prefDebug_write.valid := RegNext(prefetchDataArrived) && pref.prefetch
   io.prefDebug_write.bits.idx := get_idx(RegNext(io.req.bits.vaddr))
   io.prefDebug_write.bits.way_en := RegNext(refill_w_req.way_en)
   io.prefDebug_write.bits.data.prefetch := pref.prefetch
   io.prefDebug_write.bits.data.used := pref.used
   io.prefDebug_write.bits.data.dataValid := true.B
+
+  when (RegNext(prefetchDataArrived) && pref.prefetch) {
+    printf("time=[%d]vaddr 0x%x idx %d arrive\n", GTimer(),
+    RegNext(io.req.bits.vaddr),
+    get_idx(RegNext(io.req.bits.vaddr)))
+  }
+
 }

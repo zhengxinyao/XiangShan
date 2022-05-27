@@ -5,8 +5,9 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.tilelink.ClientMetadata
 import utils.{HasPerfEvents, XSDebug, XSPerfAccumulate}
+import huancun.utils._
 
-class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
+class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule {
   /*def metaBits = (new Meta).getWidth
   def encMetaBits = cacheParams.tagCode.width((new MetaAndTag).getWidth) - tagBits
   def getMeta(encMeta: UInt): UInt = {
@@ -150,6 +151,12 @@ class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule{
   io.miss_req.bits.req_coh := s2_hit_coh
   io.miss_req.bits.replace_coh := s2_repl_coh
   io.miss_req.bits.replace_tag := s2_repl_tag
+
+  when (io.miss_req.valid) {
+    printf("time=[%d]vaddr 0x%x idx %d issue\n", GTimer(),
+    s2_vaddr,
+    get_idx(s2_vaddr))
+  }
 
   //send back response
   val resp = Wire(ValidIO(new DCacheWordResp))

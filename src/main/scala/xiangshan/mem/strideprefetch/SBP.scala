@@ -297,6 +297,11 @@ class SBP(implicit p: Parameters) extends XSModule with HasTlbConst {
 
     io.issue.resp(i).bits.respVaddr := Cat(finalPredict_vaddr(VAddrBits - 1, log2Up(dcacheBlockBytes)), 0.U((log2Up(dcacheBlockBytes)).W))
 
+    // when (io.issue.resp(i).fire()) {
+    //   printf("time=[%d]vaddr 0x%x SBP fired\n", GTimer(), 
+    //   io.issue.resp(i).bits.respVaddr)
+    // }
+
     XSPerfAccumulate("fire_pefetch_numbers", io.issue.resp(i).fire())
   }
 }

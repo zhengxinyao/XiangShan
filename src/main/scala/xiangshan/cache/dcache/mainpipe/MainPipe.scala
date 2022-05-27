@@ -286,7 +286,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
       )
     )
   )
-  assert(!RegNext(s1_fire && PopCount(s1_tag_match_way) > 1.U))
+  assert(!RegNext(s1_fire && PopCount(s1_way_en) > 1.U))
   val s1_tag = Mux(
     s1_req.replace,
     get_tag(s1_req.addr),
@@ -492,11 +492,11 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
       when (s3_sc_fail) {
         debug_sc_fail_addr := s3_req.addr
         debug_sc_fail_cnt  := 1.U
+        XSWarn(s3_sc_fail === 100.U, p"L1DCache failed too many SCs in a row 0x${Hexadecimal(debug_sc_fail_addr)}, check if sth went wrong\n")
       }
     }
   }
-  assert(debug_sc_fail_cnt < 100.U, "L1DCache failed too many SCs in a row")
-
+  // assert(debug_sc_fail_cnt < 100.U, "L1DCache failed too many SCs in a row")
 
   val banked_amo_wmask = UIntToOH(s3_req.word_idx)
 //  val banked_wmask = s3_banked_store_wmask
@@ -737,6 +737,12 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   io.prefDebug_write.bits.data.prefetch := false.B
   io.prefDebug_write.bits.data.used := false.B
   io.prefDebug_write.bits.data.dataValid := false.B
+
+  when (RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid) {
+    printf("time=[%d]vaddr 0x%x idx %d not used\n", GTimer(),
+    RegNext(s3_req.vaddr),
+    get_idx(RegNext(s3_req.vaddr)))
+  }
 
   XSPerfAccumulate("CntL1DPUseless", RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid)
 

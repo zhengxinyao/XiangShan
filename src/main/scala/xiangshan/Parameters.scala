@@ -171,6 +171,8 @@ case class XSCoreParameters
   StorePipelineWidth: Int = 2,
   StoreBufferSize: Int = 16,
   StoreBufferThreshold: Int = 7,
+  EnsbufferWidth: Int = 2,
+  L1PrefetchVaddrGenWidth: Int = 2,
   EnableLoadToLoadForward: Boolean = false,
   EnableFastForward: Boolean = false,
   EnableLdVioCheckAfterReset: Boolean = true,
@@ -408,6 +410,8 @@ trait HasXSParameter {
   val StorePipelineWidth = coreParams.StorePipelineWidth
   val StoreBufferSize = coreParams.StoreBufferSize
   val StoreBufferThreshold = coreParams.StoreBufferThreshold
+  val EnsbufferWidth = coreParams.EnsbufferWidth
+  val L1PrefetchVaddrGenWidth = coreParams.L1PrefetchVaddrGenWidth
   val EnableLoadToLoadForward = coreParams.EnableLoadToLoadForward
   val EnableFastForward = coreParams.EnableFastForward
   val EnableLdVioCheckAfterReset = coreParams.EnableLdVioCheckAfterReset
@@ -427,7 +431,7 @@ trait HasXSParameter {
   val NumRs = (exuParameters.JmpCnt+1)/2 + (exuParameters.AluCnt+1)/2 + (exuParameters.MulCnt+1)/2 +
               (exuParameters.MduCnt+1)/2 + (exuParameters.FmacCnt+1)/2 +  + (exuParameters.FmiscCnt+1)/2 +
               (exuParameters.FmiscDivSqrtCnt+1)/2 + (exuParameters.LduCnt+1)/2 +
-              ((exuParameters.StuCnt+1)/2) + ((exuParameters.StuCnt+1)/2)
+              (exuParameters.StuCnt+1)/2 + (exuParameters.StuCnt+1)/2
 
   val instBytes = if (HasCExtension) 2 else 4
   val instOffsetBits = log2Ceil(instBytes)

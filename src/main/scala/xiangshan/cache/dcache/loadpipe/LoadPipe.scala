@@ -22,6 +22,8 @@ import chisel3.util._
 import freechips.rocketchip.tilelink.ClientMetadata
 import utils.{HasPerfEvents, XSDebug, XSPerfAccumulate}
 import xiangshan.L1CacheErrorInfo
+import huancun.{AliasKey, DirtyKey, PreferCacheKey, PrefetchKey}
+import huancun.utils._
 
 class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val io = IO(new DCacheBundle {
@@ -316,6 +318,18 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   io.prefDebug_write.bits.data.used := true.B
   io.prefDebug_write.bits.data.prefetch := pref.prefetch
   io.prefDebug_write.bits.data.dataValid := pref.dataValid
+
+  when (RegNext(io.lsu.resp.fire() && s2_hit) && pref.prefetch && pref.dataValid && !pref.used) {
+    printf("time=[%d]vaddr 0x%x idx %d use\n", GTimer(),
+    RegNext(s2_vaddr),
+    get_idx(RegNext(s2_vaddr)))
+  }
+
+  when (RegNext(io.lsu.resp.fire() && !s2_hit) && pref.prefetch && !pref.dataValid) {
+    printf("time=[%d]vaddr 0x%x idx %d untimeliness\n", GTimer(),
+    RegNext(s2_vaddr),
+    get_idx(RegNext(s2_vaddr)))
+  }
 
   XSPerfAccumulate("CntL1DUnTimeliness", RegNext(io.lsu.resp.fire() && !s2_hit) && pref.prefetch && !pref.dataValid)
 

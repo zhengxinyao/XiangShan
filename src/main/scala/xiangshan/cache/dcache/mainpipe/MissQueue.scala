@@ -574,6 +574,7 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
     val difftest = Module(new DifftestRefillEvent)
     difftest.io.clock := clock
     difftest.io.coreid := io.hartId
+    difftest.io.cacheid := 1.U
     difftest.io.valid := io.refill_to_ldq.valid && io.refill_to_ldq.bits.hasdata && io.refill_to_ldq.bits.refill_done
     difftest.io.addr := io.refill_to_ldq.bits.addr
     difftest.io.data := io.refill_to_ldq.bits.data_raw.asTypeOf(difftest.io.data)
@@ -594,11 +595,11 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
   io.prefDebug_write.bits.data.used := pref.used
   io.prefDebug_write.bits.data.dataValid := pref.dataValid
 
-  // when (issuePrefetchReq) {
-  //   printf("time=[%d]vaddr 0x%x idx %d allocate\n", GTimer(),
-  //   io.req.bits.vaddr,
-  //   get_idx(io.req.bits.vaddr))
-  // }
+  when (issuePrefetchReq) {
+    printf("time=[%d]vaddr 0x%x idx %d allocate\n", GTimer(),
+    io.req.bits.vaddr,
+    get_idx(io.req.bits.vaddr))
+  }
 
   XSPerfAccumulate("CntL1DCacheMiss", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_XRD && alloc)
   XSPerfAccumulate("CntL1DPRequest", issuePrefetchReq)
