@@ -116,6 +116,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   val vaddrTriggerResultModule = Module(new SyncDataModuleTemplate(Vec(3, Bool()), LoadQueueSize, numRead = LoadPipelineWidth, numWrite = LoadPipelineWidth))
   vaddrTriggerResultModule.io := DontCare
   val allocated = RegInit(VecInit(List.fill(LoadQueueSize)(false.B))) // lq entry has been allocated
+  val addrvalid = RegInit(VecInit(List.fill(LoadQueueSize)(false.B))) // address is valid, for l1 prefetch only
   val datavalid = RegInit(VecInit(List.fill(LoadQueueSize)(false.B))) // data is valid
   val writebacked = RegInit(VecInit(List.fill(LoadQueueSize)(false.B))) // inst has been writebacked to CDB
   val released = RegInit(VecInit(List.fill(LoadQueueSize)(false.B))) // load data has been released by dcache
@@ -167,6 +168,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     when (canEnqueue(i) && !enqCancel(i)) {
       uop(index).robIdx := io.enq.req(i).bits.robIdx
       allocated(index) := true.B
+      addrvalid(index) := false.B
       datavalid(index) := false.B
       writebacked(index) := false.B
       released(index) := false.B
@@ -223,6 +225,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
         io.loadIn(i).bits.forwardMask.asUInt,
         io.loadIn(i).bits.mmio
       )}
+      addrvalid(loadWbIndex) := true.B
       if(EnableFastForward){
         datavalid(loadWbIndex) := (!io.loadIn(i).bits.miss || io.loadDataForwarded(i)) &&
           !io.loadIn(i).bits.mmio && // mmio data is not valid until we finished uncache access
@@ -773,13 +776,18 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   prefetchPtrExt := prefetchPtrExtNext
 
   io.prefetchLoadVaddr.zip(prefetchPtrExt).map{case (out, ptr) => {
-    out.valid := allocated(ptr.value) && writebacked(ptr.value) && !lastCycleRedirect.valid
     // for prefetch pref analyse only, tobe refactored
     assert(!out.valid || debug_vaddr(ptr.value) === out.bits)
   }}
 
   (0 until L1PrefetchVaddrGenWidth).map(i => {
     io.prefetchLoadVaddr(i).bits :=  vaddrModule.io.rdata(i+LoadPipelineWidth+1)
+    val ptr = prefetchPtrExt(i)
+    if (i > 0) {
+      io.prefetchLoadVaddr(i).valid := allocated(ptr.value) && addrvalid(ptr.value) && !lastCycleRedirect.valid && io.prefetchLoadVaddr(i-1).valid
+    } else {
+      io.prefetchLoadVaddr(i).valid := allocated(ptr.value) && addrvalid(ptr.value) && !lastCycleRedirect.valid
+    }
   })
 
   XSPerfAccumulate("enqPtr_before_prefetchPtr", isBefore(enqPtrExt(0), prefetchPtrExt(0)) && !lastCycleRedirect.valid)
