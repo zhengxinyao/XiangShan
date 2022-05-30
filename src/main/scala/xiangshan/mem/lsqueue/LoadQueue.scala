@@ -102,7 +102,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val lqCancelCnt = Output(UInt(log2Up(LoadQueueSize + 1).W))
     val prefetchLoadVaddr = Vec(LoadPipelineWidth, Valid(UInt(VAddrBits.W)))
     val trigger = Vec(LoadPipelineWidth, new LqTriggerIO)
-    val trainingStride = Vec(L1DPrefetchPipelineWidth, DecoupledIO(new ToStrideReq)) //zyh
+    val trainingStride = Vec(L1PrefetchVaddrGenWidth, DecoupledIO(new ToStrideReq)) //zyh
   })
 
   println("LoadQueue: size:" + LoadQueueSize)
@@ -434,28 +434,32 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   })
 
   //zyh
-  val l1Pfq = Module(new L1PfQueue)
-  for (i <- 0 until CommitWidth) {
-    when (commitCount > i.U) {
-      l1Pfq.io.in(i).bits.uop   <> uop((deqPtrExt+i.U).value)
-      l1Pfq.io.in(i).bits.vaddr := debug_vaddr((deqPtrExt+i.U).value)
-      l1Pfq.io.in(i).valid      := true.B
-    }.otherwise {
-      l1Pfq.io.in(i).bits.uop   <> DontCare
-      l1Pfq.io.in(i).bits.vaddr := DontCare
-      l1Pfq.io.in(i).valid      := false.B
-    }
-  }
+  // val l1Pfq = Module(new L1PfQueue)
+  // for (i <- 0 until CommitWidth) {
+  //   when (commitCount > i.U) {
+  //     l1Pfq.io.in(i).bits.uop   <> uop((deqPtrExt+i.U).value)
+  //     l1Pfq.io.in(i).bits.vaddr := debug_vaddr((deqPtrExt+i.U).value)
+  //     l1Pfq.io.in(i).valid      := true.B
+  //   }.otherwise {
+  //     l1Pfq.io.in(i).bits.uop   <> DontCare
+  //     l1Pfq.io.in(i).bits.vaddr := DontCare
+  //     l1Pfq.io.in(i).valid      := false.B
+  //   }
+  // }
 
-  // (0 until L1PrefetchVaddrGenWidth).map(i => {
-  //   // io.prefetchLoadVaddr(i).bits :=  vaddrModule.io.rdata(i+LoadPipelineWidth+1)
+  (0 until L1PrefetchVaddrGenWidth).map(i => {
+    // io.prefetchLoadVaddr(i).bits :=  vaddrModule.io.rdata(i+LoadPipelineWidth+1)
 
-  //   l1Pfq.io.in(i).bits.uop   <> uop(prefetchPtrExt(i).value)
-  //   l1Pfq.io.in(i).bits.vaddr := io.prefetchLoadVaddr(i).bits
-  //   l1Pfq.io.in(i).valid      := io.prefetchLoadVaddr(i).valid
-  // })
+    // l1Pfq.io.in(i).bits.uop   <> uop(prefetchPtrExt(i).value)
+    // l1Pfq.io.in(i).bits.vaddr := io.prefetchLoadVaddr(i).bits
+    // l1Pfq.io.in(i).valid      := io.prefetchLoadVaddr(i).valid
 
-  io.trainingStride <> l1Pfq.io.out
+    io.trainingStride(i).bits.pc := uop(prefetchPtrExt(i).value).cf.pc
+    io.trainingStride(i).bits.reqVaddr := io.prefetchLoadVaddr(i).bits
+    io.trainingStride(i).valid := io.prefetchLoadVaddr(i).valid
+  })
+
+  // io.trainingStride <> l1Pfq.io.out
 
   def getFirstOne(mask: Vec[Bool], startMask: UInt) = {
     val length = mask.length

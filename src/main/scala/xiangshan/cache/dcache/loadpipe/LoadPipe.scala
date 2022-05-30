@@ -326,9 +326,8 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   }
 
   when (RegNext(io.lsu.resp.fire() && !s2_hit) && pref.prefetch && !pref.dataValid) {
-    printf("time=[%d]vaddr 0x%x idx %d untimeliness\n", GTimer(),
-    RegNext(s2_vaddr),
-    get_idx(RegNext(s2_vaddr)))
+    printf("time=[%d]vaddr 0x%x untimeliness\n", GTimer(),
+    RegNext(s2_vaddr))
   }
 
   XSPerfAccumulate("CntL1DUnTimeliness", RegNext(io.lsu.resp.fire() && !s2_hit) && pref.prefetch && !pref.dataValid)

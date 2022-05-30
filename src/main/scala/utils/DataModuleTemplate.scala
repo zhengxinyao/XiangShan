@@ -130,3 +130,47 @@ class Folded1WDataModuleTemplate[T <: Data](gen: T, numEntries: Int, numRead: In
     data.write(waddr, wdata, wmask.asBools)
   }
 }
+
+class ArstDataModuleTemplate[T <: Data](gen: T, numEntries: Int, numRead: Int, numWrite: Int, isSync: Boolean, reset: Boolean) extends Module {
+  val io = IO(new Bundle {
+    val raddr = Vec(numRead,  Input(UInt(log2Up(numEntries).W)))
+    val rdata = Vec(numRead,  Output(gen))
+    val wen   = Vec(numWrite, Input(Bool()))
+    val waddr = Vec(numWrite, Input(UInt(log2Up(numEntries).W)))
+    val wdata = Vec(numWrite, Input(gen))
+  })
+
+  val data = Mem(numEntries, gen)
+
+  // read ports
+  val raddr = if (isSync) (RegNext(io.raddr)) else io.raddr
+  for (i <- 0 until numRead) {
+    io.rdata(i) := data(raddr(i))
+  }
+
+  // below is the write ports (with priorities)
+  for (i <- 0 until numWrite) {
+    when (io.wen(i)) {
+      data(io.waddr(i)) := io.wdata(i)
+    }
+  }
+
+  // DataModuleTemplate should not be used when there're any write conflicts
+  for (i <- 0 until numWrite) {
+    for (j <- i+1 until numWrite) {
+      assert(!(io.wen(i) && io.wen(j) && io.waddr(i) === io.waddr(j)))
+    }
+  }
+
+  val doing_reset = RegInit(true.B)
+  val nRows = numEntries
+
+  val resetRow = RegInit(0.U(log2Up(nRows).W))
+  resetRow := resetRow + doing_reset
+  when (resetRow === (nRows-1).U) { doing_reset := false.B }
+
+  when(doing_reset) {
+    data(resetRow) := 0.U.asTypeOf(gen)
+  }
+
+}

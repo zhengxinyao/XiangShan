@@ -152,11 +152,11 @@ class StridePrefetchPipe(implicit p: Parameters) extends DCacheModule {
   io.miss_req.bits.replace_coh := s2_repl_coh
   io.miss_req.bits.replace_tag := s2_repl_tag
 
-  when (io.miss_req.valid) {
-    printf("time=[%d]vaddr 0x%x idx %d issue\n", GTimer(),
-    s2_vaddr,
-    get_idx(s2_vaddr))
-  }
+  // when (io.miss_req.valid) {
+  //   printf("time=[%d]vaddr 0x%x idx %d issue\n", GTimer(),
+  //   s2_vaddr,
+  //   get_idx(s2_vaddr))
+  // }
 
   //send back response
   val resp = Wire(ValidIO(new DCacheWordResp))

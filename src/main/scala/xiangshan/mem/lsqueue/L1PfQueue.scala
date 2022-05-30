@@ -20,7 +20,7 @@ class L1PfQueueReq(implicit p: Parameters) extends XSBundle {
 }
 
 class L1PfQueueIO(implicit p: Parameters) extends XSBundle {
-    val in = Vec(CommitWidth, Flipped(DecoupledIO(new L1PfQueueReq)))       //6
+    val in = Vec(L1PrefetchVaddrGenWidth, Flipped(DecoupledIO(new L1PfQueueReq)))       //6
     val out = Vec(L1DPrefetchPipelineWidth, DecoupledIO(new ToStrideReq))   //1
 }
 
@@ -32,10 +32,10 @@ class L1PfQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePt
         val uop        = new MicroOp
     }
 
-    val l1pfq    = Module(new SyncDataModuleTemplate(new L1PfQueueEntry, L1PfSize, L1DPrefetchPipelineWidth, CommitWidth))
+    val l1pfq    = Module(new SyncDataModuleTemplate(new L1PfQueueEntry, L1PfSize, L1DPrefetchPipelineWidth, L1PrefetchVaddrGenWidth))
     val bufMask  = VecInit(io.in.map(_.valid)).asUInt()
     val head_vec = RegInit(VecInit((0 until L1DPrefetchPipelineWidth).map(_.U.asTypeOf(new L1PfPtr))))
-    val tail_vec = RegInit(VecInit((0 until CommitWidth).map(_.U.asTypeOf(new L1PfPtr))))
+    val tail_vec = RegInit(VecInit((0 until L1PrefetchVaddrGenWidth).map(_.U.asTypeOf(new L1PfPtr))))
     val head_ptr = head_vec(0)
     val tail_ptr = tail_vec(0)
 
@@ -49,12 +49,12 @@ class L1PfQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePt
     val numberAfterEnq = validEntries +& numberEnq
     val nextValidEntries = Mux(io.out(0).ready, numberAfterEnq - numberShouldDeq, numberAfterEnq)
 
-    full_flush := (L1PfSize - CommitWidth).U <= nextValidEntries
+    full_flush := (L1PfSize - L1PrefetchVaddrGenWidth).U <= nextValidEntries
 
     // the input stuff
-    val offset = Wire(Vec(CommitWidth, UInt(log2Up(CommitWidth).W)))
+    val offset = Wire(Vec(L1PrefetchVaddrGenWidth, UInt(log2Up(L1PrefetchVaddrGenWidth).W)))
 
-    for(i <- 0 until CommitWidth) {
+    for(i <- 0 until L1PrefetchVaddrGenWidth) {
         if(i == 0) {
             offset(i) := 0.U
         } else {
@@ -62,7 +62,7 @@ class L1PfQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePt
         }
     }
 
-    for(i <- 0 until CommitWidth) {
+    for(i <- 0 until L1PrefetchVaddrGenWidth) {
         val inputWire = Wire(new L1PfQueueEntry)
         inputWire.prefetchIO.reqVaddr := io.in(i).bits.vaddr
         inputWire.prefetchIO.pc := io.in(i).bits.uop.cf.pc
@@ -120,7 +120,7 @@ class L1PfQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePt
 
     // when(io.in.fire()) {
     //     XSDebug(p"prebufMASK=${Binary(bufMask)} Enque = ${Hexadecimal(numberEnq)}\n")
-    //     for(i <- 0 until CommitWidth){
+    //     for(i <- 0 until L1PrefetchVaddrGenWidth){
     //         XSDebug(bufMask(i), p"prepaddr=${Hexadecimal(io.in.bits.vaddr(i))}\n")
     //     }
     // }

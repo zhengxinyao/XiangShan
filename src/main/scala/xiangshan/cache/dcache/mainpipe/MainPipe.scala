@@ -739,9 +739,8 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   io.prefDebug_write.bits.data.dataValid := false.B
 
   when (RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid) {
-    printf("time=[%d]vaddr 0x%x idx %d not used\n", GTimer(),
-    RegNext(s3_req.vaddr),
-    get_idx(RegNext(s3_req.vaddr)))
+    printf("time=[%d]vaddr 0x%x not used\n", GTimer(),
+    RegNext(s3_req.vaddr))
   }
 
   XSPerfAccumulate("CntL1DPUseless", RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid)
