@@ -484,6 +484,25 @@ class TageTable
     }
   }
 
+  val fakeWriteBufferWidth = 4
+  val fakePerBankWriteBuffer = Seq.fill(nBanks)(RegInit(0.U(fakeWriteBufferWidth.W)))
+
+  for (b <- 0 until nBanks) {
+    val oldValue = fakePerBankWriteBuffer(b)
+    val thisBankHasUpdate = io.update.mask.reduce(_||_) && update_req_bank_1h(b) && per_bank_not_silent_update(b).reduce(_||_)
+    val thisBankHasRead = io.req.valid && s0_bank_req_1h(b)
+    when (thisBankHasUpdate && thisBankHasRead) {
+      fakePerBankWriteBuffer(b) := satUpdate(oldValue, fakeWriteBufferWidth, true.B)
+    }
+    .elsewhen (!thisBankHasUpdate && !thisBankHasRead) {
+      fakePerBankWriteBuffer(b) := satUpdate(oldValue, fakeWriteBufferWidth, false.B)
+    }
+    for (i <- 0 until (1 << fakeWriteBufferWidth)) {
+      XSPerfAccumulate(f"tage_table_${tableIdx}_bank_${b}_write_buffer_has_req_${i}", fakePerBankWriteBuffer(b) === i.U)
+    }
+    XSPerfAccumulate(f"tage_table_${tableIdx}_bank_${b}_write_buffer_overflow", fakePerBankWriteBuffer(b).andR() && thisBankHasUpdate && thisBankHasRead)
+  }
+
   val u = io.update
   val b = PriorityEncoder(u.mask)
   val ub = PriorityEncoder(u.uMask)

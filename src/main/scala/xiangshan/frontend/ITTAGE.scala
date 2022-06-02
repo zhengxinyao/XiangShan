@@ -258,7 +258,7 @@ class ITTageTable
     )
   }
 
-  val bank_conflict = (0 until nBanks).map(b => table_banks(b).io.w.req.valid && s0_bank_req_1h(b)).reduce(_||_)
+  val bank_conflict = (0 until nBanks).map(b => table_banks(b).io.w.req.valid && s0_bank_req_1h(b) && io.req.valid).reduce(_||_)
   io.req.ready := !io.update.valid
   // io.req.ready := !bank_conflict
   XSPerfAccumulate(f"ittage_table_bank_conflict", bank_conflict)
@@ -291,6 +291,26 @@ class ITTageTable
 
   XSPerfAccumulate("ittage_table_updates", io.update.valid)
   XSPerfAccumulate("ittage_table_hits", io.resp.valid)
+
+  val fakeWriteBufferWidth = 3
+  val fakePerBankWriteBuffer = Seq.fill(nBanks)(RegInit(0.U(fakeWriteBufferWidth.W)))
+
+  for (b <- 0 until nBanks) {
+    val oldValue = fakePerBankWriteBuffer(b)
+    val thisBankHasUpdate = io.update.valid && update_req_bank_1h(b)
+    val thisBankHasRead = io.req.valid && s0_bank_req_1h(b)
+    when (thisBankHasUpdate && thisBankHasRead) {
+      fakePerBankWriteBuffer(b) := satUpdate(oldValue, fakeWriteBufferWidth, true.B)
+    }
+    .elsewhen (!thisBankHasUpdate && !thisBankHasRead) {
+      fakePerBankWriteBuffer(b) := satUpdate(oldValue, fakeWriteBufferWidth, false.B)
+    }
+    for (i <- 0 until (1 << fakeWriteBufferWidth)) {
+      XSPerfAccumulate(f"ittage_table_${tableIdx}_bank_${b}_write_buffer_has_req_${i}", fakePerBankWriteBuffer(b) === i.U)
+    }
+    XSPerfAccumulate(f"ittage_table_${tableIdx}_bank_${b}_write_buffer_overflow", fakePerBankWriteBuffer(b).andR() && thisBankHasUpdate && thisBankHasRead)
+  }
+
 
   if (BPUDebug && debug) {
     val u = io.update
