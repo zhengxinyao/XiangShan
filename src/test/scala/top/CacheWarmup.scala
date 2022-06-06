@@ -46,14 +46,17 @@ class CacheWarmup(implicit p: Parameters) extends Module {
 }
 
 object CacheWarmup extends App {
-  override def main(args: Array[String]): Unit = {
-    // implicit val config : Parameters = new DefaultConfig()
-    val (config, firrtlOpts, firrtlComplier) = ArgParser.parse(args)
-    // implicit val config : Parameters = new CacheWarmupConfig()
-    Generator.execute(
-      firrtlOpts, 
-      DisableMonitors(p => new CacheWarmup()(p))(config),
-      firrtlComplier
-    )
-  }
+  // implicit val config : Parameters = new DefaultConfig()
+  val (config, firrtlOpts) = ArgParser.parse(args)
+  // implicit val config : Parameters = new CacheWarmupConfig()
+  XiangShanStage.execute(firrtlOpts, Seq(
+    ChiselGeneratorAnnotation(() => {
+      DisableMonitors(p => new CacheWarmup()(p))(config)
+    })
+  ))
+  // Generator.execute(
+  //   firrtlOpts, 
+  //   DisableMonitors(p => new CacheWarmup()(p))(config),
+  //   firrtlComplier
+  // )
 }
