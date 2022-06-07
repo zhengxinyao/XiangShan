@@ -595,11 +595,11 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
   io.prefDebug_write.bits.data.used := pref.used
   io.prefDebug_write.bits.data.dataValid := pref.dataValid
 
-  when (issuePrefetchReq) {
-    printf("time=[%d]vaddr 0x%x idx %d allocate\n", GTimer(),
-    io.req.bits.vaddr,
-    get_idx(io.req.bits.vaddr))
-  }
+  // when (issuePrefetchReq) {
+  //   printf("time=[%d]vaddr 0x%x idx %d allocate\n", GTimer(),
+  //   io.req.bits.vaddr,
+  //   get_idx(io.req.bits.vaddr))
+  // }
 
   XSPerfAccumulate("CntL1DCacheMiss", io.req.fire() && io.req.bits.source === LOAD_SOURCE.U && io.req.bits.cmd === M_XRD && alloc)
   XSPerfAccumulate("CntL1DPRequest", issuePrefetchReq)

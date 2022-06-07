@@ -311,7 +311,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   io.prefDebug_read.bits.way_en := s2_way_en
   val prefDebug_resp = io.prefDebug_resp
   val pref = Mux1H(RegNext(s2_way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
-  val usePrefetchData = RegNext(io.lsu.resp.fire() && s2_hit) && pref.prefetch && pref.dataValid
+  val usePrefetchData = RegNext(io.lsu.resp.fire() && !resp.bits.miss) && pref.prefetch && pref.dataValid
   io.prefDebug_write.valid := usePrefetchData
   io.prefDebug_write.bits.idx := get_idx(RegNext(s2_vaddr))
   io.prefDebug_write.bits.way_en := RegNext(s2_way_en)
@@ -319,18 +319,18 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   io.prefDebug_write.bits.data.prefetch := pref.prefetch
   io.prefDebug_write.bits.data.dataValid := pref.dataValid
 
-  when (RegNext(io.lsu.resp.fire() && s2_hit) && pref.prefetch && pref.dataValid && !pref.used) {
-    printf("time=[%d]vaddr 0x%x idx %d use\n", GTimer(),
-    RegNext(s2_vaddr),
-    get_idx(RegNext(s2_vaddr)))
-  }
+  // when (RegNext(io.lsu.resp.fire() && !resp.bits.miss) && pref.prefetch && pref.dataValid && !pref.used) {
+  //   printf("time=[%d]vaddr 0x%x idx %d use\n", GTimer(),
+  //   RegNext(s2_vaddr),
+  //   get_idx(RegNext(s2_vaddr)))
+  // }
 
-  when (RegNext(io.lsu.resp.fire() && !s2_hit) && pref.prefetch && !pref.dataValid) {
-    printf("time=[%d]vaddr 0x%x untimeliness\n", GTimer(),
-    RegNext(s2_vaddr))
-  }
+  // when (RegNext(io.lsu.resp.fire() && resp.bits.miss) && pref.prefetch && !pref.dataValid) {
+  //   printf("time=[%d]vaddr 0x%x untimeliness\n", GTimer(),
+  //   RegNext(s2_vaddr))
+  // }
 
-  XSPerfAccumulate("CntL1DUnTimeliness", RegNext(io.lsu.resp.fire() && !s2_hit) && pref.prefetch && !pref.dataValid)
+  XSPerfAccumulate("CntL1DUnTimeliness", RegNext(io.lsu.resp.fire() && resp.bits.miss) && pref.prefetch && !pref.dataValid)
 
   // performance counters
   XSPerfAccumulate("load_req", io.lsu.req.fire())

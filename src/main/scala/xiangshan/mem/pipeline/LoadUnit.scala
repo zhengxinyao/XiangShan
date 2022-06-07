@@ -657,6 +657,20 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   io.ldout.bits := Mux(hitLoadOut.valid, hitLoadOut.bits, io.lsq.ldout.bits)
   io.ldout.valid := hitLoadOut.valid || io.lsq.ldout.valid
 
+  // when (io.ldout.valid) {
+  //   when (hitLoadOut.valid) {
+  //     (printf("time=[%d] pc 0x%x vaddr 0x%x hit\n", GTimer(),
+  //     io.ldout.bits.uop.cf.pc,
+  //     io.ldout.bits.debug.vaddr))
+  //   }.elsewhen (io.lsq.ldout.valid) {
+  //     (printf("time=[%d] pc 0x%x vaddr 0x%x miss\n", GTimer(),
+  //     io.lsq.ldout.bits.uop.cf.pc,
+  //     io.lsq.ldout.bits.debug.vaddr))
+  //   }.otherwise {
+  //     printf("error!\n")
+  //   }
+  // }
+
   io.lsq.ldout.ready := !hitLoadOut.valid
 
   when(io.feedbackSlow.valid && !io.feedbackSlow.bits.hit){

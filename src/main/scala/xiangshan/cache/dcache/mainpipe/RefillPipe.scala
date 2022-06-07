@@ -124,10 +124,10 @@ class RefillPipe(implicit p: Parameters) extends DCacheModule {
   io.prefDebug_write.bits.data.used := pref.used
   io.prefDebug_write.bits.data.dataValid := true.B
 
-  when (RegNext(prefetchDataArrived) && pref.prefetch) {
-    printf("time=[%d]vaddr 0x%x idx %d arrive\n", GTimer(),
-    RegNext(io.req.bits.vaddr),
-    get_idx(RegNext(io.req.bits.vaddr)))
-  }
+  // when (RegNext(prefetchDataArrived) && pref.prefetch) {
+  //   printf("time=[%d]vaddr 0x%x idx %d arrive\n", GTimer(),
+  //   RegNext(io.req.bits.vaddr),
+  //   get_idx(RegNext(io.req.bits.vaddr)))
+  // }
 
 }

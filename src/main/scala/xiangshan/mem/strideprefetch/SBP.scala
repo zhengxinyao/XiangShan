@@ -102,12 +102,12 @@ class SBP(implicit p: Parameters) extends XSModule with HasTlbConst {
     s0_vaddr(i)  := io.train.req(i).bits.reqVaddr
     s0_update(i) := io.train.req(i).valid
 
-    when (io.train.req(i).valid) {
-      printf("time=[%d] pc 0x%x vaddr 0x%x idx %d train\n", GTimer(),
-      io.train.req(i).bits.pc,
-      io.train.req(i).bits.reqVaddr,
-      getIdxNum(io.train.req(i).bits.reqVaddr))
-    }
+    // when (io.train.req(i).valid) {
+    //   printf("time=[%d] pc 0x%x vaddr 0x%x idx %d train\n", GTimer(),
+    //   io.train.req(i).bits.pc,
+    //   io.train.req(i).bits.reqVaddr,
+    //   getIdxNum(io.train.req(i).bits.reqVaddr))
+    // }
   }
 
   val s1_pc     = RegNext(s0_pc)
@@ -439,9 +439,11 @@ class SBP(implicit p: Parameters) extends XSModule with HasTlbConst {
   for (i <- 0 until LoadPipelineWidth) {
     when (rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).state === s_stand || rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).state === s_steady) {
       when(timeChecker(i) <= (prefetchCostTimeMax >> 2).U) {
-        finalPredict_vaddr(i) := RegNext(io.issue.req(i).bits.reqVaddr) + ((rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).stride << (log2Up(prefetchCostTimeMax >> 4) + 2)))
+        finalPredict_vaddr(i) := RegNext(io.issue.req(i).bits.reqVaddr) + 18.U*((rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).stride << (log2Up(prefetchCostTimeMax >> 4) + 2)))
+        // finalPredict_vaddr(i) := RegNext(io.issue.req(i).bits.reqVaddr) + ((rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).stride << (log2Up(prefetchCostTimeMax >> 4) + 2)))
       }.otherwise {
-        finalPredict_vaddr(i) := RegNext(io.issue.req(i).bits.reqVaddr) + (rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).stride << 3)
+        finalPredict_vaddr(i) := RegNext(io.issue.req(i).bits.reqVaddr) + 36.U*(rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).stride << 3)
+        // finalPredict_vaddr(i) := RegNext(io.issue.req(i).bits.reqVaddr) + (rptTable.io.rdata(i+L1PrefetchVaddrGenWidth).stride << 3)
       }
     }.otherwise {
       finalPredict_vaddr(i) := 0.U
@@ -463,13 +465,13 @@ class SBP(implicit p: Parameters) extends XSModule with HasTlbConst {
     io.issue.resp(i).bits.respVaddr := Cat(finalPredict_vaddr(i)(VAddrBits - 1, log2Up(dcacheBlockBytes)), 0.U((log2Up(dcacheBlockBytes)).W))
     XSPerfAccumulate("fire_pefetch_numbers", io.issue.resp(i).fire())
 
-    when (io.issue.resp(i).valid) {
-      printf("time=[%d]vaddr 0x%x issue idx %d, trigger vaddr 0x%x idx %d\n", GTimer(),
-      io.issue.resp(i).bits.respVaddr,
-      getIdxNum(io.issue.resp(i).bits.respVaddr),
-      RegNext(io.issue.req(i).bits.reqVaddr),
-      getIdxNum(RegNext(io.issue.req(i).bits.reqVaddr)))
-    }
+    // when (io.issue.resp(i).valid) {
+    //   printf("time=[%d]vaddr 0x%x issue idx %d, trigger vaddr 0x%x idx %d\n", GTimer(),
+    //   io.issue.resp(i).bits.respVaddr,
+    //   getIdxNum(io.issue.resp(i).bits.respVaddr),
+    //   RegNext(io.issue.req(i).bits.reqVaddr),
+    //   getIdxNum(RegNext(io.issue.req(i).bits.reqVaddr)))
+    // }
 
   }
 }

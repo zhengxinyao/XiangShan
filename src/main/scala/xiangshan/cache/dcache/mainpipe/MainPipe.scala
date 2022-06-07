@@ -731,17 +731,17 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   io.prefDebug_read.bits.idx := get_idx(s3_req.vaddr)
   io.prefDebug_read.bits.way_en := s3_way_en
   val pref = Mux1H(RegNext(s3_way_en), wayMap((w: Int) => io.prefDebug_resp(w)))
-  io.prefDebug_write.valid := RegNext(io.wb.valid)
+  io.prefDebug_write.valid := RegNext(io.wb.valid) && pref.prefetch && pref.dataValid
   io.prefDebug_write.bits.idx := get_idx(RegNext(s3_req.vaddr))
   io.prefDebug_write.bits.way_en := RegNext(s3_way_en)
   io.prefDebug_write.bits.data.prefetch := false.B
   io.prefDebug_write.bits.data.used := false.B
   io.prefDebug_write.bits.data.dataValid := false.B
 
-  when (RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid) {
-    printf("time=[%d]vaddr 0x%x not used\n", GTimer(),
-    RegNext(s3_req.vaddr))
-  }
+  // when (RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid) {
+  //   printf("time=[%d]vaddr 0x%x not used\n", GTimer(),
+  //   RegNext(s3_req.vaddr))
+  // }
 
   XSPerfAccumulate("CntL1DPUseless", RegNext(io.wb.valid) && !pref.used && pref.prefetch && pref.dataValid)
 
