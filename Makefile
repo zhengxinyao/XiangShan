@@ -22,7 +22,7 @@ SCALA_FILE = $(shell find ./src/main/scala -name '*.scala')
 TEST_FILE = $(shell find ./src/test/scala -name '*.scala')
 MEM_GEN = ./scripts/vlsi_mem_gen
 
-SIMTOP  = top.CacheWarmup
+SIMTOP  = top.SimTop
 IMAGE  ?= temp
 CONFIG ?= DefaultConfig
 NUM_CORES ?= 1
@@ -70,8 +70,7 @@ $(TOP_V): $(SCALA_FILE)
 
 verilog: $(TOP_V)
 
-# SIM_TOP   = SimTop
-SIM_TOP   = CacheWarmup
+SIM_TOP   = SimTop
 SIM_TOP_V = $(BUILD_DIR)/$(SIM_TOP).v
 $(SIM_TOP_V): $(SCALA_FILE) $(TEST_FILE)
 	mkdir -p $(@D)
@@ -117,7 +116,7 @@ idea:
 
 # verilator simulation
 emu:
-	$(MAKE) -C ./difftest emu SIM_TOP=CacheWarmup DESIGN_DIR=$(NOOP_HOME) NUM_CORES=$(NUM_CORES)
+	$(MAKE) -C ./difftest emu SIM_TOP=SimTop DESIGN_DIR=$(NOOP_HOME) NUM_CORES=$(NUM_CORES)
 
 emu-run:
 	$(MAKE) -C ./difftest emu-run SIM_TOP=SimTop DESIGN_DIR=$(NOOP_HOME) NUM_CORES=$(NUM_CORES)
