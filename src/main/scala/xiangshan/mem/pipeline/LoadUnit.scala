@@ -645,10 +645,6 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper with 
 
   load_s2.io.out.ready := true.B
 
-  // load s3
-  io.lsq.dcacheRequireReplay := load_s2.io.dcacheRequireReplay
-  io.lsq.delayedLoadError := load_s2.io.delayedLoadError
-
   val load_wb_reg = RegNext(Mux(hitLoadOut.valid, hitLoadOut.bits, io.lsq.ldout.bits))
   io.ldout.bits := load_wb_reg
   io.ldout.valid := RegNext(hitLoadOut.valid) && !RegNext(load_s2.io.out.bits.uop.robIdx.needFlush(io.redirect)) ||
