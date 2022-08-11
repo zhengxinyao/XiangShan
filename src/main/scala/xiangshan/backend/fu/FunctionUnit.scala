@@ -56,7 +56,7 @@ case class FuConfig
   hasLoadError: Boolean = false,
   flushPipe: Boolean = false,
   replayInst: Boolean = false,
-  trigger: Boolean = false
+  trigger: Boolean = false,
 ) {
   def srcCnt: Int = math.max(numIntSrc, numFpSrc)
 }

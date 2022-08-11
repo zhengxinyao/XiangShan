@@ -75,10 +75,7 @@ class Dispatch(implicit p: Parameters) extends XSModule with HasPerfEvents {
     */
   // valid bits for different dispatch queues
   val isInt    = VecInit(io.fromRename.map(req => FuType.isIntExu(req.bits.ctrl.fuType)))
-  val isBranch = VecInit(io.fromRename.map(req =>
-    // cover auipc (a fake branch)
-    !req.bits.cf.pd.notCFI || FuType.isJumpExu(req.bits.ctrl.fuType)
-  ))
+  val isBranch = VecInit(io.fromRename.map(req => !req.bits.cf.pd.notCFI))
   val isFp     = VecInit(io.fromRename.map(req => FuType.isFpExu (req.bits.ctrl.fuType)))
   val isMem    = VecInit(io.fromRename.map(req => FuType.isMemExu(req.bits.ctrl.fuType)))
   val isLs     = VecInit(io.fromRename.map(req => FuType.isLoadStore(req.bits.ctrl.fuType)))

@@ -297,12 +297,16 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
   val io = IO(new Bundle() {
     val hartId = Input(UInt(8.W))
     val redirect = Input(Valid(new Redirect))
+    // enq: from Dispatch
     val enq = new RobEnqIO
+    // output: flush, exception
     val flushOut = ValidIO(new Redirect)
     val exception = ValidIO(new ExceptionInfo)
-    // exu + brq
+    // writeback from exu
     val writeback = MixedVec(numWbPorts.map(num => Vec(num, Flipped(ValidIO(new ExuOutput)))))
+    // commits to rename/frontend
     val commits = new RobCommitIO
+    val resolve = ValidIO(new RobCommitInfo)
     val lsq = new RobLsqIO
     val robDeqPtr = Output(new RobPtr)
     val csr = new RobCSRIO
@@ -339,6 +343,8 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
   // some instructions are not allowed to trigger interrupts
   // They have side effects on the states of the processor before they write back
   val interrupt_safe = Mem(RobSize, Bool())
+  // resolve bits for frontend
+  val resolve = RegInit(VecInit.fill(RobSize)(false.B))
 
   // data for debug
   // Warn: debug_* prefix should not exist in generated verilog.
@@ -378,8 +384,8 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     * (1) read: commits/walk/exception
     * (2) write: write back from exe units
     */
-  val dispatchData = Module(new SyncDataModuleTemplate(new RobDispatchData, RobSize, CommitWidth, RenameWidth))
-  val dispatchDataRead = dispatchData.io.rdata
+  val dispatchData = Module(new SyncDataModuleTemplate(new RobDispatchData, RobSize, CommitWidth + 1, RenameWidth))
+  val dispatchDataRead = dispatchData.io.rdata.dropRight(1)
 
   val exceptionGen = Module(new ExceptionGen)
   val exceptionDataRead = exceptionGen.io.state
@@ -840,6 +846,55 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     }
   }
 
+  // resolve: for branch instructions, initialized to false.B
+  val resolveStateReg = RegInit(0.U.asTypeOf(Valid(new RobCommitInfo)))
+  for (i <- 0 until RenameWidth) {
+    when (canEnqueue(i)) {
+      val enqHasException = ExceptionNO.selectFrontend(io.enq.req(i).bits.cf.exceptionVec).asUInt.orR
+      val enqHasTriggerHit = io.enq.req(i).bits.cf.trigger.getHitFrontend
+      val enqIsResolved = io.enq.req(i).bits.cf.pd.notCFI
+      resolve(allocatePtrVec(i).value) := enqIsResolved && !enqHasException && !enqHasTriggerHit
+    }
+  }
+  val resolveWbSel = outer.selWritebackSinks(_.exuConfigs.count(_.exists(_.hasRedirect)))
+  val resolveWbPorts = selectWb(resolveWbSel, _.exists(_.hasRedirect)).map(_._2)
+  for (wb <- resolveWbPorts) {
+    val needRedirect = wb.bits.redirect.cfiUpdate.isMisPred && wb.bits.redirectValid
+    when (wb.valid && !needRedirect) {
+      resolve(wb.bits.uop.robIdx.value) := true.B
+    }
+    when (RegNext(RegNext(RegNext(RegNext(wb.valid && needRedirect))))) {
+      resolve(RegNext(RegNext(RegNext(RegNext(wb.bits.uop.robIdx.value))))) := true.B
+    }
+  }
+  val resolvePtrVec = RegInit(VecInit.tabulate(CommitWidth)(_.U.asTypeOf(new RobPtr)))
+  val resolveCond = resolvePtrVec.map(p => valid(p.value) && resolve(p.value) && p =/= enqPtr)
+  val firstCanResolve = !misPredBlock && resolveCond.head
+  val canResolve = firstCanResolve +: resolveCond.tail :+ false.B
+  io.resolve.valid := canResolve.head
+  io.resolve.bits := dispatchData.io.rdata.last
+  val resolvePtrVecNext = Wire(Vec(CommitWidth, new RobPtr))
+  resolvePtrVec := resolvePtrVecNext
+  val resolvePtrVecExt = resolvePtrVec ++ (0 until CommitWidth).map(i => resolvePtrVec(i) + CommitWidth.U)
+  for ((next, i) <- resolvePtrVecNext.zipWithIndex) {
+    next := ParallelPriorityMux(canResolve.map(!_), resolvePtrVecExt.drop(i).take(canResolve.length))
+  }
+  when (RegNext(io.redirect.valid)) {
+    resolvePtrVecNext.zipWithIndex.drop(1).foreach{ case (ptr, i) =>
+      ptr := resolvePtrVecNext.head + i.U
+    }
+  }
+  when (io.redirect.valid) {
+    val redirectRobIdx = Mux(io.redirect.bits.flushItself(), io.redirect.bits.robIdx, io.redirect.bits.robIdx + 1.U)
+    resolvePtrVecNext.foreach(_ := redirectRobIdx)
+  }
+  resolvePtrVec.zip(enqPtrVec.zip(deqPtrVec)).zipWithIndex.foreach{ case ((ptr, (e, d)), i) =>
+    XSError(isAfter(ptr, e) && !(ptr.flag =/= e.flag && ptr.value === e.value),
+      p"$i: why resolvePtr($ptr) isAfter enqPtr($e)?")
+    XSError(isAfter(d, ptr) && !(ptr.flag =/= d.flag && ptr.value === d.value),
+      p"$i: why deqPtr($d) isAfter resolvePtr($ptr)?")
+  }
+
   /**
     * read and write of data modules
     */
@@ -861,7 +916,7 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
     wdata.ftqOffset := req.cf.ftqOffset
     wdata.pc := req.cf.pc
   }
-  dispatchData.io.raddr := commitReadAddr_next
+  dispatchData.io.raddr := commitReadAddr_next :+ resolvePtrVecNext.head.value
 
   exceptionGen.io.redirect <> io.redirect
   exceptionGen.io.flush := io.flushOut.valid
