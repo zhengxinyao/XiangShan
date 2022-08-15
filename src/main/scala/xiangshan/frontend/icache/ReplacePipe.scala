@@ -175,6 +175,8 @@ class ICacheReplacePipe(implicit p: Parameters) extends ICacheModule{
   val r2_data_errorBits = RegEnable(next = r1_data_errorBits, enable = r1_fire)
 
   val r2_data_errors    = Wire(Vec(nWays, Bool()))
+  val r1_fire_delay1    = RegNext(r1_fire, init = false.B)
+  val r1_fire_delay2    = RegNext(r1_fire_delay1, init = false.B)
 
   val read_datas = r2_data_cacheline.asTypeOf(Vec(nWays,Vec(dataCodeUnitNum, UInt(dataCodeUnit.W))))
   val read_codes = r2_data_errorBits.asTypeOf(Vec(nWays,Vec(dataCodeUnitNum, UInt(dataCodeBits.W))))
@@ -184,23 +186,23 @@ class ICacheReplacePipe(implicit p: Parameters) extends ICacheModule{
   val data_error_wayBits = VecInit((0 until nWays).map( w => 
                                 VecInit((0 until dataCodeUnitNum).map(u => 
                                       cacheParams.dataCode.decode(data_full_wayBits(w)(u)).error ))))
-  (0 until nWays).map{ w => r2_data_errors(w) := RegNext(RegNext(r1_fire)) && RegNext(data_error_wayBits(w)).reduce(_||_) } 
+  (0 until nWays).foreach{ w => r2_data_errors(w) := r1_fire_delay2 && RegEnable(data_error_wayBits(w), r1_fire_delay1).reduce(_||_) }
 
   val r2_parity_meta_error = r2_meta_errors.reduce(_||_) && io.csr_parity_enable
   val r2_parity_data_error = r2_data_errors.reduce(_||_) && io.csr_parity_enable
   val r2_parity_error      = RegNext(r2_parity_meta_error) || r2_parity_data_error
 
-
-  io.error.valid                := RegNext(r2_parity_error &&  RegNext(RegNext(r1_fire))) 
-  io.error.report_to_beu        := RegNext(r2_parity_error &&  RegNext(RegNext(r1_fire)))
-  io.error.paddr                := RegNext(RegNext(r2_req.paddr))
-  io.error.source.tag           := RegNext(RegNext(r2_parity_meta_error))
-  io.error.source.data          := RegNext(r2_parity_data_error)
+  val valid                      = r2_parity_error &&  r1_fire_delay2
+  io.error.valid                := RegNext(valid)
+  io.error.report_to_beu        := RegNext(valid)
+  io.error.paddr                := RegEnable(RegEnable(r2_req.paddr, enable = r1_fire_delay1), enable = valid)
+  io.error.source.tag           := RegEnable(RegEnable(r2_parity_meta_error, enable = r1_fire_delay1), enable = valid)
+  io.error.source.data          := RegEnable(r2_parity_data_error, enable = valid)
   io.error.source.l2            := false.B
   io.error.opType               := DontCare
   io.error.opType.fetch         := true.B
-  io.error.opType.release       := RegNext(RegNext(!r2_req_is_probe_dup_1))
-  io.error.opType.probe         := RegNext(RegNext(r2_req_is_probe_dup_1))
+  io.error.opType.release       := RegEnable(RegEnable(!r2_req_is_probe_dup_1, enable = r1_fire_delay1), enable = valid)
+  io.error.opType.probe         := RegEnable(RegEnable(r2_req_is_probe_dup_1, enable = r1_fire_delay1), enable = valid)
 
   XSError(r2_parity_error && RegNext(RegNext(r1_fire)), "ICache has parity error in ReplacePipe!")
 
@@ -257,7 +259,7 @@ class ICacheReplacePipe(implicit p: Parameters) extends ICacheModule{
   val r3_release_need_send = RegEnable(next = release_need_send, enable = r2_fire && r2_req.isRelease)
 
   r3_ready      := r3_fire  || !r3_valid
-  r3_fire       := (r3_valid && RegNext(io.release_finish) && r3_release_need_send) || (r3_valid && !r3_release_need_send) 
+  r3_fire       := (r3_valid && RegNext(io.release_finish) && r3_release_need_send) || (r3_valid && !r3_release_need_send)
 
   val r3_req = RegEnable(next = r2_req, enable = r2_fire && r2_req.isRelease)
 
