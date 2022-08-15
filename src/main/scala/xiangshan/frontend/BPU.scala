@@ -324,7 +324,11 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst with H
   // predictors.io.out.ready := io.bpu_to_ftq.resp.ready
 
   val redirect_req = io.ftq_to_bpu.redirect
-  val do_redirect = RegNext(redirect_req, init=0.U.asTypeOf(io.ftq_to_bpu.redirect))
+//  val do_redirect = RegNext(redirect_req, init=0.U.asTypeOf(io.ftq_to_bpu.redirect))
+  val do_redirect = Wire(redirect_req.cloneType)
+  do_redirect.bits := RegEnable(redirect_req.bits, init=0.U.asTypeOf(redirect_req.bits),enable = redirect_req.valid)
+  do_redirect.valid := RegNext(redirect_req.valid, init = false.B)
+
 
   // Pipeline logic
   s2_redirect := false.B
@@ -585,8 +589,11 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst with H
 
   val redirect = do_redirect.bits
 
-  predictors.io.update := RegNext(io.ftq_to_bpu.update)
-  predictors.io.update.bits.ghist := RegNext(getHist(io.ftq_to_bpu.update.bits.histPtr))
+//  predictors.io.update := RegNext(io.ftq_to_bpu.update)
+//  predictors.io.update.bits.ghist := RegNext(getHist(io.ftq_to_bpu.update.bits.histPtr))
+  predictors.io.update.bits := RegEnable(io.ftq_to_bpu.update.bits,io.ftq_to_bpu.update.valid)
+  predictors.io.update.bits.ghist := RegEnable(getHist(io.ftq_to_bpu.update.bits.histPtr),io.ftq_to_bpu.update.valid)
+  predictors.io.update.valid := RegNext(io.ftq_to_bpu.update.valid, init = false.B)
   predictors.io.redirect := do_redirect
 
   // Redirect logic

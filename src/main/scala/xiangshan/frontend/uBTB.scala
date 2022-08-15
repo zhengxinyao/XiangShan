@@ -87,9 +87,10 @@ class MicroBTB(implicit p: Parameters) extends BasePredictor
     decay_idx := decay_idx + doing_decay
 
     val data = Module(new SyncDataModuleTemplate(Bool(), nRows, 1, 1, "UbtbFallThruPred",
-      concatData=false, perReadPortBypassEnable=Some(Seq(false))))
+      concatData=false, hasRen = true, perReadPortBypassEnable=Some(Seq(false))))
 
     data.io.raddr(0) := io.ridx
+    data.io.ren.get(0) := io.ren
     io.rdata := data.io.rdata(0)
 
     
@@ -188,7 +189,8 @@ class MicroBTB(implicit p: Parameters) extends BasePredictor
   // Update logic
   val update_mispred = io.update.bits.mispred_mask.reduce(_||_)
   val update_redirected = io.update.bits.from_stage === BP_S2
-  val update = RegNext(io.update.bits)
+//  val update = RegNext(io.update.bits)
+  val update = RegEnable(io.update.bits,io.update.valid && (update_mispred || update_redirected))
   val u_valid = RegNext(io.update.valid && (update_mispred || update_redirected))
   update_valid := u_valid
   val u_pc = update.pc

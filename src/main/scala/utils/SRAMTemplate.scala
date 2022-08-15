@@ -133,13 +133,13 @@ class SRAMTemplate[T <: Data](
   require(!bypassWrite || bypassWrite && !singlePort)
   def need_bypass(wen: Bool, waddr: UInt, wmask: UInt, ren: Bool, raddr: UInt) : UInt = {
     val need_check = RegNext(ren && wen)
-    val waddr_reg = RegNext(waddr)
-    val raddr_reg = RegNext(raddr)
+    val waddr_reg = RegEnable(waddr, ren && wen)
+    val raddr_reg = RegEnable(raddr, ren && wen)
     require(wmask.getWidth == way)
-    val bypass = Fill(way, need_check && waddr_reg === raddr_reg) & RegNext(wmask)
+    val bypass = Fill(way, need_check && waddr_reg === raddr_reg) & RegEnable(wmask, ren && wen)
     bypass.asTypeOf(UInt(way.W))
   }
-  val bypass_wdata = if (bypassWrite) VecInit(RegNext(io.w.req.bits.data).map(_.asTypeOf(wordType)))
+  val bypass_wdata = if (bypassWrite) VecInit(RegEnable(io.w.req.bits.data, io.w.req.fire).map(_.asTypeOf(wordType)))
     else VecInit((0 until way).map(_ => LFSR64().asTypeOf(wordType)))
   val bypass_mask = need_bypass(io.w.req.valid, io.w.req.bits.setIdx, io.w.req.bits.waymask.getOrElse("b1".U), io.r.req.valid, io.r.req.bits.setIdx)
   val mem_rdata = {
@@ -186,7 +186,7 @@ class FoldedSRAMTemplate[T <: Data](gen: T, set: Int, width: Int = 4, way: Int =
   io.w.req.ready := array.io.w.req.ready
 
   val raddr = io.r.req.bits.setIdx >> log2Ceil(width)
-  val ridx = RegNext(if (width != 1) io.r.req.bits.setIdx(log2Ceil(width)-1, 0) else 0.U(1.W))
+  val ridx = RegEnable(if (width != 1) io.r.req.bits.setIdx(log2Ceil(width)-1, 0) else 0.U(1.W), io.r.req.fire)
   val ren  = io.r.req.valid
 
   array.io.r.req.valid := ren

@@ -233,7 +233,10 @@ class RAS(implicit p: Parameters) extends BasePredictor {
   io.out.resp.s3.rasTop := s3_top
 
 
-  val redirect = RegNext(io.redirect)
+//  val redirect = RegNext(io.redirect)
+  val redirect = Wire(io.redirect.cloneType)
+  redirect.bits := RegEnable(io.redirect.bits, io.redirect.valid)
+  redirect.valid := RegNext(io.redirect.valid, init = false.B)
   val do_recover = redirect.valid || s3_recover
   val recover_cfi = redirect.bits.cfiUpdate
 

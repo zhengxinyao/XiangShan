@@ -101,7 +101,9 @@ class WrBypass[T <: Data](gen: T, val numEntries: Int, val idxWidth: Int,
   idx_tag_cam.io.w.valid := enq_en
   idx_tag_cam.io.w.bits.index := enq_idx
   idx_tag_cam.io.w.bits.data(io.write_idx, io.write_tag.getOrElse(0.U))
-  enq_ptr := enq_ptr + enq_en
+  when(enq_en){
+    enq_ptr := enq_ptr + 1.U
+  }
 
   XSPerfAccumulate("wrbypass_hit",  io.wen &&  hit)
   XSPerfAccumulate("wrbypass_miss", io.wen && !hit)
