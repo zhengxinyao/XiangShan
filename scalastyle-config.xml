@@ -6,7 +6,7 @@
    <parameter name="maxFileLength"><![CDATA[800]]></parameter>
   </parameters>
  </check>
- <check level="warning" class="org.scalastyle.file.HeaderMatchesChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.file.HeaderMatchesChecker" enabled="false">
   <parameters>
    <parameter name="header"><![CDATA[// See README.md for license details.]]></parameter>
   </parameters>
@@ -14,7 +14,7 @@
  <check level="warning" class="org.scalastyle.scalariform.SpacesAfterPlusChecker" enabled="true"></check>
  <check level="warning" class="org.scalastyle.file.WhitespaceEndOfLineChecker" enabled="true"></check>
  <check level="warning" class="org.scalastyle.scalariform.SpacesBeforePlusChecker" enabled="true"></check>
- <check level="warning" class="org.scalastyle.file.FileLineLengthChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.file.FileLineLengthChecker" enabled="false">
   <parameters>
    <parameter name="maxLineLength"><![CDATA[120]]></parameter>
    <parameter name="tabSize"><![CDATA[4]]></parameter>
@@ -41,12 +41,12 @@
    <parameter name="illegalImports"><![CDATA[sun._,java.awt._]]></parameter>
   </parameters>
  </check>
- <check level="warning" class="org.scalastyle.scalariform.ParameterNumberChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.scalariform.ParameterNumberChecker" enabled="false">
   <parameters>
    <parameter name="maxParameters"><![CDATA[8]]></parameter>
   </parameters>
  </check>
- <check level="warning" class="org.scalastyle.scalariform.MagicNumberChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.scalariform.MagicNumberChecker" enabled="false">
   <parameters>
    <parameter name="ignore"><![CDATA[-1,0,1,2,8,10,16]]></parameter>
   </parameters>
@@ -75,25 +75,25 @@
    <parameter name="maxTypes"><![CDATA[30]]></parameter>
   </parameters>
  </check>
- <check level="warning" class="org.scalastyle.scalariform.CyclomaticComplexityChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.scalariform.CyclomaticComplexityChecker" enabled="false">
   <parameters>
    <parameter name="maximum"><![CDATA[10]]></parameter>
   </parameters>
  </check>
  <check level="warning" class="org.scalastyle.scalariform.UppercaseLChecker" enabled="true"></check>
  <check level="warning" class="org.scalastyle.scalariform.SimplifyBooleanExpressionChecker" enabled="true"></check>
- <check level="warning" class="org.scalastyle.scalariform.IfBraceChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.scalariform.IfBraceChecker" enabled="false">
   <parameters>
    <parameter name="singleLineAllowed"><![CDATA[true]]></parameter>
    <parameter name="doubleLineAllowed"><![CDATA[false]]></parameter>
   </parameters>
  </check>
- <check level="warning" class="org.scalastyle.scalariform.MethodLengthChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.scalariform.MethodLengthChecker" enabled="false">
   <parameters>
    <parameter name="maxLength"><![CDATA[50]]></parameter>
   </parameters>
  </check>
- <check level="warning" class="org.scalastyle.scalariform.MethodNamesChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.scalariform.MethodNamesChecker" enabled="false">
   <parameters>
    <parameter name="regex"><![CDATA[^[a-z][A-Za-z0-9]*$]]></parameter>
    <parameter name="ignoreRegex"><![CDATA[^(\+[&%]?|\-[&%]?|\*|/|%|&|\||\^|<|>|\|\||&&|:=|<>|<=|>=|!=|===|<<|>>|##|unary_(~|\-%?|!))$]]></parameter>
@@ -104,7 +104,7 @@
    <parameter name="maxMethods"><![CDATA[30]]></parameter>
   </parameters>
  </check>
- <check level="warning" class="org.scalastyle.scalariform.PublicMethodsHaveTypeChecker" enabled="true"></check>
+ <check level="warning" class="org.scalastyle.scalariform.PublicMethodsHaveTypeChecker" enabled="false"></check>
  <check level="warning" class="org.scalastyle.file.NewLineAtEofChecker" enabled="true"></check>
  <check level="warning" class="org.scalastyle.file.NoNewLineAtEofChecker" enabled="false"></check>
 </scalastyle>
