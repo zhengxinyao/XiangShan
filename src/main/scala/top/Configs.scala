@@ -183,7 +183,7 @@ class MinimalSimConfig(n: Int = 1) extends Config(
   })
 )
 
-class WithNKBL1D(n: Int, ways: Int = 8) extends Config((site, here, up) => {
+class WithNKBL1D(n: Int, ways: Int = 4) extends Config((site, here, up) => {
   case XSTileKey =>
     val sets = n * 1024 / ways / 64
     up(XSTileKey).map(_.copy(
@@ -304,6 +304,6 @@ class MediumConfig(n: Int = 1) extends Config(
 class DefaultConfig(n: Int = 1) extends Config(
   new WithNKBL3(2 * 1024, inclusive = false, banks = 4, ways = 8)
     ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, alwaysReleaseData = true)
-    ++ new WithNKBL1D(128)
+    ++ new WithNKBL1D(64)
     ++ new BaseConfig(n)
 )
