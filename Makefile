@@ -145,4 +145,61 @@ emu-run:
 simv:
 	$(MAKE) -C ./difftest simv SIM_TOP=SimTop DESIGN_DIR=$(NOOP_HOME) NUM_CORES=$(NUM_CORES)
 
+cleandb:
+	rm -f ./build/*.db
+
+autom:
+	$(MAKE) verilog
+	$(MAKE) emu WITH_CHISELDB=1 EMU_TRACE=0 EMU_THREADS=8 -j32
+
+fastmk:
+	$(MAKE) verilog CONFIG=MinimalConfig
+	$(MAKE) emu WITH_CHISELDB=1 CONFIG=MinimalConfig EMU_TRACE=0 EMU_THREADS=8 -j32
+
+autotest:
+	$(MAKE) test_bin
+	$(MAKE) try_bin
+
+automt:
+	$(MAKE) autom
+	$(MAKE) autotest
+
+TESTDIR = ../tests/
+TESTBIN = coremark
+test_bin:
+	numactl -m 0 -C 0-7 ./build/emu --dump-db -i $(TESTDIR)$(TESTBIN)-riscv64-xs.bin
+test_nosuffix_bin:
+	numactl -m 0 -C 0-7 ./build/emu --dump-db -i $(TESTBIN)
+try_bin:
+	find -maxdepth 2 -name '*.db' -exec mv {} ../xiangshan-playground/verilator_tests/database.db \;
+	cd ../xiangshan-playground/verilator_tests/ && $(MAKE) TESTBIN=$(TESTBIN)
+
+test_coremark:
+	$(MAKE) test_bin TESTBIN=coremark 
+	$(MAKE) try_bin  TESTBIN=coremark 
+
+test_vls:
+	$(MAKE) test_bin TESTBIN=very_long_sequence
+	$(MAKE) try_bin  TESTBIN=very_long_sequence
+
+test_dhry:
+	$(MAKE) test_bin TESTBIN=dhrystone 
+	$(MAKE) try_bin  TESTBIN=dhrystone 
+	
+test_micr:
+	-$(MAKE) test_bin TESTBIN=microbench
+	$(MAKE) try_bin  TESTBIN=microbench 
+
+test_stream:
+	-$(MAKE) test_bin TESTBIN=stream 
+	$(MAKE) try_bin  TESTBIN=stream 
+
+test_gcc_base:
+	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gc_o2_20m/take_cpt/gcc_cpdecl_82980000000_0.031297/0/_82980000000_.gz
+	$(MAKE) try_bin TESTBIN=gcc_cpdecl_82980000000_0.031297
+
+test_gcc_big:
+	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gc_o2_20m/take_cpt/gcc_g23_161620000000_0.183256/0/_161620000000_.gz
+	$(MAKE) try_bin  TESTBIN=gcc_g23_161620000000_0.183256
+
 .PHONY: verilog sim-verilog emu clean help init bump bsp $(REF_SO)

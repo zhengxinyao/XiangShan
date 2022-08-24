@@ -190,6 +190,17 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   //TODO: fix GTimer() condition
   fromIFU.map(_.ready := s0_can_go) //&& GTimer() > 500.U )
 
+  //Way predictor tester
+  val wp_tester = new WayPredictorTester(update_algorithm = "uTag")
+  // val wp_uTag_tester = new WayPredictorTester(update_algorithm = "uTag")
+  // val wp_MRU_tester = new WayPredictorTester(update_algorithm = "MRU")
+  val s0_req_vtag = s0_req_vaddr(0)(VAddrBits-1,untagBits)
+  w9.pd_en := s0_fire && (!RegNext(s0_fire) || (s0_req_vtag =/= RegNext(s0_req_vtag)) || (s0_req_vsetIdx(0) =/= RegNext(s0_req_vsetIdx(0))))
+  w9.idx := s0_req_vsetIdx(0)
+  w9.req_vtag :=  wp_req_vtag
+  val s0_predict_way = w9.predict_way
+  val s0_wp_lookup_miss = w9.lookup_miss
+  
   /**
     ******************************************************************************
     * ICache Stage 1
@@ -207,6 +218,10 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   val s1_req_vsetIdx = RegEnable(s0_final_vsetIdx, s0_fire)
   val s1_only_first  = RegEnable(s0_final_only_first, s0_fire)
   val s1_double_line = RegEnable(s0_final_double_line, s0_fire)
+
+  val s1_predict_way    = RegEnable(s0_predict_way, s0_fire)
+  val s1_wp_lookup_miss = RegEnable(s0_wp_lookup_miss, s0_fire)
+  val s1_req_vtag       = RegEnable(s0_req_vtag, s0_fire)
   //val s1_tlb_miss    = RegEnable(tlb_slot.valid, s0_fire)
 
   /** tlb response latch for pipeline stop */
@@ -275,6 +290,19 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
     port_hit_data
   })
 
+  //Update way predictor
+  val wp_s1_fire = s1_fire && (!RegNext(s1_fire) || (s1_req_vsetIdx(0) =/= RegNext(s1_req_vsetIdx(0)) || (s1_req_vtag =/= RegNext(s1_req_vtag))))
+  val wp_correct_way = MuxLookup(1.U,cacheParams.nWays.U,s1_tag_match_vec(0).zipWithIndex.map{case(x,i) => (x,i.U)})
+  val wp_predict_hit = (wp_correct_way === s1_predict_way)
+  val wp_match_miss = (wp_correct_way === cacheParams.nWays.U)
+
+  w9.update := wp_s1_fire && !wp_predict_hit && !wp_match_miss
+  w9.update_vtag := s1_req_vtag
+  w9.update_way := wp_correct_way
+  
+  w9.predict_hit := wp_predict_hit && wp_s1_fire
+  w9.match_miss := wp_match_miss && wp_s1_fire
+  
   /** <PERF> replace victim way number */
 
   (0 until nWays).map{ w =>
