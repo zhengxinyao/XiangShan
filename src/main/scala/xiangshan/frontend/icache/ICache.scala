@@ -534,12 +534,13 @@ class ICacheImp(outer: ICache) extends LazyModuleImp(outer) with HasICacheParame
   //metaArray.io.write <> meta_write_arb.io.out
   //dataArray.io.write <> missUnit.io.data_write
 
-  metaArray.io.write.valid := RegNext(meta_write_arb.io.out.valid,init =false.B)
-  metaArray.io.write.bits  := RegNext(meta_write_arb.io.out.bits)
+  metaArray.io.write.valid := RegNext(meta_write_arb.io.out.valid, init = false.B)
+  metaArray.io.write.bits  := RegEnable(meta_write_arb.io.out.bits, enable = meta_write_arb.io.out.valid)
   meta_write_arb.io.out.ready := true.B
 
-  dataArray.io.write.valid := RegNext(missUnit.io.data_write.valid,init =false.B)
-  dataArray.io.write.bits  := RegNext(missUnit.io.data_write.bits)
+  dataArray.io.write.valid := RegNext(missUnit.io.data_write.valid, init = false.B)
+  dataArray.io.write.bits  := RegEnable(missUnit.io.data_write.bits, enable = missUnit.io.data_write.valid)
+  dataArray.io.write.bits.writeEn := RegNext(missUnit.io.data_write.bits.writeEn, init = 0.U.asTypeOf(missUnit.io.data_write.bits.writeEn))
   missUnit.io.data_write.ready := true.B
 
   mainPipe.io.csr_parity_enable := io.csr_parity_enable
