@@ -166,13 +166,17 @@ automt:
 
 TESTDIR = ../tests/
 TESTBIN = coremark
+mt-wave:
+	$(MAKE) emu WITH_CHISELDB=1 EMU_TRACE=1 EMU_THREADS=8 -j32
+	numactl -m 0 -C 0-7 ./build/emu --dump-db -i $(TESTDIR)$(TESTBIN)-riscv64-xs.bin --dump-wave -b 8800 -e 9000  
 test_bin:
 	numactl -m 0 -C 0-7 ./build/emu --dump-db -i $(TESTDIR)$(TESTBIN)-riscv64-xs.bin
 test_nosuffix_bin:
 	numactl -m 0 -C 0-7 ./build/emu --dump-db -i $(TESTBIN)
 try_bin:
-	find -maxdepth 2 -name '*.db' -exec mv {} ../xiangshan-playground/verilator_tests/database.db \;
-	cd ../xiangshan-playground/verilator_tests/ && $(MAKE) TESTBIN=$(TESTBIN)
+#	find -maxdepth 2 -name '*.db' -exec mv {} ../xiangshan-playground/verilator_tests/database.db \;
+#	cd ../xiangshan-playground/verilator_tests/ && $(MAKE) TESTBIN=$(TESTBIN)
+	$(echo) $(TESTBIN) end
 
 test_coremark:
 	$(MAKE) test_bin TESTBIN=coremark 

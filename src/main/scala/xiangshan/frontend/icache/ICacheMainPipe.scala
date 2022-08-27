@@ -24,6 +24,7 @@ import xiangshan._
 import xiangshan.cache.mmu._
 import utils._
 import xiangshan.backend.fu.{PMPReqBundle, PMPRespBundle}
+import huancun.utils.ChiselDB
 
 class ICacheMainPipeReq(implicit p: Parameters) extends ICacheBundle
 {
@@ -191,16 +192,19 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   fromIFU.map(_.ready := s0_can_go) //&& GTimer() > 500.U )
 
   //Way predictor tester
-  val wp_tester = new WayPredictorTester(update_algorithm = "uTag")
-  // val wp_uTag_tester = new WayPredictorTester(update_algorithm = "uTag")
-  // val wp_MRU_tester = new WayPredictorTester(update_algorithm = "MRU")
+  val wp_tester = Module(new WayPredictorTester(update_algorithm = "uTag"))
+  // val wp_uTag_tester = Module(new WayPredictorTester(update_algorithm = "uTag"))
+  // val wp_MRU_tester = Module(new WayPredictorTester(update_algorithm = "MRU))
   val s0_req_vtag = s0_req_vaddr(0)(VAddrBits-1,untagBits)
-  w9.pd_en := s0_fire && (!RegNext(s0_fire) || (s0_req_vtag =/= RegNext(s0_req_vtag)) || (s0_req_vsetIdx(0) =/= RegNext(s0_req_vsetIdx(0))))
-  w9.idx := s0_req_vsetIdx(0)
-  w9.req_vtag :=  wp_req_vtag
-  val s0_predict_way = w9.predict_way
-  val s0_wp_lookup_miss = w9.lookup_miss
+  val wp_s0_fire = s0_fire && (!RegNext(s0_fire) || (s0_req_vtag =/= RegNext(s0_req_vtag)) || (s0_req_vsetIdx(0) =/= RegNext(s0_req_vsetIdx(0))))
+  val wp_pd_en = RegInit(false.B)
   
+  wp_tester.io.pd_en := wp_s0_fire
+  wp_tester.io.idx := s0_req_vsetIdx(0)
+  wp_tester.io.req_vtag :=  s0_req_vtag
+  val s0_predict_way = wp_tester.io.predict_way
+  val s0_wp_lookup_miss = wp_tester.io.lookup_miss
+
   /**
     ******************************************************************************
     * ICache Stage 1
@@ -291,17 +295,68 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   })
 
   //Update way predictor
-  val wp_s1_fire = s1_fire && (!RegNext(s1_fire) || (s1_req_vsetIdx(0) =/= RegNext(s1_req_vsetIdx(0)) || (s1_req_vtag =/= RegNext(s1_req_vtag))))
+  val s1_fire_wp_en = s1_fire && wp_pd_en
+  val wp_s1_fire = s1_fire_wp_en && (!RegNext(s1_fire_wp_en) || (s1_req_vtag =/= RegNext(s1_req_vtag)) || (s1_req_vsetIdx(0) =/= RegNext(s1_req_vsetIdx(0))))
   val wp_correct_way = MuxLookup(1.U,cacheParams.nWays.U,s1_tag_match_vec(0).zipWithIndex.map{case(x,i) => (x,i.U)})
-  val wp_predict_hit = (wp_correct_way === s1_predict_way)
   val wp_match_miss = (wp_correct_way === cacheParams.nWays.U)
+  val wp_predict_hit = (wp_correct_way === s1_predict_way)
+  val wp_predict_miss = (wp_correct_way =/= s1_predict_way)
+  when(wp_s0_fire){
+    wp_pd_en := true.B
+  }.elsewhen(!wp_s0_fire && wp_s1_fire){
+    wp_pd_en := false.B
+  }
+  val s0_cnt_reg = RegInit(0.U(64.W))
+  val s1_cnt_reg = RegInit(0.U(64.W))
+  val wp_s0_reg = RegInit(0.U(64.W))
+  val wp_s1_reg = RegInit(0.U(64.W))
 
-  w9.update := wp_s1_fire && !wp_predict_hit && !wp_match_miss
-  w9.update_vtag := s1_req_vtag
-  w9.update_way := wp_correct_way
+  when(s0_fire){
+    s0_cnt_reg := s0_cnt_reg + 1.U
+  }
+  when(s1_fire){
+    s1_cnt_reg := s1_cnt_reg + 1.U
+  }
+  when(wp_s0_fire){
+    wp_s0_reg := wp_s0_reg + 1.U
+  }
+  when(wp_s1_fire){
+    wp_s1_reg := wp_s1_reg + 1.U
+  }
+  class WpDebugBundel extends ICacheBundle{
+    val s0_cnt_reg = Input(UInt(64.W))
+    val s1_cnt_reg = Input(UInt(64.W))
+    val wp_s0_reg = Input(UInt(64.W))
+    val wp_s1_reg = Input(UInt(64.W))
+    val s0_req_vtag = Input(UInt(64.W))
+    val s0_req_vsetIdx_0 = Input(UInt(64.W))
+    val s1_req_vtag = Input(UInt(64.W))
+    val s1_req_vsetIdx_0 = Input(UInt(64.W))
+  }
   
-  w9.predict_hit := wp_predict_hit && wp_s1_fire
-  w9.match_miss := wp_match_miss && wp_s1_fire
+  val wp_table_data = Wire(new WpDebugBundel)
+  val wp_table_log = ChiselDB.createTable("wp_table_log", new WpDebugBundel)
+  wp_table_data.s0_cnt_reg := s0_cnt_reg
+  wp_table_data.s1_cnt_reg := s1_cnt_reg
+  wp_table_data.wp_s0_reg := wp_s0_reg
+  wp_table_data.wp_s1_reg := wp_s1_reg
+  wp_table_data.s0_req_vtag := s0_req_vtag
+  wp_table_data.s0_req_vsetIdx_0 := s0_req_vsetIdx(0)
+  wp_table_data.s1_req_vtag := s1_req_vtag
+  wp_table_data.s1_req_vsetIdx_0 := s1_req_vsetIdx(0)
+
+  val trigger_cond = s1_fire
+  wp_table_log.log(wp_table_data,trigger_cond,"wp_table",this.clock,this.reset)
+
+  wp_tester.io.update := wp_s1_fire && !wp_predict_hit && !wp_match_miss
+  wp_tester.io.update_idx  := s1_req_vsetIdx(0)
+  wp_tester.io.update_vtag := s1_req_vtag
+  wp_tester.io.correct_way := wp_correct_way
+  wp_tester.io.update_way  := wp_correct_way
+  
+  wp_tester.io.predict_hit := wp_predict_hit &&  wp_s1_fire
+  wp_tester.io.predict_miss := wp_predict_miss &&  wp_s1_fire
+  wp_tester.io.match_miss := wp_match_miss &&  wp_s1_fire
   
   /** <PERF> replace victim way number */
 

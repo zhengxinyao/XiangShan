@@ -2,7 +2,9 @@ package xiangshan.frontend.icache
 
 import chisel3._
 import chisel3.util._
+import xiangshan._
 import xiangshan.cache._
+import chipsalliance.rocketchip.config.Parameters
 
 trait WayPredictorParameters extends L1CacheParameters with HasICacheParameters{
   def ptagBits = tagBits
@@ -11,12 +13,17 @@ trait WayPredictorParameters extends L1CacheParameters with HasICacheParameters{
   def update_algorithm_list = List("MRU","uTag")
 }
 
-trait uTagParameters {
+trait uTagParameters extends L1CacheParameters {
   def utagWays:    Int = nWays
   def utagWayBits: Int = log2Up(utagWays)
 }
 
-class WayPredictorBus extends Bundle with WayPredictorParameters{
+trait HasWayPredictorParameters extends WayPredictorParameters with uTagParameters
+
+abstract class WPModule(implicit p: Parameters) extends XSModule with HasWayPredictorParameters
+abstract class WPBundle(implicit p: Parameters) extends XSBundle with HasWayPredictorParameters
+
+class WayPredictorBus(implicit p: Parameters) extends WPBundle{
   val predict_enable = Input(Bool())
   val idx = Input(UInt(idxBits.W))
   val predict_way = Output(UInt(wayBits.W))
@@ -25,7 +32,7 @@ class WayPredictorBus extends Bundle with WayPredictorParameters{
   val update_idx = Input(UInt(idxBits.W))
   val correct_way = Input(UInt(wayBits.W))
 }
-class uTagBasedWayPredictorBus extends WayPredictorBus with uTagParameters {
+class uTagBasedWayPredictorBus(implicit p: Parameters) extends WayPredictorBus{
   val req_vtag = Input(UInt(vtagBits.W))
   val lookup_miss = Output(Bool())
 
@@ -33,7 +40,7 @@ class uTagBasedWayPredictorBus extends WayPredictorBus with uTagParameters {
   val update_vtag = Input(UInt(vtagBits.W))
 }
 
-class MRUBasedWayPredictor extends Module with WayPredictorParameters {
+class MRUBasedWayPredictor(implicit p: Parameters) extends WPModule {
   val io = IO(new WayPredictorBus)
   val predict_regs = RegInit(VecInit(Seq.fill(nSets)(0.U(wayBits.W))))
 
@@ -45,17 +52,17 @@ class MRUBasedWayPredictor extends Module with WayPredictorParameters {
   }
 }
 
-class uTagBasedWayPredictor(val mode:String = "Hash",val utagBits:Int = 8) extends Module with WayPredictorParameters with uTagParameters {
+class uTagBasedWayPredictor(val mode:String = "Hash",val utagBits:Int = 8)(implicit p: Parameters) extends WPModule {
   val io = IO(new uTagBasedWayPredictorBus)
   val uTag_regs = RegInit(VecInit(Seq.fill(nSets)(VecInit((0 until utagWays).map(x => x.U(utagBits.W)).toList))))
   val uTag_valid_regs = RegInit(VecInit(Seq.fill(nSets)(VecInit(Seq.fill(utagWays)(true.B)))))
   val idx = io.idx
 
   //predict the cache way
-  val req_tag = WireInit(utagBits.W)
+  val req_tag = Wire(UInt(utagBits.W))
   val req_vtag = io.req_vtag
   if(mode == "Hash"){
-    req_tag := req_vtag(15:8) ^ req_vtag(7:0)
+    req_tag := req_vtag(15,8) ^ req_vtag(7,0)
   }else{
     req_tag := req_vtag
   }
@@ -69,10 +76,10 @@ class uTagBasedWayPredictor(val mode:String = "Hash",val utagBits:Int = 8) exten
   val predict_way_reg = RegEnable(predict_way,io.predict_enable)
   
   //update the predictor, algorithm : uTag
-  val update_utag = WireInit(utagBits.W)
+  val update_utag = Wire(UInt(utagBits.W))
   val vtag = io.update_vtag
   if(mode == "Hash"){
-    update_utag := vtag(15:8) ^ vtag(7:0)
+    update_utag := vtag(15,8) ^ vtag(7,0)
   }else{
     update_utag := vtag
   }
