@@ -149,7 +149,7 @@ cleandb:
 	rm -f ./build/*.db
 
 autom:
-	$(MAKE) verilog
+#	$(MAKE) verilog
 	$(MAKE) emu WITH_CHISELDB=1 EMU_TRACE=0 EMU_THREADS=8 -j32
 
 fastmk:
@@ -174,9 +174,9 @@ test_bin:
 test_nosuffix_bin:
 	numactl -m 0 -C 0-7 ./build/emu --dump-db -i $(TESTBIN)
 try_bin:
-#	find -maxdepth 2 -name '*.db' -exec mv {} ../xiangshan-playground/verilator_tests/database.db \;
+	find -maxdepth 2 -name '*.db' -exec mv {} ../db_logs/$(TESTBIN).db \;
 #	cd ../xiangshan-playground/verilator_tests/ && $(MAKE) TESTBIN=$(TESTBIN)
-	$(echo) $(TESTBIN) end
+	@echo $(TESTBIN) end
 
 test_coremark:
 	$(MAKE) test_bin TESTBIN=coremark 
@@ -202,8 +202,18 @@ test_gcc_base:
 	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gc_o2_20m/take_cpt/gcc_cpdecl_82980000000_0.031297/0/_82980000000_.gz
 	$(MAKE) try_bin TESTBIN=gcc_cpdecl_82980000000_0.031297
 
-test_gcc_big:
+test_gcc_big0:
 	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gc_o2_20m/take_cpt/gcc_g23_161620000000_0.183256/0/_161620000000_.gz
 	$(MAKE) try_bin  TESTBIN=gcc_g23_161620000000_0.183256
+test_gcc_big1:
+	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gcb_o2_20m/take_cpt/gcc_cpdecl_83120000000_0.121470/0/_83120000000_.gz
+	$(MAKE) try_bin  TESTBIN=gcc_cpdecl_83120000000_0.121470
+test_gcc_big2:
+	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gcb_o2_20m/take_cpt/gcc_cpdecl_39720000000_0.259381/0/_39720000000_.gz
+	$(MAKE) try_bin  TESTBIN=gcc_cpdecl_39720000000_0.259381
+test_gcc_big3:
+	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gcb_o3_20m/take_cpt/gcc_s04_29160000000_0.246974/0/_29160000000_.gz
+	$(MAKE) try_bin  TESTBIN=gcc_s04_29160000000_0.246974
+
 
 .PHONY: verilog sim-verilog emu clean help init bump bsp $(REF_SO)

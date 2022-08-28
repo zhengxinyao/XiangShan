@@ -30,11 +30,12 @@ class WayPredictorTester(val update_algorithm:String = "uTag",val uTag_mode:Stri
     val match_miss = Input(Bool())
 
     //WPTester => ICache
-    // val total_cnt = Output(UInt(32.W))
-    // val hit_cnt = Output(UInt(32.W))
-    // val match_miss_cnt = Output(UInt(32.W))
-    // val hit_rate_front = OutPUt(UInt(8.W))
-    // val hit_rate_back = Output(UInt(10.W))
+    val total_cnt = Output(UInt(32.W))
+    val hit_cnt = Output(UInt(32.W))
+    val match_miss_cnt = Output(UInt(32.W))
+    val hit_rate_front = Output(UInt(8.W))
+    val hit_rate_back = Output(UInt(10.W))
+    val hit_miss_cnt = Output(UInt(32.W))
   })
   val total_cnt = RegInit(0.U(32.W))
   val hit_cnt = RegInit(0.U(32.W))
@@ -47,34 +48,12 @@ class WayPredictorTester(val update_algorithm:String = "uTag",val uTag_mode:Stri
   val hit_rate_back  = hit_rate_e5 % 1000.U
   val hit_miss_cnt = total_cnt - hit_cnt
 
-  // io.total_cnt := total_cnt
-  // io.hit_cnt := hit_cnt
-  // io.match_miss_cnt := match_miss_cnt
-  // io.hit_rate_front := hit_rate_front
-  // io.hit_rate_back := hit_rate_back
-
-  val print_cnt = RegInit(0.U(32.W))
-  
-  when(!this.reset.asBool() && io.pd_en && print_cnt === 100.U){
-    printf("\"total_cnt\" : ")
-    printf(p"$total_cnt , ")
-    printf("\"hit_cnt\" : ")
-    printf(p"$hit_cnt , ")
-    printf("\"match_miss_cnt\" : ")
-    printf(p"$match_miss_cnt , ")
-    printf("\"hit_rate\" : ")
-    printf(p"$hit_rate_front.")
-    printf(p"$hit_rate_back , ")
-    printf("\"predict_miss_cnt\" : ")
-    printf(p"$predict_miss_cnt , ")
-    printf("\"hit_miss_cnt\" : ")
-    printf(p"$hit_miss_cnt \n")
-
-
-    print_cnt := 0.U
-  }.elsewhen(io.pd_en){
-    print_cnt := print_cnt + 1.U
-  }
+  io.total_cnt := total_cnt
+  io.hit_cnt := hit_cnt
+  io.match_miss_cnt := match_miss_cnt
+  io.hit_rate_front := hit_rate_front
+  io.hit_rate_back := hit_rate_back
+  io.hit_miss_cnt := hit_miss_cnt
 
   if(update_algorithm == "MRU"){
     val wp = Module(new MRUBasedWayPredictor)
