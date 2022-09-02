@@ -214,6 +214,10 @@ test_gcc_big2:
 test_gcc_big3:
 	-$(MAKE) test_nosuffix_bin TESTBIN=/nfs-nvme/home/share/checkpoints_profiles/spec06_rv64gcb_o3_20m/take_cpt/gcc_s04_29160000000_0.246974/0/_29160000000_.gz
 	$(MAKE) try_bin  TESTBIN=gcc_s04_29160000000_0.246974
-
+test_all:
+	$(MAKE) test_coremark
+	$(MAKE) test_gcc_big1
+	$(MAKE) test_gcc_big2
+	$(MAKE) test_gcc_big3
 
 .PHONY: verilog sim-verilog emu clean help init bump bsp $(REF_SO)
