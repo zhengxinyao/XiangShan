@@ -341,7 +341,6 @@ class ReservationStation(params: RSParams)(implicit p: Parameters) extends XSMod
   // Option 1: normal selection (do not care about the age)
   select.io.request := statusArray.io.canIssue
 
-  select.io.balance
   // Option 2: select the oldest
   val enqVec = VecInit(s0_doEnqueue.zip(s0_allocatePtrOH).map{ case (d, b) => RegNext(Mux(d, b, 0.U)) })
   val s1_oldestSel = AgeDetector(params.numEntries, enqVec, statusArray.io.flushed, statusArray.io.canIssue)
@@ -373,7 +372,12 @@ class ReservationStation(params: RSParams)(implicit p: Parameters) extends XSMod
     */
   val s1_slowPorts = RegNext(io.slowPorts)
   val s1_fastUops = RegNext(io.fastUopsIn)
-  val s1_dispatchUops_dup = Reg(Vec(4, Vec(params.numEnq, Valid(new MicroOp))))
+  val s1_dispatchUops_dup = if (params.isLoad) {
+    RegInit(VecInit.fill(4 + params.numSrc)(0.U.asTypeOf(Vec(params.numEnq, Valid(new MicroOp)))))
+  }
+  else {
+    Reg(Vec(4 + params.numSrc, Vec(params.numEnq, Valid(new MicroOp))))
+  }
   val s1_delayedSrc = Wire(Vec(params.numEnq, Vec(params.numSrc, Bool())))
   val s1_allocatePtrOH_dup = RegNext(VecInit.fill(3)(VecInit(enqReverse(s0_allocatePtrOH))))
   val s1_allocatePtr = RegNext(VecInit(enqReverse(s0_allocatePtr)))
@@ -619,8 +623,10 @@ class ReservationStation(params: RSParams)(implicit p: Parameters) extends XSMod
     */
   // dispatch data: the next cycle after enqueue
   for (i <- 0 until params.numEnq) {
-    dataArray.io.write(i).enable := s1_dispatchUops_dup(2)(i).valid
-    dataArray.io.write(i).mask := s1_dispatchUops_dup(2)(i).bits.srcIsReady.take(params.numSrc)
+    for (j <- 0 until params.numSrc) {
+      dataArray.io.write(i).enable(j) := s1_dispatchUops_dup(3 + j)(i).valid
+    }
+    dataArray.io.write(i).mask := s1_dispatchUops_dup(3)(i).bits.srcIsReady.take(params.numSrc)
     dataArray.io.write(i).addr := s1_allocatePtrOH_dup(2)(i)
     dataArray.io.write(i).data := immBypassedData(i)
     if (params.delayedSrc) {
@@ -834,7 +840,7 @@ class ReservationStation(params: RSParams)(implicit p: Parameters) extends XSMod
     val midIssuePtrT2 = midFinished2T1.zip(midIssuePtrT1).map(x => RegEnable(x._2, x._1))
     val midFinished2T2 = midFinished2T1.map(v => RegNext(v))
     for (i <- 0 until params.numDeq) {
-      dataArray.io.partialWrite(i).enable := midFinished2T2(i)
+      dataArray.io.partialWrite(i).enable.foreach(_ := midFinished2T2(i))
       dataArray.io.partialWrite(i).mask := DontCare
       dataArray.io.partialWrite(i).addr := midIssuePtrOHT2(i)
       val writeData = io.fmaMid.get(i).out.bits.asUInt
@@ -866,7 +872,7 @@ class ReservationStation(params: RSParams)(implicit p: Parameters) extends XSMod
           // when this entry has been selected and arrived at the issue stage.
           // This entry may be allocated for new instructions from dispatch.
           when (io.deq(i).valid) {
-            dataArray.io.partialWrite(j).enable := false.B
+            dataArray.io.partialWrite(j).enable.foreach(_ := false.B)
           }
         }
       }
@@ -903,7 +909,7 @@ class ReservationStation(params: RSParams)(implicit p: Parameters) extends XSMod
   if (params.isJump) {
     val pcMem = Reg(Vec(params.numEntries, UInt(VAddrBits.W)))
     for (i <- 0 until params.numEntries) {
-      val writeEn = VecInit(dataArray.io.write.map(w => w.enable && w.addr(i))).asUInt.orR
+      val writeEn = VecInit(dataArray.io.write.map(w => w.enable.head && w.addr(i))).asUInt.orR
       when (writeEn) {
         pcMem(i) := io.jump.get.jumpPc
       }
