@@ -299,33 +299,6 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   val wp_match_miss = (wp_correct_way === cacheParams.nWays.U)
   val wp_predict_hit = (wp_correct_way === s1_predict_way)
   val wp_predict_miss = (wp_correct_way =/= s1_predict_way)
-  
-  class WpDebugBundel extends ICacheBundle{
-    val match_miss_cnt = Input(UInt(32.W))
-    val hit_miss_cnt = Input(UInt(32.W))
-    val hit_cnt = Input(UInt(32.W))
-    val total_cnt = Input(UInt(32.W))
-    val hit_rate_back = Input(UInt(10.W))
-    val hit_rate_front = Input(UInt(8.W)) 
-  }
-  
-  val wp_table_data = Wire(new WpDebugBundel)
-  val wp_table_log = ChiselDB.createTable("wp_table_log", new WpDebugBundel)
-  wp_table_data.total_cnt := wp_tester.io.total_cnt
-  wp_table_data.hit_cnt := wp_tester.io.hit_cnt
-  wp_table_data.match_miss_cnt := wp_tester.io.match_miss_cnt
-  wp_table_data.hit_rate_front := wp_tester.io.hit_rate_front
-  wp_table_data.hit_rate_back := wp_tester.io.hit_rate_back
-  wp_table_data.hit_miss_cnt  := wp_tester.io.hit_miss_cnt
-
-  val fire_cnt = RegInit(0.U(10.W))
-  when(fire_cnt === 1000.U){
-    fire_cnt := 0.U
-  }.elsewhen(s1_fire){
-    fire_cnt := fire_cnt + 1.U
-  }
-  val trigger_cond = s1_fire && (fire_cnt === 1000.U)
-  wp_table_log.log(wp_table_data,trigger_cond,"wp_table",this.clock,this.reset)
 
   wp_tester.io.update := wp_s1_fire && !wp_predict_hit && !wp_match_miss
   wp_tester.io.update_idx  := s1_req_vsetIdx(0)
@@ -336,6 +309,11 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
   wp_tester.io.predict_hit := wp_predict_hit && wp_s1_fire
   wp_tester.io.predict_miss := wp_predict_miss && wp_s1_fire
   wp_tester.io.match_miss := wp_match_miss && wp_s1_fire
+
+  /** <PERF> WPTester hit times  **/
+  XSPerfAccumulate("wp_predict_times",wp_s0_fire)
+  XSPerfAccumulate("wp_hit_times",wp_predict_hit && wp_s1_fire)
+  XSPerfAccumulate("wp_match_miss",wp_match_miss && wp_s1_fire)
   
   /** <PERF> replace victim way number */
 
