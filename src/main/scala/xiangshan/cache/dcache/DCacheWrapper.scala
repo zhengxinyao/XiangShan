@@ -307,7 +307,7 @@ class DCacheWordReqWithVaddr(implicit p: Parameters) extends DCacheWordReq {
 
 class BaseDCacheWordResp(implicit p: Parameters) extends DCacheBundle
 {
-  val data         = UInt(DataBits.W)
+  val data   = UInt(DataBits.W)
   val id     = UInt(reqIdWidth.W)
 
   // cache req missed, send it to miss queue
@@ -326,6 +326,12 @@ class DCacheWordResp(implicit p: Parameters) extends BaseDCacheWordResp
 {
   // 1 cycle after data resp
   val error_delayed = Bool() // all kinds of errors, include tag error
+}
+
+class BankedDCacheWordResp(implicit p: Parameters) extends DCacheWordResp
+{
+  val bank_data = Vec(DCacheBanks, Bits(DCacheSRAMRowBits.W))
+  val bank_oh = UInt(DCacheBanks.W)
 }
 
 class DCacheWordRespWithError(implicit p: Parameters) extends BaseDCacheWordResp
@@ -372,7 +378,7 @@ class Release(implicit p: Parameters) extends DCacheBundle
 class DCacheWordIO(implicit p: Parameters) extends DCacheBundle
 {
   val req  = DecoupledIO(new DCacheWordReq)
-  val resp = Flipped(DecoupledIO(new DCacheWordResp))
+  val resp = Flipped(DecoupledIO(new BankedDCacheWordResp))
 }
 
 class UncacheWordIO(implicit p: Parameters) extends DCacheBundle
@@ -434,6 +440,7 @@ class DCacheToLsuIO(implicit p: Parameters) extends DCacheBundle {
 
 class DCacheIO(implicit p: Parameters) extends DCacheBundle {
   val hartId = Input(UInt(8.W))
+  val l2_pf_store_only = Input(Bool())
   val lsu = new DCacheToLsuIO
   val csr = new L1CacheToCsrIO
   val error = new L1CacheErrorInfo
@@ -496,6 +503,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   val wb         = Module(new WritebackQueue(edge))
 
   missQueue.io.hartId := io.hartId
+  missQueue.io.l2_pf_store_only := RegNext(io.l2_pf_store_only, false.B)
 
   val errors = ldu.map(_.io.error) ++ // load error
     Seq(mainPipe.io.error) // store / misc error
@@ -730,6 +738,8 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   bus.c     <> wb.io.mem_release
   wb.io.release_wakeup := refillPipe.io.release_wakeup
   wb.io.release_update := mainPipe.io.release_update
+  wb.io.probe_ttob_check_req <> mainPipe.io.probe_ttob_check_req
+  wb.io.probe_ttob_check_resp <> mainPipe.io.probe_ttob_check_resp
 
   io.lsu.release.valid := RegNext(wb.io.req.fire())
   io.lsu.release.bits.paddr := RegNext(wb.io.req.bits.addr)

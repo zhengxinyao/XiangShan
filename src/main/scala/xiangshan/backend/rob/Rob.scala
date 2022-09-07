@@ -316,7 +316,7 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
   val flagBkup = Mem(RobSize, Bool())
   // some instructions are not allowed to trigger interrupts
   // They have side effects on the states of the processor before they write back
-  val interrupt_safe = Mem(RobSize, Bool())
+  val interrupt_safe = RegInit(VecInit(Seq.fill(RobSize)(false.B)))
 
   // data for debug
   // Warn: debug_* prefix should not exist in generated verilog.
@@ -383,7 +383,15 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
   // It does not affect how interrupts are serviced. Note that WFI is noSpecExec and it does not trigger interrupts.
   val hasWFI = RegInit(false.B)
   io.cpu_halt := hasWFI
-  when (RegNext(RegNext(io.csr.wfiEvent))) {
+  // WFI Timeout: 2^20 = 1M cycles
+  val wfi_cycles = RegInit(0.U(20.W))
+  when (hasWFI) {
+    wfi_cycles := wfi_cycles + 1.U
+  }.elsewhen (!hasWFI && RegNext(hasWFI)) {
+    wfi_cycles := 0.U
+  }
+  val wfi_timeout = wfi_cycles.andR
+  when (RegNext(RegNext(io.csr.wfiEvent)) || io.flushOut.valid || wfi_timeout) {
     hasWFI := false.B
   }
 

@@ -486,6 +486,14 @@ class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
   // Prefetcher
   val l1I_pf_enable = Output(Bool())
   val l2_pf_enable = Output(Bool())
+  val l1D_pf_enable = Output(Bool())
+  val l1D_pf_train_on_hit = Output(Bool())
+  val l1D_pf_enable_agt = Output(Bool())
+  val l1D_pf_enable_pht = Output(Bool())
+  val l1D_pf_active_threshold = Output(UInt(4.W))
+  val l1D_pf_active_stride = Output(UInt(6.W))
+  val l1D_pf_enable_stride = Output(Bool())
+  val l2_pf_store_only = Output(Bool())
   // ICache
   val icache_parity_enable = Output(Bool())
   // Labeled XiangShan
@@ -504,7 +512,8 @@ class CustomCSRCtrlIO(implicit p: Parameters) extends XSBundle {
   val soft_prefetch_enable = Output(Bool())
   val cache_error_enable = Output(Bool())
   // Rename
-  val move_elim_enable = Output(Bool())
+  val fusion_enable = Output(Bool())
+  val wfi_enable = Output(Bool())
   // Decode
   val svinval_enable = Output(Bool())
 
