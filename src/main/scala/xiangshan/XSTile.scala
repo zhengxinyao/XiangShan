@@ -10,10 +10,9 @@ import freechips.rocketchip.tile.{BusErrorUnit, BusErrorUnitParams, BusErrors}
 import freechips.rocketchip.tilelink.{BankBinder, TLBuffer, TLIdentityNode, TLNode, TLTempNode, TLXbar}
 import huancun.debug.TLLogger
 import huancun.{HCCacheParamsKey, HuanCun}
-import huancun.utils.ResetGen
 import system.HasSoCParameter
 import top.BusPerfMonitor
-import utils.{TLClientsMerger, TLEdgeBuffer}
+import utils.{ResetGen, TLClientsMerger, TLEdgeBuffer}
 
 class L1BusErrorUnitInfo(implicit val p: Parameters) extends Bundle with HasSoCParameter {
   val ecc_error = Valid(UInt(soc.PAddrBits.W)) 

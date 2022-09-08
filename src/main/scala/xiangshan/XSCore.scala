@@ -30,7 +30,6 @@ import xiangshan.backend._
 import xiangshan.backend.exu.{ExuConfig, Wb2Ctrl, WbArbiterWrapper}
 import xiangshan.cache.mmu._
 import xiangshan.frontend._
-import huancun.utils.{ResetGen, ResetGenNode, ModuleNode}
 
 import scala.collection.mutable.ListBuffer
 
