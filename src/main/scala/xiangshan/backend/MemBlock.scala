@@ -66,6 +66,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     // in
     val issue = Vec(exuParameters.LsExuCnt + exuParameters.StuCnt, Flipped(DecoupledIO(new ExuInput)))
     val loadFastMatch = Vec(exuParameters.LduCnt, Input(UInt(exuParameters.LduCnt.W)))
+    val loadFastImm = Vec(exuParameters.LduCnt, Input(UInt(12.W)))
     val rsfeedback = Vec(exuParameters.LsExuCnt, new MemRSFeedbackIO)
     val stIssuePtr = Output(new SqPtr())
     // out
@@ -256,7 +257,6 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     loadUnits(i).io.feedbackFast <> io.rsfeedback(i).feedbackFast
     loadUnits(i).io.rsIdx := io.rsfeedback(i).rsIdx
     loadUnits(i).io.isFirstIssue := io.rsfeedback(i).isFirstIssue // NOTE: just for dtlb's perf cnt
-    loadUnits(i).io.loadFastMatch <> io.loadFastMatch(i)
     // get input form dispatch
     loadUnits(i).io.ldin <> io.issue(i)
     // dcache access
@@ -274,10 +274,16 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     // pmp
     loadUnits(i).io.pmp <> pmp_check(i).resp
 
-    // load to load fast forward
-    for (j <- 0 until exuParameters.LduCnt) {
-      loadUnits(i).io.fastpathIn(j) <> loadUnits(j).io.fastpathOut
-    }
+    // load to load fast forward: load(i) prefers data(i)
+    val fastPriority = (i until exuParameters.LduCnt) ++ (0 until i)
+    val fastValidVec = fastPriority.map(j => loadUnits(j).io.fastpathOut.valid)
+    val fastDataVec = fastPriority.map(j => loadUnits(j).io.fastpathOut.data)
+    val fastMatchVec = fastPriority.map(j => io.loadFastMatch(i)(j))
+    loadUnits(i).io.fastpathIn.valid := VecInit(fastValidVec).asUInt.orR
+    loadUnits(i).io.fastpathIn.data := ParallelPriorityMux(fastValidVec, fastDataVec)
+    val fastMatch = ParallelPriorityMux(fastValidVec, fastMatchVec)
+    loadUnits(i).io.loadFastMatch := fastMatch
+    loadUnits(i).io.loadFastImm := io.loadFastImm(i)
 
     // Lsq to load unit's rs
 
@@ -533,7 +539,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   }
 
   lsq.io.exceptionAddr.isStore := io.lsqio.exceptionAddr.isStore
-  // Exception address is used serveral cycles after flush.
+  // Exception address is used several cycles after flush.
   // We delay it by 10 cycles to ensure its flush safety.
   val atomicsException = RegInit(false.B)
   when (DelayN(redirect.valid, 10) && atomicsException) {
@@ -542,7 +548,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     atomicsException := true.B
   }
   val atomicsExceptionAddress = RegEnable(atomicsUnit.io.exceptionAddr.bits, atomicsUnit.io.exceptionAddr.valid)
-  io.lsqio.exceptionAddr.vaddr := Mux(atomicsException, atomicsExceptionAddress, lsq.io.exceptionAddr.vaddr)
+  io.lsqio.exceptionAddr.vaddr := RegNext(Mux(atomicsException, atomicsExceptionAddress, lsq.io.exceptionAddr.vaddr))
   XSError(atomicsException && atomicsUnit.io.in.valid, "new instruction before exception triggers\n")
 
   io.memInfo.sqFull := RegNext(lsq.io.sqFull)

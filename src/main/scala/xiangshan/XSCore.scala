@@ -159,7 +159,7 @@ abstract class XSCoreBase()(implicit p: config.Parameters) extends LazyModule
   val schedulePorts = Seq(
     // exuCfg, numDeq, intFastWakeupTarget, fpFastWakeupTarget
     Seq(
-      (AluExeUnitCfg, exuParameters.AluCnt, Seq(AluExeUnitCfg, MulDivExeUnitCfg, JumpCSRExeUnitCfg, LdExeUnitCfg, StaExeUnitCfg), Seq()),
+      (AluExeUnitCfg, exuParameters.AluCnt, Seq(AluExeUnitCfg, LdExeUnitCfg, StaExeUnitCfg), Seq()),
       (MulDivExeUnitCfg, exuParameters.MduCnt, Seq(AluExeUnitCfg, MulDivExeUnitCfg), Seq()),
       (JumpCSRExeUnitCfg, 1, Seq(), Seq()),
       (LdExeUnitCfg, exuParameters.LduCnt, Seq(AluExeUnitCfg, LdExeUnitCfg), Seq()),
@@ -330,6 +330,7 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   // By default, instructions do not have exceptions when they enter the function units.
   memBlock.io.issue.map(_.bits.uop.clearExceptions())
   exuBlocks(0).io.scheExtra.loadFastMatch.get <> memBlock.io.loadFastMatch
+  exuBlocks(0).io.scheExtra.loadFastImm.get <> memBlock.io.loadFastImm
 
   val stdIssue = exuBlocks(0).io.issue.get.takeRight(exuParameters.StuCnt)
   exuBlocks.map(_.io).foreach { exu =>
