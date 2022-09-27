@@ -99,8 +99,8 @@ trait HasXSDts {
     Resource(device, "reg").bind(ResourceAddress(coreParams.HartId))
     val int_resources = (
       clint_int_sink.edges.in.flatMap(_.source.sources) ++
-      plic_int_sink.edges.in.flatMap(_.source.sources) ++
-      debug_int_sink.edges.in.flatMap(_.source.sources)
+      plic_int_sink.edges.in.flatMap(_.source.sources)// ++
+      // debug_int_sink.edges.in.flatMap(_.source.sources)
       ).flatMap {
       s =>
         println(s.resources.map(_.key), s.range)
@@ -111,7 +111,7 @@ trait HasXSDts {
       7,    // mtip  [clint]
       11,   // meip  [plic]
       9,    // seip  [plic]
-      65535 // debug [debug]
+      // 65535 // debug [debug]
     )
     assert(int_resources.size == int_ids.size)
     for((resources, id) <- int_resources.zip(int_ids)){

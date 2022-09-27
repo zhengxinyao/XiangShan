@@ -75,7 +75,7 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
   for (i <- 0 until NumCores) {
     core_with_l2(i).clint_int_sink := misc.clint.intnode
     core_with_l2(i).plic_int_sink :*= misc.plic.intnode
-    core_with_l2(i).debug_int_sink := misc.debugModule.debug.dmOuter.dmOuter.intnode
+    // core_with_l2(i).debug_int_sink := misc.debugModule.debug.dmOuter.dmOuter.intnode
     misc.plic.intnode := IntBuffer() := core_with_l2(i).beu_int_source
     misc.peripheral_ports(i) := core_with_l2(i).uncache
     misc.core_to_l3_ports(i) :=* core_with_l2(i).memory_port
@@ -141,7 +141,7 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
     childReset := io.reset
 
     // output
-    io.debug_reset := misc.module.debug_module_io.debugIO.ndreset
+    // io.debug_reset := misc.module.debug_module_io.debugIO.ndreset
 
     // input
     dontTouch(dma)
@@ -168,23 +168,23 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
       }
     }
 
-    misc.module.debug_module_io.resetCtrl.hartIsInReset := core_with_l2.map(_.module.reset.asBool)
-    misc.module.debug_module_io.clock := io.clock
-    misc.module.debug_module_io.reset := io.reset
+    // misc.module.debug_module_io.resetCtrl.hartIsInReset := core_with_l2.map(_.module.reset.asBool)
+    // misc.module.debug_module_io.clock := io.clock
+    // misc.module.debug_module_io.reset := io.reset
 
     // TODO: use synchronizer?
-    misc.module.debug_module_io.debugIO.reset := io.systemjtag.reset
-    misc.module.debug_module_io.debugIO.clock := io.clock.asClock
+    // misc.module.debug_module_io.debugIO.reset := io.systemjtag.reset
+    // misc.module.debug_module_io.debugIO.clock := io.clock.asClock
     // TODO: delay 3 cycles?
-    misc.module.debug_module_io.debugIO.dmactiveAck := misc.module.debug_module_io.debugIO.dmactive
+    // misc.module.debug_module_io.debugIO.dmactiveAck := misc.module.debug_module_io.debugIO.dmactive
     // jtag connector
-    misc.module.debug_module_io.debugIO.systemjtag.foreach { x =>
-      x.jtag        <> io.systemjtag.jtag
-      x.reset       := io.systemjtag.reset
-      x.mfr_id      := io.systemjtag.mfr_id
-      x.part_number := io.systemjtag.part_number
-      x.version     := io.systemjtag.version
-    }
+    // misc.module.debug_module_io.debugIO.systemjtag.foreach { x =>
+    //   x.jtag        <> io.systemjtag.jtag
+    //   x.reset       := io.systemjtag.reset
+    //   x.mfr_id      := io.systemjtag.mfr_id
+    //   x.part_number := io.systemjtag.part_number
+    //   x.version     := io.systemjtag.version
+    // }
 
     withClockAndReset(io.clock.asClock, io.reset) {
       // Modules are reset one by one
@@ -200,6 +200,8 @@ object TopMain extends App with HasRocketChipStageUtils {
   override def main(args: Array[String]): Unit = {
     val (config, firrtlOpts, firrtlComplier) = ArgParser.parse(args)
     val soc = DisableMonitors(p => LazyModule(new XSTop()(p)))(config)
+    // val soc = DisableMonitors(p => LazyModule(new DebugModule(1)(p)))(config)
+
     Generator.execute(firrtlOpts, soc.module, firrtlComplier)
     ElaborationArtefacts.files.foreach{ case (extension, contents) =>
       writeOutputFile("./build", s"XSTop.${extension}", contents())

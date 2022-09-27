@@ -278,11 +278,11 @@ class SoCMisc()(implicit p: Parameters) extends BaseSoC
   )
   pll_node := peripheralXbar
 
-  val debugModule = LazyModule(new DebugModule(NumCores)(p))
-  debugModule.debug.node := peripheralXbar
-  debugModule.debug.dmInner.dmInner.sb2tlOpt.foreach { sb2tl  =>
-    l3_xbar := TLBuffer() := sb2tl.node
-  }
+  // val debugModule = LazyModule(new DebugModule(NumCores)(p))
+  // debugModule.debug.node := peripheralXbar
+  // debugModule.debug.dmInner.dmInner.sb2tlOpt.foreach { sb2tl  =>
+  //   l3_xbar := TLBuffer() := sb2tl.node
+  // }
 
   val pma = LazyModule(new TLPMA)
   pma.node := 
@@ -291,14 +291,14 @@ class SoCMisc()(implicit p: Parameters) extends BaseSoC
 
   lazy val module = new LazyModuleImp(this){
 
-    val debug_module_io = IO(chiselTypeOf(debugModule.module.io))
+    // val debug_module_io = IO(chiselTypeOf(debugModule.module.io))
     val ext_intrs = IO(Input(UInt(NrExtIntr.W)))
     val rtc_clock = IO(Input(Bool()))
     val pll0_lock = IO(Input(Bool()))
     val pll0_ctrl = IO(Output(Vec(6, UInt(32.W))))
     val cacheable_check = IO(new TLPMAIO)
 
-    debugModule.module.io <> debug_module_io
+    // debugModule.module.io <> debug_module_io
 
     // sync external interrupts
     require(plicSource.module.in.length == ext_intrs.getWidth)

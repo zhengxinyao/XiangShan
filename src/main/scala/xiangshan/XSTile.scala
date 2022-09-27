@@ -89,7 +89,7 @@ class XSTile()(implicit p: Parameters) extends LazyModule
   val uncache = misc.mmio_port
   val clint_int_sink = core.clint_int_sink
   val plic_int_sink = core.plic_int_sink
-  val debug_int_sink = core.debug_int_sink
+  // val debug_int_sink = core.debug_int_sink
   val beu_int_source = misc.beu.intNode
   val core_reset_sink = BundleBridgeSink(Some(() => Bool()))
 
