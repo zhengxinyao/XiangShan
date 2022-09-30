@@ -26,6 +26,7 @@ import xiangshan.{DebugOptions, DebugOptionsKey}
 import chipsalliance.rocketchip.config._
 import freechips.rocketchip.devices.debug._
 import difftest._
+import freechips.rocketchip.tile.XLen
 import freechips.rocketchip.util.ElaborationArtefacts
 import huancun.utils.ChiselDB
 import top.TopMain.writeOutputFile
@@ -69,6 +70,7 @@ class SimTop(implicit p: Parameters) extends Module {
     val logCtrl = new LogCtrlIO
     val perfInfo = new PerfInfoIO
     val uart = new UARTIO
+    val pf_ctl = Input(UInt(64.W))
     val memAXI = if(useDRAMSim) soc.memory.cloneType else null
   })
 
@@ -91,6 +93,7 @@ class SimTop(implicit p: Parameters) extends Module {
     ExcitingUtils.addSource(clean, "XSPERF_CLEAN")
     ExcitingUtils.addSource(dump, "XSPERF_DUMP")
   }
+  ExcitingUtils.addSource(io.pf_ctl, "DEBUG_PF_CTL", ExcitingUtils.Debug)
 
   // Check and dispaly all source and sink connections
   ExcitingUtils.fixConnections()

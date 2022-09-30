@@ -518,6 +518,18 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
     1  << 1,    // L2 pf enable [1] init: true
     1  << 0,    // L1I pf enable [0] init: true
   ).reduce(_|_).U(XLEN.W))
+  val debug_pf_ctl = WireInit(0.U(XLEN.W))
+  ExcitingUtils.addSink(debug_pf_ctl, "DEBUG_PF_CTL", ExcitingUtils.Debug)
+  csrio.customCtrl.l1I_pf_enable := debug_pf_ctl(0)
+  csrio.customCtrl.l2_pf_enable := debug_pf_ctl(1)
+  csrio.customCtrl.l1D_pf_enable := debug_pf_ctl(2)
+  csrio.customCtrl.l1D_pf_train_on_hit := debug_pf_ctl(3)
+  csrio.customCtrl.l1D_pf_enable_agt := debug_pf_ctl(4)
+  csrio.customCtrl.l1D_pf_enable_pht := debug_pf_ctl(5)
+  csrio.customCtrl.l1D_pf_active_threshold := debug_pf_ctl(9, 6)
+  csrio.customCtrl.l1D_pf_active_stride := debug_pf_ctl(15, 10)
+  csrio.customCtrl.l2_pf_store_only := debug_pf_ctl(16)
+  /*
   csrio.customCtrl.l1I_pf_enable := spfctl(0)
   csrio.customCtrl.l2_pf_enable := spfctl(1)
   csrio.customCtrl.l1D_pf_enable := spfctl(2)
@@ -527,6 +539,7 @@ class CSR(implicit p: Parameters) extends FunctionUnit with HasCSRConst with PMP
   csrio.customCtrl.l1D_pf_active_threshold := spfctl(9, 6)
   csrio.customCtrl.l1D_pf_active_stride := spfctl(15, 10)
   csrio.customCtrl.l2_pf_store_only := spfctl(16)
+   */
 
   // sfetchctl Bit 0: L1I Cache Parity check enable
   val sfetchctl = RegInit(UInt(XLEN.W), "b0".U)
