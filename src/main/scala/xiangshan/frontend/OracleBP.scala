@@ -85,7 +85,7 @@ class OracleBP(implicit p: Parameters) extends BasePredictor with OracleBPParams
   val pc_hit_jr_pos = PriorityEncoder(pc_hit_jr_slot) + 1.U
 
   val currentBrCnt = Wire(UInt(64.W))
-  when (pc_hit_br && takens(pc_hit_br_pos)) {
+  when (pc_hit_br && takens(pc_hit_br_pos - 1.U)) {
     // use hit info from jr slot
     currentBrCnt := pc_hit_br_pos
   } .elsewhen (pc_hit_jr) {
