@@ -19,11 +19,11 @@ package xiangshan.frontend
 import chipsalliance.rocketchip.config.Parameters
 import chisel3._
 import chisel3.util._
-import utils.{AsyncDataModuleTemplate, CircularQueuePtr, DataModuleTemplate, HasCircularQueuePtrHelper, SRAMTemplate, SyncDataModuleTemplate, XSDebug, XSPerfAccumulate, PerfBundle, PerfEventsBundle, XSError}
+import utils.{AsyncDataModuleTemplate, CircularQueuePtr, DataModuleTemplate, GTimer, HasCircularQueuePtrHelper, ParallelPriorityEncoder, ParallelPriorityMux, PerfBundle, PerfEventsBundle, SRAMTemplate, SyncDataModuleTemplate, XSDebug, XSError, XSPerfAccumulate}
 import xiangshan._
+
 import scala.tools.nsc.doc.model.Val
-import utils.{ParallelPriorityMux, ParallelPriorityEncoder}
-import xiangshan.backend.{CtrlToFtqIO}
+import xiangshan.backend.CtrlToFtqIO
 import firrtl.annotations.MemoryLoadFileType
 
 class FtqPtr(implicit p: Parameters) extends CircularQueuePtr[FtqPtr](
@@ -1136,6 +1136,23 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   for((key, value) <- perfCountsMap) {
     XSPerfAccumulate(key, value)
+  }
+
+  val BPCounter_base = RegInit(0.U.asTypeOf(UInt(64.W)))
+  val BPCounter = RegInit(0.U.asTypeOf(UInt(64.W)))
+  BPCounter := BPCounter + PopCount(mbpInstrs)
+  val BPWrong_base = RegInit(0.U.asTypeOf(UInt(64.W)))
+  val BPWrong = RegInit(0.U.asTypeOf(UInt(64.W)))
+  BPWrong := BPWrong + PopCount(mbpWrongs)
+
+  when (BPCounter_base + 1024.U < BPCounter) {
+    BPCounter_base := BPCounter
+    BPWrong_base := BPWrong
+  }
+
+  when (BPCounter - BPCounter_base > 900.U && BPWrong - BPWrong_base > 150.U) {
+    // too many mispedictions, should be wrong
+    printf(p"Too many mispred at ${GTimer()}\n")
   }
 
   // --------------------------- Debug --------------------------------

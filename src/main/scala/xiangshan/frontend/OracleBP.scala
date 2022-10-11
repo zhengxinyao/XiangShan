@@ -81,8 +81,8 @@ class OracleBP(implicit p: Parameters) extends BasePredictor with OracleBPParams
   val pc_hit_br = pc_hit_br_slot.asUInt().orR()
   val pc_hit_jr = pc_hit_jr_slot.asUInt().orR()
 
-  val pc_hit_br_pos = PriorityEncoder(pc_hit_br_slot)
-  val pc_hit_jr_pos = PriorityEncoder(pc_hit_jr_slot)
+  val pc_hit_br_pos = PriorityEncoder(pc_hit_br_slot) + 1.U
+  val pc_hit_jr_pos = PriorityEncoder(pc_hit_jr_slot) + 1.U
 
   val currentBrCnt = Wire(UInt(64.W))
   when (pc_hit_br && takens(pc_hit_br_pos)) {
@@ -91,6 +91,9 @@ class OracleBP(implicit p: Parameters) extends BasePredictor with OracleBPParams
   } .elsewhen (pc_hit_jr) {
     // use hit info from br slot
     currentBrCnt := pc_hit_jr_pos
+  } .elsewhen (pc_hit_br) {
+    // even if not taken, br should still be stepped over
+    currentBrCnt := pc_hit_br_pos
   } .otherwise {
     // no hit for this slot
     currentBrCnt := 0.U
@@ -147,23 +150,23 @@ class OracleBP(implicit p: Parameters) extends BasePredictor with OracleBPParams
       io.out.resp.s2.preds.br_taken_mask(i) := 0.U
     }
     when (pc_hit_br) {
-      io.out.resp.s2.preds.br_taken_mask(0) := takens(pc_hit_br_pos)
+      io.out.resp.s2.preds.br_taken_mask(0) := takens(pc_hit_br_pos - 1.U)
       if (OracleBranchTarget) {
-        io.out.resp.s2.preds.targets(0) := targets(pc_hit_br_pos)
+        io.out.resp.s2.preds.targets(0) := targets(pc_hit_br_pos - 1.U)
       }
     }
   }
   when (pc_hit_jr) {
     if (OracleBranch)
-      io.out.resp.s2.preds.br_taken_mask(1) := takens(pc_hit_jr_pos) && !types(pc_hit_jr_pos)
+      io.out.resp.s2.preds.br_taken_mask(1) := takens(pc_hit_jr_pos - 1.U) && !types(pc_hit_jr_pos - 1.U)
     if (OracleIndirect && OracleIndirectTarget) {
-      when (types(pc_hit_jr_pos)) {
-        io.out.resp.s2.preds.targets(1) := targets(pc_hit_jr_pos)
+      when (types(pc_hit_jr_pos - 1.U)) {
+        io.out.resp.s2.preds.targets(1) := targets(pc_hit_jr_pos - 1.U)
       }
     }
     if (OracleBranch && OracleBranchTarget) {
-      when (!types(pc_hit_jr_pos)) {
-        io.out.resp.s2.preds.targets(1) := targets(pc_hit_jr_pos)
+      when (!types(pc_hit_jr_pos - 1.U)) {
+        io.out.resp.s2.preds.targets(1) := targets(pc_hit_jr_pos - 1.U)
       }
     }
   }
