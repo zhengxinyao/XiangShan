@@ -35,7 +35,7 @@ import huancun._
 
 class BaseConfig(n: Int) extends Config((site, here, up) => {
   case XLen => 64
-  case DebugOptionsKey => DebugOptions()
+  case DebugOptionsKey => DebugOptions(AlwaysBasicDiff=false)
   case SoCParamsKey => SoCParameters()
   case PMParameKey => PMParameters()
   case XSTileKey => Seq.tabulate(n){ i => XSCoreParameters(HartId = i) }
@@ -60,7 +60,7 @@ class MinimalConfig(n: Int = 1) extends Config(
         FetchWidth = 4,
         IssQueSize = 8,
         NRPhyRegs = 64,
-        LoadQueueSize = 16,
+        LoadQueueSize = 8,
         LoadQueueNWriteBanks = 4,
         StoreQueueSize = 12,
         StoreQueueNWriteBanks = 4,
@@ -70,16 +70,16 @@ class MinimalConfig(n: Int = 1) extends Config(
         StoreBufferSize = 4,
         StoreBufferThreshold = 3,
         dpParams = DispatchParameters(
-          IntDqSize = 12,
-          FpDqSize = 12,
-          LsDqSize = 12,
+          IntDqSize = 6,
+          FpDqSize = 6,
+          LsDqSize = 6,
           IntDqDeqWidth = 4,
           FpDqDeqWidth = 4,
           LsDqDeqWidth = 4
         ),
         exuParameters = ExuParameters(
           JmpCnt = 1,
-          AluCnt = 2,
+          AluCnt = 1,
           MulCnt = 0,
           MduCnt = 1,
           FmacCnt = 1,
@@ -89,8 +89,9 @@ class MinimalConfig(n: Int = 1) extends Config(
           StuCnt = 2
         ),
         prefetcher = None,
+        // 4-way 16KB DCache        
         icacheParameters = ICacheParameters(
-          nSets = 64, // 16KB ICache
+          nSets = 64, 
           tagECC = Some("parity"),
           dataECC = Some("parity"),
           replacer = Some("setplru"),
@@ -100,9 +101,10 @@ class MinimalConfig(n: Int = 1) extends Config(
           nPrefetchEntries = 2,
           hasPrefetch = false
         ),
+        // 4-way 16KB DCache        
         dcacheParametersOpt = Some(DCacheParameters(
-          nSets = 64, // 32KB DCache
-          nWays = 8,
+          nSets = 64, 
+          nWays = 4,
           tagECC = Some("secded"),
           dataECC = Some("secded"),
           replacer = Some("setplru"),
@@ -270,7 +272,7 @@ class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1
           address = 0x39000000,
           numCores = tiles.size
         )),
-        sramClkDivBy2 = true,
+        sramClkDivBy2 = false,
         sramDepthDiv = 4,
         tagECC = None,
         dataECC = None,
