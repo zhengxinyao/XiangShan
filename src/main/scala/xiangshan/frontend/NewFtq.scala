@@ -1081,6 +1081,11 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   // TODO: remove this
   XSError(do_commit && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
 
+  val prev_commit_target = RegInit(0.U.asTypeOf(UInt(VAddrBits.W)))
+  val prev_commit_cfi_idx = RegInit(0.U.asTypeOf(Valid(UInt(log2Ceil(PredictWidth).W))))
+  val prev_commit_pc = RegInit(0.U.asTypeOf(UInt(VAddrBits.W)))
+  val commit_is_loop = commit_target === prev_commit_target && commit_cfi === prev_commit_cfi_idx && commit_pc === prev_commit_pc
+
   io.toBpu.update := DontCare
   io.toBpu.update.valid := commit_valid && do_commit
   val update = io.toBpu.update.bits
@@ -1091,6 +1096,13 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   update.full_target := commit_target
   update.from_stage  := commit_stage
   update.spec_info   := commit_spec_meta
+  update.is_loop     := commit_is_loop
+
+  when (commit_valid && do_commit) {
+    prev_commit_target := commit_target
+    prev_commit_cfi_idx := commit_cfi
+    prev_commit_pc := commit_pc_bundle.startAddr
+  }
 
   val commit_real_hit = commit_hit === h_hit
   val update_ftb_entry = update.ftb_entry

@@ -613,6 +613,8 @@ class BranchPredictionUpdate(implicit p: Parameters) extends XSBundle with HasBP
   val from_stage = UInt(2.W)
   val ghist = UInt(HistoryLength.W)
 
+  val is_loop = Bool()
+
   def is_jal = ftb_entry.tailSlot.valid && ftb_entry.isJal
   def is_jalr = ftb_entry.tailSlot.valid && ftb_entry.isJalr
   def is_call = ftb_entry.tailSlot.valid && ftb_entry.isCall

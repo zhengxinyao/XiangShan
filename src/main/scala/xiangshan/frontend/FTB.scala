@@ -298,11 +298,15 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
       val update_write_data = Flipped(Valid(new FTBEntryWithTag))
       val update_write_way = Input(UInt(log2Ceil(numWays).W))
       val update_write_alloc = Input(Bool())
+      val update_write_is_loop = Input(Bool())
     })
 
     // Extract holdRead logic to fix bug that update read override predict read result
     val ftb = Module(new SRAMTemplate(new FTBEntryWithTag, set = numSets, way = numWays, shouldReset = true, holdRead = false, singlePort = true))
     val ftb_r_entries = ftb.io.r.resp.data.map(_.entry)
+
+    val u_is_loop = update.is_loop
+    val is_loop = RegInit(Vec(Seq.fill(FtbSize)(0.B)))
 
     val pred_rdata   = HoldUnless(ftb.io.r.resp.data, RegNext(io.req_pc.valid && !io.update_access))
     ftb.io.r.req.valid := io.req_pc.valid || io.u_req_pc.valid // io.s0_fire
@@ -396,6 +400,11 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
     }
 
     ftb.io.w.apply(u_valid, u_data, u_idx, u_mask)
+
+    when (u_valid) {
+      is_loop(Cat(u_idx, u_way)) := io.update_write_is_loop
+    }
+    XSPerfAccumulate(f"ftb_loop_identified$i", u_valid && io.update_write_is_loop)
 
     // for replacer
     write_set := u_idx
@@ -495,6 +504,9 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
   val ftb_write = Wire(new FTBEntryWithTag)
   ftb_write.entry := Mux(update_now, update.ftb_entry, delay2_entry)
   ftb_write.tag   := ftbAddr.getTag(Mux(update_now, update.pc, delay2_pc))(tagSize-1, 0)
+
+  val is_loop_write = Wire(Bool())
+  is_loop_write := Mux(update_now, update.is_loop, DelayN(update.is_loop, 2))
 
   val write_valid = update_now || DelayN(u_valid && !u_meta.hit, 2)
 
