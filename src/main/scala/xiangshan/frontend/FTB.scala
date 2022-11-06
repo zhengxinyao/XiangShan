@@ -299,14 +299,14 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
       val update_write_way = Input(UInt(log2Ceil(numWays).W))
       val update_write_alloc = Input(Bool())
       val update_write_is_loop = Input(Bool())
+      val update_req_valid = Input(Bool())
     })
 
     // Extract holdRead logic to fix bug that update read override predict read result
     val ftb = Module(new SRAMTemplate(new FTBEntryWithTag, set = numSets, way = numWays, shouldReset = true, holdRead = false, singlePort = true))
     val ftb_r_entries = ftb.io.r.resp.data.map(_.entry)
 
-    val u_is_loop = update.is_loop
-    val is_loop = RegInit(Vec(Seq.fill(FtbSize)(0.B)))
+    val is_loop = RegInit(VecInit(Seq.fill(FtbSize)(0.B)))
 
     val pred_rdata   = HoldUnless(ftb.io.r.resp.data, RegNext(io.req_pc.valid && !io.update_access))
     ftb.io.r.req.valid := io.req_pc.valid || io.u_req_pc.valid // io.s0_fire
@@ -401,10 +401,14 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
 
     ftb.io.w.apply(u_valid, u_data, u_idx, u_mask)
 
-    when (u_valid) {
+    when (io.update_req_valid && !io.update_write_alloc && io.update_write_is_loop) {
+      // loop update is not essentially real update
+      is_loop(Cat(u_idx, u_way)) := true.B
+    } .elsewhen (u_valid && io.update_write_alloc) {
+      // write alloc must be real update
       is_loop(Cat(u_idx, u_way)) := io.update_write_is_loop
     }
-    XSPerfAccumulate(f"ftb_loop_identified$i", u_valid && io.update_write_is_loop)
+    XSPerfAccumulate(f"ftb_loop_identified", io.update_req_valid && io.update_write_is_loop)
 
     // for replacer
     write_set := u_idx
@@ -517,6 +521,8 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
   ftbBank.io.update_write_alloc := Mux(update_now, false.B,         RegNext(!ftbBank.io.update_hits.valid)) // use it one cycle later
   ftbBank.io.update_access := u_valid && !u_meta.hit
   ftbBank.io.s1_fire := io.s1_fire(dupForFtb)
+  ftbBank.io.update_write_is_loop := is_loop_write
+  ftbBank.io.update_req_valid := u.valid && !(update_uftb_hit_ftb_miss)
 
   XSDebug("req_v=%b, req_pc=%x, ready=%b (resp at next cycle)\n", io.s0_fire(dupForFtb), s0_pc_dup(dupForFtb), ftbBank.io.req_pc.ready)
   XSDebug("s2_hit=%b, hit_way=%b\n", s2_ftb_hit_dup(dupForFtb), writeWay.asUInt)

@@ -1084,7 +1084,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   val prev_commit_target = RegInit(0.U.asTypeOf(UInt(VAddrBits.W)))
   val prev_commit_cfi_idx = RegInit(0.U.asTypeOf(Valid(UInt(log2Ceil(PredictWidth).W))))
   val prev_commit_pc = RegInit(0.U.asTypeOf(UInt(VAddrBits.W)))
-  val commit_is_loop = commit_target === prev_commit_target && commit_cfi === prev_commit_cfi_idx && commit_pc === prev_commit_pc
+  val commit_is_loop = commit_target === prev_commit_target && commit_cfi.bits === prev_commit_cfi_idx.bits && commit_cfi.valid && prev_commit_cfi_idx.valid && commit_pc_bundle.startAddr === prev_commit_pc
 
   io.toBpu.update := DontCare
   io.toBpu.update.valid := commit_valid && do_commit
