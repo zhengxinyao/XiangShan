@@ -41,6 +41,7 @@ class FauFTBWay(implicit p: Parameters) extends XSModule with FauFTBParams {
   val io = IO(new Bundle{
     val req_tag = Input(UInt(tagSize.W))
     val resp = Output(new FauFTBEntry)
+    val resp_is_loop = Output(Bool())
     val resp_hit = Output(Bool())
     val update_req_tag = Input(UInt(tagSize.W))
     val update_hit = Output(Bool())
@@ -57,6 +58,7 @@ class FauFTBWay(implicit p: Parameters) extends XSModule with FauFTBParams {
   val is_loop = RegInit(false.B)
 
   io.resp := data
+  io.resp_is_loop := is_loop
   io.resp_hit := tag === io.req_tag && valid
   // write bypass to avoid multiple hit
   io.update_hit := ((tag === io.update_req_tag) && valid) ||
@@ -90,6 +92,7 @@ class FauFTB(implicit p: Parameters) extends BasePredictor with FauFTBParams {
       val req_tag = Input(UInt(tagSize.W))
       val resp_hit_oh = Output(Vec(numWays, Bool()))
       val resp_entries = Output(Vec(numWays, new FTBEntry))
+      val resp_is_loops = Output(Vec(numWays, Bool()))
       val resp_ctrs = Output(Vec(numWays, Vec(numBr, UInt(2.W))))
       val update_req_tag = Input(UInt(tagSize.W))
       val update_hit_oh = Output(Vec(numWays, Bool()))
@@ -113,6 +116,7 @@ class FauFTB(implicit p: Parameters) extends BasePredictor with FauFTBParams {
     // pred resp
     io.resp_hit_oh  := VecInit(ways.map(_.io.resp_hit))
     io.resp_entries := VecInit(ways.map(_.io.resp))
+    io.resp_is_loops := VecInit(ways.map(_.io.resp_is_loop))
     io.resp_ctrs    := VecInit(ctrs.map(VecInit(_)))
 
     // update req
@@ -157,12 +161,13 @@ class FauFTB(implicit p: Parameters) extends BasePredictor with FauFTBParams {
   val s1_possible_full_preds_dup = Wire(Vec(numDup_local, Vec(numWays, new FullBranchPrediction)))
   
   val s1_all_entries_dup = VecInit(banks.map(_.io.resp_entries))
+  val s1_all_is_loops_dup = VecInit(banks.map(_.io.resp_is_loops))
   for (b <- 0 until numDup_local) {
     for (w <- 0 until numWays) {
       val fp = s1_possible_full_preds_dup(b)(w)
       val entry = s1_all_entries_dup(b)(w)
       val s1_pc = if (b == 0) s1_pc_dup(dupForUbtb) else s1_pc_dup(special_idx_for_dup)
-      fp.fromFtbEntry(entry, s1_pc)
+      fp.fromFtbEntry(entry, s1_pc, s1_all_is_loops_dup(b)(w))
       fp.hit := DontCare
       for (i <- 0 until numBr) {
         val ctr = banks(b).io.resp_ctrs(w)(i)

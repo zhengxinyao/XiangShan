@@ -288,6 +288,7 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
       // val read_hits = Valid(Vec(numWays, Bool()))
       val req_pc = Flipped(DecoupledIO(UInt(VAddrBits.W)))
       val read_resp = Output(new FTBEntry)
+      val read_is_loop = Output(Bool())
       val read_hits = Valid(UInt(log2Ceil(numWays).W))
 
       val u_req_pc = Flipped(DecoupledIO(UInt(VAddrBits.W)))
@@ -379,6 +380,8 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
     }
 
     io.read_resp := Mux1H(total_hits, read_entries) // Mux1H
+    // may have timing issues here
+    io.read_is_loop := is_loop(Cat(RegNext(req_idx), hit_way))
     io.read_hits.valid := hit
     io.read_hits.bits := hit_way
 
@@ -426,7 +429,9 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
 
   val btb_enable_dup = RegNext(dup(io.ctrl.btb_enable))
   val s2_ftb_entry_dup = io.s1_fire.map(f => RegEnable(ftbBank.io.read_resp, f))
+  val s2_is_loop_dup = io.s1_fire.map(f => RegEnable(ftbBank.io.read_is_loop, f))
   val s3_ftb_entry_dup = io.s2_fire.zip(s2_ftb_entry_dup).map {case (f, e) => RegEnable(e, f)}
+  val s3_is_loop_dup = io.s2_fire.zip(s2_is_loop_dup).map{case (f, e) => RegEnable(e, f)}
   
   val s1_ftb_hit = ftbBank.io.read_hits.valid && io.ctrl.btb_enable
   val s1_uftb_hit_dup = io.in.bits.resp_in(0).s1.full_pred.map(_.hit)
@@ -448,18 +453,18 @@ class FTB(implicit p: Parameters) extends BasePredictor with FTBParams with BPUU
 
   io.out.s2.full_pred.zip(s2_real_hit_dup).map {case (fp, h) => fp.hit := h}
   val s2_uftb_full_pred_dup = io.s1_fire.zip(io.in.bits.resp_in(0).s1.full_pred).map {case (f, fp) => RegEnable(fp, f)}
-  for (full_pred & s2_ftb_entry & s2_pc & s1_pc & s1_fire & s2_uftb_full_pred & s2_hit & s2_uftb_hit <-
+  for (full_pred & s2_ftb_entry & s2_pc & s1_pc & s1_fire & s2_uftb_full_pred & s2_hit & s2_uftb_hit & s2_is_loop <-
     io.out.s2.full_pred zip s2_ftb_entry_dup zip s2_pc_dup zip s1_pc_dup zip io.s1_fire zip s2_uftb_full_pred_dup zip
-    s2_ftb_hit_dup zip s2_uftb_hit_dup) {
+    s2_ftb_hit_dup zip s2_uftb_hit_dup zip s2_is_loop_dup) {
       if (EnableFauFTB) {
         // use uftb pred when ftb not hit but uftb hit
         when (!s2_hit && s2_uftb_hit) {
           full_pred := s2_uftb_full_pred
         }.otherwise {
-          full_pred.fromFtbEntry(s2_ftb_entry, s2_pc, Some((s1_pc, s1_fire)))
+          full_pred.fromFtbEntry(s2_ftb_entry, s2_pc, s2_is_loop, Some((s1_pc, s1_fire)))
         }
       } else {
-        full_pred.fromFtbEntry(s2_ftb_entry, s2_pc, Some((s1_pc, s1_fire)))
+        full_pred.fromFtbEntry(s2_ftb_entry, s2_pc, s2_is_loop, Some((s1_pc, s1_fire)))
       }
     }
 

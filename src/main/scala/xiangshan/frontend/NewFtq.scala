@@ -70,6 +70,7 @@ class Ftq_RF_Components(implicit p: Parameters) extends XSBundle with BPUUtils w
   val nextLineAddr = UInt(VAddrBits.W)
   val isNextMask = Vec(PredictWidth, Bool())
   val fallThruError = Bool()
+  val is_loop = Bool()
   // val carry = Bool()
   def getPc(offset: UInt) = {
     def getHigher(pc: UInt) = pc(VAddrBits-1, log2Ceil(PredictWidth)+instOffsetBits+1)
@@ -85,6 +86,7 @@ class Ftq_RF_Components(implicit p: Parameters) extends XSBundle with BPUUtils w
       (resp.pc(dupForFtq)(log2Ceil(PredictWidth), 1) +& i.U)(log2Ceil(PredictWidth)).asBool()
     ))
     this.fallThruError := resp.fallThruError(dupForFtq)
+    this.is_loop := resp.full_pred(dupForFtq).is_loop
     this
   }
   override def toPrintable: Printable = {

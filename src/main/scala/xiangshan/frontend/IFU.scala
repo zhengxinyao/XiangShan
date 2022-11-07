@@ -95,6 +95,44 @@ class IfuToPredChecker(implicit p: Parameters) extends XSBundle {
   val pc            = Vec(PredictWidth, UInt(VAddrBits.W))
 }
 
+abstract class LoopCacheAbs(implicit p: Parameters) extends XSModule
+  with HasICacheParameters
+  with HasIFUConst
+  with HasPdConst
+  with HasCircularQueuePtrHelper {}
+
+class LoopCache(implicit p: Parameters) extends LoopCacheAbs {
+  val io = IO(new Bundle {
+    val valid = Output(Bool())
+    val startAddr = Output(UInt(VAddrBits.W))
+    val data = Output(new FetchToIBuffer)
+
+    val updateValid = Input(Bool())
+    val updateStartAddr = Input(UInt(VAddrBits.W))
+    val updateData = Input(new FetchToIBuffer())
+  })
+
+  val loop_data = RegInit(0.U.asTypeOf(new FetchToIBuffer))
+  val loop_valid = RegInit(false.B)
+  val loop_startAddr = RegInit(0.U.asTypeOf(UInt(VAddrBits.W)))
+
+  when (io.updateValid) {
+    loop_valid := io.updateValid
+    loop_startAddr := io.updateStartAddr
+    loop_data := io.updateData
+  }
+
+  io.valid := loop_valid
+  io.startAddr := loop_startAddr
+  io.data := loop_data
+
+  when (loop_valid) {
+    println("loop ftq ptr %d", loop_data.ftqPtr)
+  }
+
+  XSPerfAccumulate(f"ifu_loop_cache_written", io.updateValid)
+}
+
 class NewIFU(implicit p: Parameters) extends XSModule
   with HasICacheParameters
   with HasIFUConst
@@ -125,6 +163,7 @@ class NewIFU(implicit p: Parameters) extends XSModule
 
   io.iTLBInter.resp.ready := true.B
 
+  val loopCache = Module(new LoopCache)
   /**
     ******************************************************************************
     * IFU Stage 0
@@ -137,6 +176,10 @@ class NewIFU(implicit p: Parameters) extends XSModule
   val f0_doubleLine                        = fromFtq.req.bits.crossCacheline
   val f0_vSetIdx                           = VecInit(get_idx((f0_ftq_req.startAddr)), get_idx(f0_ftq_req.nextlineStart))
   val f0_fire                              = fromFtq.req.fire()
+  val f0_is_loop                           = fromFtq.req.bits.is_loop
+
+  XSPerfAccumulate(f"ifu_loop_identified", f0_valid && f0_is_loop)
+  XSPerfAccumulate(f"ifu_loop_cache_hit", f0_valid && loopCache.io.valid && f0_ftq_req.startAddr === loopCache.io.startAddr)
 
   val f0_flush, f1_flush, f2_flush, f3_flush = WireInit(false.B)
   val from_bpu_f0_flush, from_bpu_f1_flush, from_bpu_f2_flush, from_bpu_f3_flush = WireInit(false.B)
@@ -606,6 +649,21 @@ class NewIFU(implicit p: Parameters) extends XSModule
     io.toIbuffer.bits.enqEnable := checkerOutStage1.fixedRange.asUInt & f3_instr_valid.asUInt & f3_lastHalf_mask
     io.toIbuffer.bits.valid     := f3_lastHalf_mask & f3_instr_valid.asUInt
   }
+
+  loopCache.io.updateValid := io.toIbuffer.valid && f3_ftq_req.is_loop
+  loopCache.io.updateStartAddr := f3_ftq_req.startAddr
+  loopCache.io.updateData.instrs      := f3_expd_instr
+  loopCache.io.updateData.valid       := f3_instr_valid.asUInt
+  loopCache.io.updateData.enqEnable   := checkerOutStage1.fixedRange.asUInt & f3_instr_valid.asUInt
+  loopCache.io.updateData.pd          := f3_pd
+  loopCache.io.updateData.ftqPtr      := f3_ftq_req.ftqIdx
+  loopCache.io.updateData.pc          := f3_pc
+  loopCache.io.updateData.ftqOffset.zipWithIndex.map{case(a, i) => a.bits := i.U; a.valid := checkerOutStage1.fixedTaken(i) && !f3_req_is_mmio}
+  loopCache.io.updateData.foldpc      := f3_foldpc
+  loopCache.io.updateData.ipf         := VecInit(f3_pf_vec.zip(f3_crossPageFault).map{case (pf, crossPF) => pf || crossPF})
+  loopCache.io.updateData.acf         := f3_af_vec
+  loopCache.io.updateData.crossPageIPFFix := f3_crossPageFault
+  loopCache.io.updateData.triggered   := f3_triggered
 
 
 
