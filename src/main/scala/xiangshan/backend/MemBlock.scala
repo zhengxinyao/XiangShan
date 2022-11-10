@@ -21,8 +21,9 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.diplomacy.{BundleBridgeSource, LazyModule, LazyModuleImp}
 import freechips.rocketchip.tile.HasFPUParameters
-import freechips.rocketchip.tilelink.TLBuffer
+import freechips.rocketchip.tilelink.{TLBuffer, TLNode, TLTempNode,TLXbar,TLIdentityNode}
 import huancun.PrefetchRecv
+import huancun.debug.TLLogger
 import huancun.utils.{RegNextN, ValidIODelay}
 import utils._
 import xiangshan._
@@ -34,6 +35,7 @@ import xiangshan.cache._
 import xiangshan.cache.mmu._
 import xiangshan.mem._
 import huancun.mbist.MBISTPipeline.placePipelines
+import top.BusPerfMonitor
 import xiangshan.mem.prefetch.{BasePrefecher, SMSParams, SMSPrefetcher}
 
 class Std(implicit p: Parameters) extends FunctionUnit {
@@ -46,6 +48,11 @@ class Std(implicit p: Parameters) extends FunctionUnit {
 class MemBlock(parentName:String = "Unknown")(implicit p: Parameters) extends LazyModule
   with HasXSParameter with HasWritebackSource {
 
+  //for merge-port
+  val busPMU = BusPerfMonitor(enable = !p(DebugOptionsKey).FPGAPlatform)
+  val l1d_logger = TLLogger(s"L2_L1D_${coreParams.HartId}", !p(DebugOptionsKey).FPGAPlatform)
+  busPMU := l1d_logger
+
   val dcache = LazyModule(new DCacheWrapper(parentName = parentName + "dcache_")(p))
   val uncache = LazyModule(new Uncache())
   val ptw = LazyModule(new PTWWrapper(parentName + "ptw_")(p))
@@ -54,7 +61,48 @@ class MemBlock(parentName:String = "Unknown")(implicit p: Parameters) extends La
     BundleBridgeSource(() => new PrefetchRecv)
   )
 
+  def chainBuffer(depth: Int, n: String): (Seq[LazyModule], TLNode) = {
+    val buffers = Seq.fill(depth){ LazyModule(new TLBuffer()) }
+    buffers.zipWithIndex.foreach{ case (b, i) => {
+      b.suggestName(s"${n}_${i}")
+    }}
+    val node = buffers.map(_.node.asInstanceOf[TLNode]).reduce(_ :*=* _)
+    (buffers, node)
+  }
+
+  val (l1i_to_l2_buffers, l1i_to_l2_buf_node) = chainBuffer(3, "l1i_to_l2_buffer")
+
+  val l1d_to_l2_bufferOpt = coreParams.dcacheParametersOpt.map { _ =>
+    val buffer = LazyModule(new TLBuffer)
+    l1d_logger := buffer.node := dcache.clientNode
+    buffer
+  }
+
+  busPMU :=
+    TLLogger(s"L2_L1I_${coreParams.HartId}", !p(DebugOptionsKey).FPGAPlatform) :=
+    l1i_to_l2_buf_node
+
+
   ptw_to_l2_buffer.node := ptw.node
+
+  val ptw_to_l2_buffers = if (!coreParams.softPTW) {
+    val (buffers, buf_node) = chainBuffer(5, "ptw_to_l2_buffer")
+    busPMU :=
+      TLLogger(s"L2_PTW_${coreParams.HartId}", !p(DebugOptionsKey).FPGAPlatform) :=
+      buf_node :=
+      ptw_to_l2_buffer.node
+    buffers
+  } else Seq()
+
+  val mmio_xbar = TLXbar()
+
+  val i_mmio_port = TLTempNode()
+  val d_mmio_port = TLTempNode()
+
+  mmio_xbar := TLBuffer.chainNode(2) := i_mmio_port
+  mmio_xbar := TLBuffer.chainNode(2) := d_mmio_port
+
+  d_mmio_port := uncache.clientNode
 
   lazy val module = new MemBlockImp(this, parentName)
 
@@ -75,6 +123,10 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
 {
 
   val io = IO(new Bundle {
+    //merge-port
+    val beu_errors = Output(new XSL1BusErrors())
+    val reset_vector = Input(UInt(PAddrBits.W))
+
     val hartId = Input(UInt(8.W))
     val redirect = Flipped(ValidIO(new Redirect))
     // in

@@ -25,6 +25,7 @@ import freechips.rocketchip.interrupts.{IntSinkNode, IntSinkPortSimple}
 import freechips.rocketchip.tile.HasFPUParameters
 import huancun.mbist.MBISTPipeline
 import huancun.mbist.MBISTPipeline.placePipelines
+import huancun.debug.TLLogger
 import huancun.utils.{DFTResetGen, ModuleNode, ResetGen, ResetGenNode}
 import system.HasSoCParameter
 import utils._
@@ -147,6 +148,12 @@ abstract class XSCoreBase(parentName:String = "Unknown")(implicit p: config.Para
       IssQueSize = backendTop.exuBlocks.head.scheduler.memRsEntries.max
     )
   })))
+  //port-merge
+  memBlock.l1i_to_l2_buf_node :=
+    frontend.icache.clientNode
+
+  memBlock.i_mmio_port :=
+    frontend.instrUncache.clientNode
 }
 
 class XSCore(parentName:String = "Unknown")(implicit p: config.Parameters) extends XSCoreBase(parentName)
@@ -184,8 +191,12 @@ class XSCoreImp(parentName:String = "Unknown",outer: XSCoreBase) extends LazyMod
   // memblock error exception writeback, 1 cycle after normal writeback
   backendTop.io.s3_delayed_load_error <> memBlock.io.s3_delayed_load_error
 
-  io.beu_errors.icache <> frontend.io.error.toL1BusErrorUnitInfo()
-  io.beu_errors.dcache <> memBlock.io.error.toL1BusErrorUnitInfo()
+  //  io.beu_errors.icache <> frontend.io.error.toL1BusErrorUnitInfo()
+  //  io.beu_errors.dcache <> memBlock.io.error.toL1BusErrorUnitInfo()
+
+  memBlock.io.beu_errors.icache <> frontend.io.error.toL1BusErrorUnitInfo()
+  memBlock.io.beu_errors.dcache <> memBlock.io.error.toL1BusErrorUnitInfo()
+  io.beu_errors <> memBlock.io.beu_errors
 
   val csrioIn = backendTop.io.csrio
   val fenceio = backendTop.io.fenceio
