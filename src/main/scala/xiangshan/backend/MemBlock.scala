@@ -125,7 +125,15 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
   val io = IO(new Bundle {
     //merge-port
     val beu_errors = Output(new XSL1BusErrors())
-    val reset_vector = Input(UInt(PAddrBits.W))
+    val reset_vector_in = Input(UInt(PAddrBits.W))
+    val reset_vector_out = Output(UInt(PAddrBits.W))
+    val cpu_halt_in = Input(Bool())
+    val cpu_halt_out = Output(Bool())
+    val l2_pf_enable_in = Input(Bool())
+    val l2_pf_enable_out = Output(Bool())
+    val perfEventsHc_in = Input(Vec(numPCntHc * coreParams.L2NBanks, new PerfEvent))
+    val perfEventsHc_out = Output(Vec(numPCntHc * coreParams.L2NBanks, new PerfEvent))
+    val hartId_out = Output(UInt(8.W))
 
     val hartId = Input(UInt(8.W))
     val redirect = Flipped(ValidIO(new Redirect))
@@ -165,6 +173,12 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
     val sqCancelCnt = Output(UInt(log2Up(StoreQueueSize + 1).W))
     val sqDeq = Output(UInt(2.W))
   })
+
+  io.reset_vector_out := io.reset_vector_in
+  io.cpu_halt_out := io.cpu_halt_in
+  io.l2_pf_enable_out := io.l2_pf_enable_in
+  io.perfEventsHc_out := io.perfEventsHc_in
+  io.hartId_out := io.hartId
 
   override def writebackSource1: Option[Seq[Seq[DecoupledIO[ExuOutput]]]] = Some(Seq(io.writeback))
 
@@ -275,8 +289,6 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
   val dtlb_pmps = dtlb.flatMap(_.pmp)
   dtlb.zip(sfence_dup.take(2)).map{ case (d,s) => d.sfence := s }
   dtlb.zip(tlbcsr_dup.take(2)).map{ case (d,c) => d.csr := c }
-
-  val (memBlockMbistPipelineSram,memBlockMbistPipelineRf,memBlockMbistPipelineSramRepair,memBlockMbistPipelineRfRepair) = placePipelines(level = 3,infoName = s"MBISTPipeline_memBlock")
 
   if (refillBothTlb) {
     require(ldtlbParams.outReplace == sttlbParams.outReplace)
@@ -738,4 +750,11 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
   val allPerfInc = allPerfEvents.map(_._2.asTypeOf(new PerfEvent))
   val perfEvents = HPerfMonitor(csrevents, allPerfInc).getPerfEvents
   generatePerfEvent()
+
+  val (coreMbistPipelineSram,coreMbistPipelineRf,coreMbistPipelineSramRepair,coreMbistPipelineRfRepair) = placePipelines(level = Int.MaxValue,infoName = s"Core")
+  val mbist_sram = IO(coreMbistPipelineSram.get.io.mbist.get.cloneType)
+  coreMbistPipelineSram.get.io.mbist.get <> mbist_sram
+  val mbist_rf = IO(coreMbistPipelineRf.get.io.mbist.get.cloneType)
+  coreMbistPipelineRf.get.io.mbist.get <> mbist_rf
+
 }

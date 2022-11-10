@@ -32,9 +32,9 @@ import xiangshan.frontend.FtqRead
 import system.HasSoCParameter
 
 
-class BackendTop(implicit p: Parameters) extends LazyModule 
+class BackendTop(implicit p: Parameters) extends LazyModule
   with HasWritebackSource
-  with HasXSParameter 
+  with HasXSParameter
   with HasExuWbHelper{
 
   val wbArbiter = LazyModule(new WbArbiterWrapper(exuConfigs, NRIntWritePorts, NRFpWritePorts))
@@ -130,7 +130,7 @@ class BackendTop(implicit p: Parameters) extends LazyModule
 }
 
 class BackendTopImp(outer: BackendTop)(implicit p: Parameters) extends LazyModuleImp(outer)
-  with HasWritebackSourceImp 
+  with HasWritebackSourceImp
   with HasXSParameter
   with HasSoCParameter{
 
@@ -149,22 +149,22 @@ class BackendTopImp(outer: BackendTop)(implicit p: Parameters) extends LazyModul
     val hartId = Input(UInt(64.W))
     val cpu_halt = Output(Bool())
     val dfx_reset = Input(new DFTResetGen)
-    
+
     // val perfEvents = Input(Vec(numPCntHc * coreParams.L2NBanks, new PerfEvent))
     // from MemBlock
     val s3_delayed_load_error = Vec(LoadPipelineWidth, Input(Bool())) // Dirty fix of data ecc error timing
-    // 
+    //
     val csrio   = new CSRFileIO
     val fenceio = new FenceIO
-    
+
     // frontend
     val frontend = Flipped(new FrontendToCtrlIO)
     // memblock
     val stIn = Vec(exuParameters.StuCnt, Flipped(ValidIO(new ExuInput)))
     val memoryViolation = Flipped(ValidIO(new Redirect))
-    // 
+    //
     val enqLsq = Flipped(new LsqEnqIO)
-  
+
     val sqDeq = Input(UInt(log2Up(CommitWidth + 1).W))
     val lqCancelCnt = Input(UInt(log2Up(LoadQueueSize + 1).W))
     val sqCancelCnt = Input(UInt(log2Up(StoreQueueSize + 1).W))
@@ -321,7 +321,7 @@ class BackendTopImp(outer: BackendTop)(implicit p: Parameters) extends LazyModul
   io.redirect <> ctrlBlock.io.redirect
 
   io.rsfeedback <> exuBlocks(0).io.scheExtra.feedback.get
-  
+
   io.robio.exception := ctrlBlock.io.robio.exception
   io.robio.lsq <> ctrlBlock.io.robio.lsq
 

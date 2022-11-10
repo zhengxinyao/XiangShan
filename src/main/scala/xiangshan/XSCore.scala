@@ -182,11 +182,14 @@ class XSCoreImp(parentName:String = "Unknown",outer: XSCoreBase) extends LazyMod
   val frontend = outer.frontend.module
   val memBlock = outer.memBlock.module
 
-  backendTop.io.hartId := io.hartId
   memBlock.io.hartId := io.hartId
-  frontend.io.reset_vector := io.reset_vector
+  backendTop.io.hartId := memBlock.io.hartId_out
 
-  io.cpu_halt := backendTop.io.cpu_halt
+  memBlock.io.reset_vector_in := io.reset_vector
+  frontend.io.reset_vector := memBlock.io.reset_vector_out
+
+  memBlock.io.cpu_halt_in := backendTop.io.cpu_halt
+  io.cpu_halt := memBlock.io.cpu_halt_out
 
   // memblock error exception writeback, 1 cycle after normal writeback
   backendTop.io.s3_delayed_load_error <> memBlock.io.s3_delayed_load_error
@@ -230,14 +233,16 @@ class XSCoreImp(parentName:String = "Unknown",outer: XSCoreBase) extends LazyMod
   backendTop.io.stIn := memBlock.io.stIn
 
 
-  csrioIn.hartId <> io.hartId
+  csrioIn.hartId <> memBlock.io.hartId_out
   csrioIn.perf <> DontCare
   csrioIn.perf.memInfo <> memBlock.io.memInfo
   csrioIn.perf.frontendInfo <> frontend.io.frontendInfo
 
   csrioIn.perf.perfEventsFrontend <> frontend.getPerf
   csrioIn.perf.perfEventsLsu      <> memBlock.getPerf
-  csrioIn.perf.perfEventsHc       <> io.perfEvents
+  memBlock.io.perfEventsHc_in     <> io.perfEvents
+  csrioIn.perf.perfEventsHc       <> memBlock.io.perfEventsHc_out
+
 
   csrioIn.memExceptionVAddr <> memBlock.io.lsqio.exceptionAddr.vaddr
 
@@ -267,13 +272,8 @@ class XSCoreImp(parentName:String = "Unknown",outer: XSCoreBase) extends LazyMod
   memBlock.io.lsqio.exceptionAddr.isStore := CommitType.lsInstIsStore(backendTop.io.robio.exception.bits.uop.ctrl.commitType)
 
   // if l2 prefetcher use stream prefetch, it should be placed in XSCore
-  io.l2_pf_enable := csrioIn.customCtrl.l2_pf_enable
-
-  val (coreMbistPipelineSram,coreMbistPipelineRf,coreMbistPipelineSramRepair,coreMbistPipelineRfRepair) = placePipelines(level = Int.MaxValue,infoName = s"Core")
-  val mbist_sram = IO(coreMbistPipelineSram.get.io.mbist.get.cloneType)
-  coreMbistPipelineSram.get.io.mbist.get <> mbist_sram
-  val mbist_rf = IO(coreMbistPipelineRf.get.io.mbist.get.cloneType)
-  coreMbistPipelineRf.get.io.mbist.get <> mbist_rf
+  memBlock.io.l2_pf_enable_in := csrioIn.customCtrl.l2_pf_enable
+  io.l2_pf_enable := memBlock.io.l2_pf_enable_out
 
   // Modules are reset one by one
   val resetTree = ResetGenNode(
@@ -291,8 +291,6 @@ class XSCoreImp(parentName:String = "Unknown",outer: XSCoreBase) extends LazyMod
   )
 
   ResetGen(resetTree, reset, !debugOpts.FPGAPlatform, Some(io.dfx_reset))
-
-  backendTop.io.dfx_reset := io.dfx_reset
 
   backendTop.io.writeback <> memBlock.io.writeback
 }

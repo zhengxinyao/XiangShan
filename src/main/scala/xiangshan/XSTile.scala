@@ -276,37 +276,37 @@ class XSTile(parenName:String = "Unknown")(implicit p: Parameters) extends LazyM
       }
 
       val mbistInterfaceCoreSRAM = Module(new MBISTInterface(
-        Seq(core.module.mbist_sram.params),
-        Seq(core.module.coreMbistPipelineSram.get.node.array_id),
+        Seq(core.memBlock.module.mbist_sram.params),
+        Seq(core.memBlock.module.coreMbistPipelineSram.get.node.array_id),
         s"mbist_core${coreParams.HartId}_core_sram_intf",
         isSRAM = true,
         1
       ))
-      core.module.coreMbistPipelineSram.get.genCSV(mbistInterfaceCoreSRAM.info)
+      core.memBlock.module.coreMbistPipelineSram.get.genCSV(mbistInterfaceCoreSRAM.info)
       mbistInterfaceCoreSRAM.extra := DontCare
       mbistInterfaceCoreSRAM.clock := childClock
-      mbistInterfaceCoreSRAM.toPipeline.head <> core.module.mbist_sram
+      mbistInterfaceCoreSRAM.toPipeline.head <> DontCare
       mbist_extra_core_sram.connectExtra(mbistInterfaceCoreSRAM.extra.head)
       mbist_extra_core_sram.connectPWR_MGNT(
-        core.module.coreMbistPipelineSram.get.PWR_MGNT.get._1,
-        core.module.coreMbistPipelineSram.get.PWR_MGNT.get._2
+        core.memBlock.module.coreMbistPipelineSram.get.PWR_MGNT.get._1,
+        core.memBlock.module.coreMbistPipelineSram.get.PWR_MGNT.get._2
       )
 
       val mbistInterfaceCoreRF = Module(new MBISTInterface(
-        Seq(core.module.mbist_rf.params),
-        Seq(core.module.coreMbistPipelineRf.get.node.array_id),
+        Seq(core.memBlock.module.mbist_rf.params),
+        Seq(core.memBlock.module.coreMbistPipelineRf.get.node.array_id),
         s"mbist_core${coreParams.HartId}_core_rf_intf",
         isSRAM = false,
         1
       ))
-      core.module.coreMbistPipelineRf.get.genCSV(mbistInterfaceCoreRF.info)
+      core.memBlock.module.coreMbistPipelineRf.get.genCSV(mbistInterfaceCoreRF.info)
       mbistInterfaceCoreRF.extra := DontCare
       mbistInterfaceCoreRF.clock := childClock
-      mbistInterfaceCoreRF.toPipeline.head <> core.module.mbist_rf
+      mbistInterfaceCoreRF.toPipeline.head <> DontCare
       mbist_extra_core_rf.connectExtra(mbistInterfaceCoreRF.extra.head)
       mbist_extra_core_rf.connectPWR_MGNT(
-        core.module.coreMbistPipelineRf.get.PWR_MGNT.get._1,
-        core.module.coreMbistPipelineRf.get.PWR_MGNT.get._2
+        core.memBlock.module.coreMbistPipelineRf.get.PWR_MGNT.get._1,
+        core.memBlock.module.coreMbistPipelineRf.get.PWR_MGNT.get._2
       )
 
       val (intfParams,mbistNames,intfPrefixes) = if(l2cache.isDefined) {
