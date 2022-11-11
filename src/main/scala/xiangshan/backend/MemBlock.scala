@@ -21,10 +21,10 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.diplomacy.{BundleBridgeSource, LazyModule, LazyModuleImp}
 import freechips.rocketchip.tile.HasFPUParameters
-import freechips.rocketchip.tilelink.{TLBuffer, TLNode, TLTempNode,TLXbar,TLIdentityNode}
+import freechips.rocketchip.tilelink.{TLBuffer, TLIdentityNode, TLNode, TLTempNode, TLXbar}
 import huancun.PrefetchRecv
 import huancun.debug.TLLogger
-import huancun.utils.{RegNextN, ValidIODelay}
+import huancun.utils.{DFTResetGen, ModuleNode, RegNextN, ResetGen, ResetGenNode, ValidIODelay}
 import utils._
 import xiangshan._
 import xiangshan.backend.exu.StdExeUnit
@@ -124,6 +124,7 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
 
   val io = IO(new Bundle {
     //merge-port
+    val dfx_reset = Input(new DFTResetGen)
     val beu_errors = Output(new XSL1BusErrors())
     val reset_vector_in = Input(UInt(PAddrBits.W))
     val reset_vector_out = Output(UInt(PAddrBits.W))
@@ -179,9 +180,6 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
   io.l2_pf_enable_out := io.l2_pf_enable_in
   io.perfEventsHc_out := io.perfEventsHc_in
   io.hartId_out := io.hartId
-
-  final val reset_src_backend: Reset   = IO(Input(reset.cloneType)).suggestName("reset_src_backend")
-  final val reset_src_frontend: Reset  = IO(Input(reset.cloneType)).suggestName("reset_src_frontend")
 
   final val reset_sink_backend: Reset   = IO(Output(reset.cloneType)).suggestName("reset_sink_backend")
   final val reset_sink_frontend: Reset  = IO(Output(reset.cloneType)).suggestName("reset_sink_frontend")
@@ -762,5 +760,27 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
   coreMbistPipelineSram.get.io.mbist.get <> mbist_sram
   val mbist_rf = IO(coreMbistPipelineRf.get.io.mbist.get.cloneType)
   coreMbistPipelineRf.get.io.mbist.get <> mbist_rf
+
+  val (backend_rst_agent, frontend_rst_agent, mem_block_agent) = (Module(new ResetAgent), Module(new ResetAgent),Module(new ResetAgent))
+
+  // Modules are reset one by one
+  val resetTree = ResetGenNode(
+        Seq(
+          ModuleNode(mem_block_agent),  //skip match
+          ResetGenNode(Seq(
+            ModuleNode(backend_rst_agent),
+            ResetGenNode(Seq(
+              ResetGenNode(Seq(
+                ModuleNode(frontend_rst_agent)
+              ))
+            ))
+          ))
+        )
+      )
+
+  reset_sink_frontend := frontend_rst_agent.reset
+  reset_sink_backend  := backend_rst_agent.reset
+
+  ResetGen(resetTree, reset, !p(DebugOptionsKey).FPGAPlatform, Some(io.dfx_reset))
 
 }
