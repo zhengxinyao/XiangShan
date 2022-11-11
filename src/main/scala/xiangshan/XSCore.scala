@@ -156,6 +156,11 @@ abstract class XSCoreBase(parentName:String = "Unknown")(implicit p: config.Para
     frontend.instrUncache.clientNode
 }
 
+class ResetAgent extends Module{
+  final val sink_reset  = IO(Output(reset.cloneType)).suggestName("sink_reset")
+  sink_reset := reset
+}
+
 class XSCore(parentName:String = "Unknown")(implicit p: config.Parameters) extends XSCoreBase(parentName)
   with HasXSDts
 {
@@ -275,20 +280,28 @@ class XSCoreImp(parentName:String = "Unknown",outer: XSCoreBase) extends LazyMod
   memBlock.io.l2_pf_enable_in := csrioIn.customCtrl.l2_pf_enable
   io.l2_pf_enable := memBlock.io.l2_pf_enable_out
 
+  val (backend_rst_agent, frontend_rst_agent) = (Module(new ResetAgent), Module(new ResetAgent))
+
   // Modules are reset one by one
   val resetTree = ResetGenNode(
     Seq(
       ModuleNode(memBlock),
       ResetGenNode(Seq(
-        ModuleNode(backendTop),
+        ModuleNode(backend_rst_agent),
         ResetGenNode(Seq(
           ResetGenNode(Seq(
-            ModuleNode(frontend)
+            ModuleNode(frontend_rst_agent)
           ))
         ))
       ))
     )
   )
+
+  memBlock.reset_src_frontend := frontend_rst_agent.sink_reset
+  memBlock.reset_src_backend  := backend_rst_agent.sink_reset
+
+  frontend.reset := memBlock.reset_sink_frontend
+  backendTop.reset := memBlock.reset_sink_backend
 
   ResetGen(resetTree, reset, !debugOpts.FPGAPlatform, Some(io.dfx_reset))
 

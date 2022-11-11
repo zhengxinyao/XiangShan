@@ -180,6 +180,12 @@ class MemBlockImp(outer: MemBlock, parentName:String = "Unknown") extends LazyMo
   io.perfEventsHc_out := io.perfEventsHc_in
   io.hartId_out := io.hartId
 
+  final val reset_src_backend: Reset   = IO(Input(reset.cloneType)).suggestName("reset_src_backend")
+  final val reset_src_frontend: Reset  = IO(Input(reset.cloneType)).suggestName("reset_src_frontend")
+
+  final val reset_sink_backend: Reset   = IO(Output(reset.cloneType)).suggestName("reset_sink_backend")
+  final val reset_sink_frontend: Reset  = IO(Output(reset.cloneType)).suggestName("reset_sink_frontend")
+
   override def writebackSource1: Option[Seq[Seq[DecoupledIO[ExuOutput]]]] = Some(Seq(io.writeback))
 
   val redirect = RegNextWithEnable(io.redirect)
