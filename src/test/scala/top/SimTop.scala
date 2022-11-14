@@ -103,6 +103,8 @@ class SimTop(implicit p: Parameters) extends Module {
   // Check and dispaly all source and sink connections
   ExcitingUtils.fixConnections()
   ExcitingUtils.checkAndDisplay()
+
+  DifftestModule.finish()
 }
 
 object SimTop extends App {
