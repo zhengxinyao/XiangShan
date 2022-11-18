@@ -138,6 +138,8 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
     // replace pipe
     val replace_pipe_req = DecoupledIO(new MainPipeReq)
     val replace_pipe_resp = Input(Bool())
+    // for replace req replay
+    val replace_pipe_replay_needed = Input(Bool())
 
     // main pipe: amo miss
     val main_pipe_req = DecoupledIO(new MainPipeReq)
@@ -330,8 +332,17 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   }
 
   when (io.replace_pipe_resp) {
-    w_replace_resp := true.B
+    when(io.replace_pipe_replay_needed) {
+      // we should replay the replace req later
+      s_replace_req := false.B
+    }.otherwise {
+      // replace req has been recieved by wbq
+      w_replace_resp := true.B
+    }
   }
+
+  XSPerfAccumulate("replace_req_replayed", io.replace_pipe_resp && io.replace_pipe_replay_needed)
+  XSPerfAccumulate("replace_req_goes_to_wbq_successfully", io.replace_pipe_resp && !io.replace_pipe_replay_needed)
 
   when (io.refill_pipe_req.fire()) {
     s_refill := true.B
@@ -550,7 +561,10 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
     val refill_pipe_resp = Flipped(ValidIO(UInt(log2Up(cfg.nMissEntries).W)))
 
     val replace_pipe_req = DecoupledIO(new MainPipeReq)
-    val replace_pipe_resp = Flipped(ValidIO(UInt(log2Up(cfg.nMissEntries).W)))
+    val replace_pipe_resp = Flipped(ValidIO(new DCacheBundle(){
+      val id = UInt(log2Up(cfg.nMissEntries).W)
+      val replay = Bool()
+    }))
 
     val main_pipe_req = DecoupledIO(new MainPipeReq)
     val main_pipe_resp = Flipped(ValidIO(new AtomicsResp))
@@ -636,7 +650,8 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
       }
 
       e.io.refill_pipe_resp := io.refill_pipe_resp.valid && io.refill_pipe_resp.bits === i.U
-      e.io.replace_pipe_resp := io.replace_pipe_resp.valid && io.replace_pipe_resp.bits === i.U
+      e.io.replace_pipe_resp := io.replace_pipe_resp.valid && io.replace_pipe_resp.bits.id === i.U
+      e.io.replace_pipe_replay_needed := io.replace_pipe_resp.bits.replay
       e.io.main_pipe_resp := io.main_pipe_resp.valid && io.main_pipe_resp.bits.ack_miss_queue && io.main_pipe_resp.bits.miss_id === i.U
 
       io.debug_early_replace(i) := e.io.debug_early_replace
