@@ -216,13 +216,15 @@ case class XSCoreParameters
     nPrefetchEntries = 2,
     hasPrefetch = true,
   ),
+  UseSlicedDcache: Boolean = false,
   dcacheParametersOpt: Option[DCacheParameters] = Some(DCacheParameters(
     tagECC = Some("secded"),
     dataECC = Some("secded"),
     replacer = Some("setplru"),
     nMissEntries = 16,
     nProbeEntries = 8,
-    nReleaseEntries = 18
+    nReleaseEntries = 18,
+    useSlicedDcache = false,
   )),
   L2CacheParamsOpt: Option[HCCacheParameters] = Some(HCCacheParameters(
     name = "l2",

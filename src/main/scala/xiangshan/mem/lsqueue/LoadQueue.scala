@@ -247,9 +247,9 @@ class LoadQueue(implicit p: Parameters) extends XSModule
       }
       pending(loadWbIndex) := io.loadIn(i).bits.mmio
       released(loadWbIndex) := release2cycle.valid &&
-        io.loadIn(i).bits.paddr(PAddrBits-1, DCacheLineOffset) === release2cycle.bits.paddr(PAddrBits-1, DCacheLineOffset) ||
+        io.loadIn(i).bits.paddr(PAddrBits-1, blockOffBits) === release2cycle.bits.paddr(PAddrBits-1, blockOffBits) ||
         release1cycle.valid &&
-        io.loadIn(i).bits.paddr(PAddrBits-1, DCacheLineOffset) === release1cycle.bits.paddr(PAddrBits-1, DCacheLineOffset)
+        io.loadIn(i).bits.paddr(PAddrBits-1, blockOffBits) === release1cycle.bits.paddr(PAddrBits-1, blockOffBits)
     }
 
     // data bit in lq can be updated when load_s2 valid
@@ -776,7 +776,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     // We replay that load inst from RS
     io.loadViolationQuery.map(i => i.req.ready :=
       // use lsu side release2cycle_dup_lsu paddr for better timing
-      !i.req.bits.paddr(PAddrBits-1, DCacheLineOffset) === release2cycle_dup_lsu.bits.paddr(PAddrBits-1, DCacheLineOffset)
+      !i.req.bits.paddr(PAddrBits-1, blockOffBits) === release2cycle_dup_lsu.bits.paddr(PAddrBits-1, blockOffBits)
     )
     // io.loadViolationQuery.map(i => i.req.ready := false.B) // For better timing
   }

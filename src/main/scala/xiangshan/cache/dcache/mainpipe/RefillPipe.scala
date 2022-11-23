@@ -23,7 +23,7 @@ import chisel3.util._
 class RefillPipeReqCtrl(implicit p: Parameters) extends DCacheBundle {
   val source = UInt(sourceTypeWidth.W)
   val addr = UInt(PAddrBits.W)
-  val way_en = UInt(DCacheWays.W)
+  val way_en = UInt(nWays.W)
   val alias = UInt(2.W) // TODO: parameterize
 
   val miss_id = UInt(log2Up(cfg.nMissEntries).W)
@@ -32,14 +32,14 @@ class RefillPipeReqCtrl(implicit p: Parameters) extends DCacheBundle {
   val error = Bool()
 
   def paddrWithVirtualAlias: UInt = {
-    Cat(alias, addr(DCacheSameVPAddrLength - 1, 0))
+    Cat(alias, addr(dcacheSameVPAddrOffBits - 1, 0))
   }
   def idx: UInt = get_idx(paddrWithVirtualAlias)
 }
 
 class RefillPipeReq(implicit p: Parameters) extends RefillPipeReqCtrl {
-  val wmask = UInt(DCacheBanks.W)
-  val data = Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W))
+  val wmask = UInt(nBanks.W)
+  val data = Vec(nBanks, UInt(rowBits.W))
   val meta = new Meta
 
   def getCtrl = {
@@ -59,14 +59,14 @@ class RefillPipe(implicit p: Parameters) extends DCacheModule {
   val io = IO(new Bundle() {
     val req = Flipped(DecoupledIO(new RefillPipeReq))
     // val req_dup_for_data_w = Input(Valid(new RefillPipeReqCtrl))
-    val req_dup_for_data_w = Vec(DCacheBanks, Input(Valid(new RefillPipeReqCtrl)))
+    val req_dup_for_data_w = Vec(nBanks, Input(Valid(new RefillPipeReqCtrl)))
     val req_dup_for_meta_w = Input(Valid(new RefillPipeReqCtrl))
     val req_dup_for_tag_w = Input(Valid(new RefillPipeReqCtrl))
     val req_dup_for_err_w = Input(Valid(new RefillPipeReqCtrl))
     val resp = ValidIO(UInt(log2Up(cfg.nMissEntries).W))
 
     val data_write = DecoupledIO(new L1BankedDataWriteReq)
-    val data_write_dup = Vec(DCacheBanks, Valid(new L1BankedDataWriteReqCtrl))
+    val data_write_dup = Vec(nBanks, Valid(new L1BankedDataWriteReqCtrl))
     val meta_write = DecoupledIO(new MetaWriteReq)
     val error_flag_write = DecoupledIO(new ErrorWriteReq)
     val tag_write = DecoupledIO(new TagWriteReq)

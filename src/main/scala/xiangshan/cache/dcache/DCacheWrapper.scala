@@ -47,7 +47,8 @@ case class DCacheParameters
   nMMIOEntries: Int = 1,
   nMMIOs: Int = 1,
   blockBytes: Int = 64,
-  alwaysReleaseData: Boolean = true
+  alwaysReleaseData: Boolean = true,
+  useSlicedDcache: Boolean = false,
 ) extends L1CacheParameters {
   // if sets * blockBytes > 4KB(page size),
   // cache alias will happen,
@@ -70,7 +71,7 @@ case class DCacheParameters
 // |   Physical Tag |  PIndex  | Offset |
 // --------------------------------------
 //                  |
-//                  DCacheTagOffset
+//                  tagOffBits
 //
 //           Virtual Address
 // --------------------------------------
@@ -78,11 +79,11 @@ case class DCacheParameters
 // --------------------------------------
 //                |     |      |        |
 //                |     |      |        0
-//                |     |      DCacheBankOffset
-//                |     DCacheSetOffset
-//                DCacheAboveIndexOffset
+//                |     |      bankOffBits
+//                |     blockOffBits
+//                aboveIdxOffBits
 
-// Default DCache size = 64 sets * 8 ways * 8 banks * 8 Byte = 32K Byte
+// Default DCache size = 256 sets * 8 ways * 8 banks * 8 Byte = 128K Byte
 
 trait HasDCacheParameters extends HasL1CacheParameters {
   val cacheParams = dcacheParameters
@@ -115,28 +116,21 @@ trait HasDCacheParameters extends HasL1CacheParameters {
   val releaseIdBase = cfg.nMissEntries
 
   // banked dcache support
-  val DCacheSets = cacheParams.nSets
-  val DCacheWays = cacheParams.nWays
-  val DCacheBanks = 8 // hardcoded
-  val DCacheSRAMRowBits = cacheParams.rowBits // hardcoded
-  val DCacheWordBits = 64 // hardcoded
-  val DCacheWordBytes = DCacheWordBits / 8
-  require(DCacheSRAMRowBits == 64)
+  val nBanks = 8 // hardcoded
+  require(nBanks == 8)
+  require(wordBits == 64)
+  require(rowBits == 64)
 
-  val DCacheSizeBits = DCacheSRAMRowBits * DCacheBanks * DCacheWays * DCacheSets
-  val DCacheSizeBytes = DCacheSizeBits / 8
-  val DCacheSizeWords = DCacheSizeBits / 64 // TODO
+  val dcacheSizeBits = rowBits * nBanks * nWays * nSets
+  val dcacheSizeBytes = dcacheSizeBits / 8
+  val dcacheSizeWords = dcacheSizeBits / wordBytes
 
-  val DCacheSameVPAddrLength = 12
+  val dcacheSameVPAddrOffBits = 12
 
-  val DCacheSRAMRowBytes = DCacheSRAMRowBits / 8
-  val DCacheWordOffset = log2Up(DCacheWordBytes)
-
-  val DCacheBankOffset = log2Up(DCacheSRAMRowBytes)
-  val DCacheSetOffset = DCacheBankOffset + log2Up(DCacheBanks)
-  val DCacheAboveIndexOffset = DCacheSetOffset + log2Up(DCacheSets)
-  val DCacheTagOffset = DCacheAboveIndexOffset min DCacheSameVPAddrLength
-  val DCacheLineOffset = DCacheSetOffset
+  val bankOffBits = log2Up(rowBytes) // bank offset
+  val tagOffBits = pgUntagBits // tag offset
+  val aboveIdxOffBits = blockOffBits + log2Up(nSets) // above dcache idx offset
+  require((bankOffBits + log2Up(nBanks)) == blockOffBits)
 
   // parameters about duplicating regs to solve fanout
   // In Main Pipe:
@@ -145,41 +139,58 @@ trait HasDCacheParameters extends HasL1CacheParameters {
     // tag_write.ready -> tag_write.valid
     // tag_write.ready -> err_write.valid
     // tag_write.ready -> wb.valid
-  val nDupTagWriteReady = DCacheBanks + 4
+  val nDupTagWriteReady = nBanks + 4
   // In Main Pipe:
     // data_write.ready -> data_write.valid * 8 banks
     // data_write.ready -> meta_write.valid
     // data_write.ready -> tag_write.valid
     // data_write.ready -> err_write.valid
     // data_write.ready -> wb.valid
-  val nDupDataWriteReady = DCacheBanks + 4
-  val nDupWbReady = DCacheBanks + 4
+  val nDupDataWriteReady = nBanks + 4
+  val nDupWbReady = nBanks + 4
   val nDupStatus = nDupTagWriteReady + nDupDataWriteReady
   val dataWritePort = 0
-  val metaWritePort = DCacheBanks
+  val metaWritePort = nBanks
   val tagWritePort = metaWritePort + 1
   val errWritePort = tagWritePort + 1
   val wbPort = errWritePort + 1
 
-  def addr_to_dcache_bank(addr: UInt) = {
-    require(addr.getWidth >= DCacheSetOffset)
-    addr(DCacheSetOffset-1, DCacheBankOffset)
-  }
-
-  def addr_to_dcache_set(addr: UInt) = {
-    require(addr.getWidth >= DCacheAboveIndexOffset)
-    addr(DCacheAboveIndexOffset-1, DCacheSetOffset)
+  // address convert
+  def get_bank(addr: UInt) = {
+    require(addr.getWidth >= blockOffBits)
+    addr(blockOffBits-1, bankOffBits)
   }
 
   def get_data_of_bank(bank: Int, data: UInt) = {
-    require(data.getWidth >= (bank+1)*DCacheSRAMRowBits)
-    data(DCacheSRAMRowBits * (bank + 1) - 1, DCacheSRAMRowBits * bank)
+    require(data.getWidth >= (bank+1)*rowBits)
+    data(rowBits * (bank + 1) - 1, rowBits * bank)
   }
 
   def get_mask_of_bank(bank: Int, data: UInt) = {
-    require(data.getWidth >= (bank+1)*DCacheSRAMRowBytes)
-    data(DCacheSRAMRowBytes * (bank + 1) - 1, DCacheSRAMRowBytes * bank)
+    require(data.getWidth >= (bank+1)*rowBytes)
+    data(rowBytes * (bank + 1) - 1, rowBytes * bank)
   }
+
+  // sliced dcache parameters
+  val UseSlicedDcache = cacheParams.useSlicedDcache
+  override def nSets = if (UseSlicedDcache) cacheParams.nSets / 2 else cacheParams.nSets
+  def sliceOffBits = blockOffBits
+  def setOffBits = if (UseSlicedDcache) blockOffBits + 1 else blockOffBits
+
+  // addr(blockOffBits) is used for slice selection
+  def get_slice(addr: UInt) = {
+    addr(blockOffBits)
+  }
+
+  override def get_idx(addr: UInt) = {
+    require(addr.getWidth >= aboveIdxOffBits)
+    if (UseSlicedDcache)
+      addr(aboveIdxOffBits-1, blockOffBits+1)
+    else
+      addr(aboveIdxOffBits-1, blockOffBits)
+  }
+
+  override def idxBits = if (UseSlicedDcache) log2Up(cacheParams.nSets / 2) else log2Up(cacheParams.nSets)
 
   def arbiter[T <: Bundle](
     in: Seq[DecoupledIO[T]],
@@ -330,8 +341,8 @@ class DCacheWordResp(implicit p: Parameters) extends BaseDCacheWordResp
 
 class BankedDCacheWordResp(implicit p: Parameters) extends DCacheWordResp
 {
-  val bank_data = Vec(DCacheBanks, Bits(DCacheSRAMRowBits.W))
-  val bank_oh = UInt(DCacheBanks.W)
+  val bank_data = Vec(nBanks, Bits(rowBits.W))
+  val bank_oh = UInt(nBanks.W)
 }
 
 class DCacheWordRespWithError(implicit p: Parameters) extends BaseDCacheWordResp
@@ -371,7 +382,7 @@ class Release(implicit p: Parameters) extends DCacheBundle
 {
   val paddr  = UInt(PAddrBits.W)
   def dump() = {
-    XSDebug("Release: paddr: %x\n", paddr(PAddrBits-1, DCacheTagOffset))
+    XSDebug("Release: paddr: %x\n", paddr(PAddrBits-1, tagOffBits))
   }
 }
 
@@ -460,7 +471,7 @@ class DCacheIO(implicit p: Parameters) extends DCacheBundle {
 }
 
 
-class DCache()(implicit p: Parameters) extends LazyModule with HasDCacheParameters {
+class DCache(sliceid: Int = 0)(implicit p: Parameters) extends LazyModule with HasDCacheParameters {
 
   val clientParameters = TLMasterPortParameters.v1(
     Seq(TLMasterParameters.v1(
@@ -474,11 +485,11 @@ class DCache()(implicit p: Parameters) extends LazyModule with HasDCacheParamete
 
   val clientNode = TLClientNode(Seq(clientParameters))
 
-  lazy val module = new DCacheImp(this)
+  lazy val module = new DCacheImp(this, sliceid)
 }
 
 
-class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParameters with HasPerfEvents {
+class DCacheImp(outer: DCache, sliceid: Int) extends LazyModuleImp(outer) with HasDCacheParameters with HasPerfEvents {
 
   val io = IO(new DCacheIO)
 
@@ -486,15 +497,23 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   require(bus.d.bits.data.getWidth == l1BusDataWidth, "DCache: tilelink width does not match")
 
   println("DCache:")
-  println("  DCacheSets: " + DCacheSets)
-  println("  DCacheWays: " + DCacheWays)
-  println("  DCacheBanks: " + DCacheBanks)
-  println("  DCacheSRAMRowBits: " + DCacheSRAMRowBits)
-  println("  DCacheWordOffset: " + DCacheWordOffset)
-  println("  DCacheBankOffset: " + DCacheBankOffset)
-  println("  DCacheSetOffset: " + DCacheSetOffset)
-  println("  DCacheTagOffset: " + DCacheTagOffset)
-  println("  DCacheAboveIndexOffset: " + DCacheAboveIndexOffset)
+  println("  nSets: " + nSets)
+  println("  nWays: " + nWays)
+  println("  nBanks: " + nBanks)
+  println("  rowBits: " + rowBits)
+  println("  wordOffBits: " + wordOffBits)
+  println("  bankOffBits: " + bankOffBits)
+  println("  blockOffBits: " + blockOffBits)
+  println("  tagOffBits: " + tagOffBits)
+  println("  aboveIdxOffBits: " + aboveIdxOffBits)
+  
+  if (UseSlicedDcache) {
+    println("  sliced dcache id: " + sliceid)
+    println("  slicedIdxOffBits: " + (blockOffBits + 1))
+    println("  sliceIdBit: " + blockOffBits)
+  } else {
+    require(sliceid == 0)
+  }
 
   //----------------------------------------
   // core data structures
@@ -575,7 +594,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
 
   bankedDataArray.io.write <> dataWriteArb.io.out
 
-  for (bank <- 0 until DCacheBanks) {
+  for (bank <- 0 until nBanks) {
     val dataWriteArb_dup = Module(new Arbiter(new L1BankedDataWriteReqCtrl, 2))
     dataWriteArb_dup.io.in(0).valid := refillPipe.io.data_write_dup(bank).valid
     dataWriteArb_dup.io.in(0).bits := refillPipe.io.data_write_dup(bank).bits
@@ -711,14 +730,14 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   dontTouch(refillShouldBeBlocked_dup)
 
   refillPipe.io.req_dup_for_data_w.zipWithIndex.foreach { case (r, i) =>
-    r.bits := (mq_refill_dup.drop(dataWritePort).take(DCacheBanks))(i).bits 
+    r.bits := (mq_refill_dup.drop(dataWritePort).take(nBanks))(i).bits 
   }
   refillPipe.io.req_dup_for_meta_w.bits := mq_refill_dup(metaWritePort).bits
   refillPipe.io.req_dup_for_tag_w.bits := mq_refill_dup(tagWritePort).bits
   refillPipe.io.req_dup_for_err_w.bits := mq_refill_dup(errWritePort).bits
   refillPipe.io.req_dup_for_data_w.zipWithIndex.foreach { case (r, i) =>
-    r.valid := (mq_refill_dup.drop(dataWritePort).take(DCacheBanks))(i).valid &&
-      !(refillShouldBeBlocked_dup.drop(dataWritePort).take(DCacheBanks))(i)
+    r.valid := (mq_refill_dup.drop(dataWritePort).take(nBanks))(i).valid &&
+      !(refillShouldBeBlocked_dup.drop(dataWritePort).take(nBanks))(i)
   }
   refillPipe.io.req_dup_for_meta_w.valid := mq_refill_dup(metaWritePort).valid && !refillShouldBeBlocked_dup(metaWritePort)
   refillPipe.io.req_dup_for_tag_w.valid := mq_refill_dup(tagWritePort).valid && !refillShouldBeBlocked_dup(tagWritePort)

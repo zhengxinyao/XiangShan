@@ -149,12 +149,12 @@ class ProbeQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule w
   req.source := io.mem_probe.bits.source
   req.opcode := io.mem_probe.bits.opcode
   req.addr := io.mem_probe.bits.address
-  if(DCacheAboveIndexOffset > DCacheTagOffset) {
+  if(aboveIdxOffBits > tagOffBits) {
     // have alias problem, extra alias bits needed for index
     req.vaddr := Cat(
-      io.mem_probe.bits.address(PAddrBits - 1, DCacheAboveIndexOffset), // dontcare
-      alias_addr_frag(DCacheAboveIndexOffset - DCacheTagOffset - 1, 0), // index
-      io.mem_probe.bits.address(DCacheTagOffset - 1, 0)                 // index & others
+      io.mem_probe.bits.address(PAddrBits - 1, aboveIdxOffBits), // dontcare
+      alias_addr_frag(aboveIdxOffBits - tagOffBits - 1, 0), // index
+      io.mem_probe.bits.address(tagOffBits - 1, 0)                 // index & others
     )
   } else { // no alias problem
     req.vaddr := io.mem_probe.bits.address

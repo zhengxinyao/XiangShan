@@ -35,7 +35,7 @@ class MissReqWoStoreData(implicit p: Parameters) extends DCacheBundle {
   val cmd = UInt(M_SZ.W)
   val addr = UInt(PAddrBits.W)
   val vaddr = UInt(VAddrBits.W)
-  val way_en = UInt(DCacheWays.W)
+  val way_en = UInt(nWays.W)
 
   // store
   val full_overwrite = Bool()
@@ -157,7 +157,7 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   val req = Reg(new MissReqWoStoreData)
   val req_store_mask = Reg(UInt(cfg.blockBytes.W))
   val req_valid = RegInit(false.B)
-  val set = addr_to_dcache_set(req.vaddr)
+  val set = get_idx(req.vaddr)
 
   val s_acquire = RegInit(true.B)
   val s_grantack = RegInit(true.B)
@@ -373,7 +373,7 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   // but sbuffer entry can be freed
   def should_reject(new_req: MissReqWoStoreData): Bool = {
     val block_match = get_block(req.addr) === get_block(new_req.addr)
-    val set_match = set === addr_to_dcache_set(new_req.vaddr)
+    val set_match = set === get_idx(new_req.vaddr)
 
     req_valid &&
       Mux(
@@ -456,8 +456,8 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   refill.way_en := req.way_en
   refill.wmask := Mux(
     hasData || req.isLoad,
-    ~0.U(DCacheBanks.W),
-    VecInit((0 until DCacheBanks).map(i => get_mask_of_bank(i, req_store_mask).orR)).asUInt
+    ~0.U(nBanks.W),
+    VecInit((0 until nBanks).map(i => get_mask_of_bank(i, req_store_mask).orR)).asUInt
   )
   refill.data := refill_and_store_data.asTypeOf((new RefillPipeReq).data)
   refill.miss_id := io.id
@@ -503,7 +503,7 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   io.block_addr.bits := req.addr
 
   io.debug_early_replace.valid := BoolStopWatch(io.replace_pipe_resp, io.refill_pipe_req.fire())
-  io.debug_early_replace.bits.idx := addr_to_dcache_set(req.vaddr)
+  io.debug_early_replace.bits.idx := get_idx(req.vaddr)
   io.debug_early_replace.bits.tag := req.replace_tag
 
   XSPerfAccumulate("miss_req_primary", primary_fire)

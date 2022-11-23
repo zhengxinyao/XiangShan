@@ -31,7 +31,7 @@ class MainPipeReq(implicit p: Parameters) extends DCacheBundle {
   val miss_id = UInt(log2Up(cfg.nMissEntries).W)
   val miss_param = UInt(TLPermissions.bdWidth.W)
   val miss_dirty = Bool()
-  val miss_way_en = UInt(DCacheWays.W)
+  val miss_way_en = UInt(nWays.W)
 
   val probe = Bool()
   val probe_param = UInt(TLPermissions.bdWidth.W)
@@ -62,7 +62,7 @@ class MainPipeReq(implicit p: Parameters) extends DCacheBundle {
 
   // replace
   val replace = Bool()
-  val replace_way_en = UInt(DCacheWays.W)
+  val replace_way_en = UInt(nWays.W)
 
   val id = UInt(reqIdWidth.W)
 
@@ -121,10 +121,10 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
     // data sram
     val data_read_intend = Output(Bool())
     val data_read = DecoupledIO(new L1BankedDataReadLineReq)
-    val data_resp = Input(Vec(DCacheBanks, new L1BankedDataReadResult()))
+    val data_resp = Input(Vec(nBanks, new L1BankedDataReadResult()))
     val readline_error_delayed = Input(Bool())
     val data_write = DecoupledIO(new L1BankedDataWriteReq)
-    val data_write_dup = Vec(DCacheBanks, Valid(new L1BankedDataWriteReqCtrl))
+    val data_write_dup = Vec(nBanks, Valid(new L1BankedDataWriteReqCtrl))
     val data_write_ready_dup = Vec(nDupDataWriteReady, Input(Bool()))
 
     // meta array
@@ -206,13 +206,13 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s0_can_go = io.meta_read.ready && io.tag_read.ready && s1_ready && !set_conflict
   val s0_fire = req.valid && s0_can_go
 
-  val bank_write = VecInit((0 until DCacheBanks).map(i => get_mask_of_bank(i, s0_req.store_mask).orR)).asUInt
-  val bank_full_write = VecInit((0 until DCacheBanks).map(i => get_mask_of_bank(i, s0_req.store_mask).andR)).asUInt
+  val bank_write = VecInit((0 until nBanks).map(i => get_mask_of_bank(i, s0_req.store_mask).orR)).asUInt
+  val bank_full_write = VecInit((0 until nBanks).map(i => get_mask_of_bank(i, s0_req.store_mask).andR)).asUInt
   val banks_full_overwrite = bank_full_write.andR
 
   val banked_store_rmask = bank_write & ~bank_full_write
-  val banked_full_rmask = ~0.U(DCacheBanks.W)
-  val banked_none_rmask = 0.U(DCacheBanks.W)
+  val banked_full_rmask = ~0.U(nBanks.W)
+  val banked_none_rmask = 0.U(nBanks.W)
 
   val store_need_data = !s0_req.probe && s0_req.isStore && banked_store_rmask.orR
   val probe_need_data = s0_req.probe
@@ -230,8 +230,8 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
 
   // generate wmask here and use it in stage 2
   val banked_store_wmask = bank_write
-  val banked_full_wmask = ~0.U(DCacheBanks.W)
-  val banked_none_wmask = 0.U(DCacheBanks.W)
+  val banked_full_wmask = ~0.U(nBanks.W)
+  val banked_none_wmask = 0.U(nBanks.W)
 
   // s1: read data
   val s1_valid = RegInit(false.B)
@@ -405,18 +405,18 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
 
   val data_resp = Wire(io.data_resp.cloneType)
   data_resp := Mux(RegNext(s1_fire), io.data_resp, RegNext(data_resp))
-  val s2_store_data_merged = Wire(Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W)))
+  val s2_store_data_merged = Wire(Vec(nBanks, UInt(rowBits.W)))
 
   def mergePutData(old_data: UInt, new_data: UInt, wmask: UInt): UInt = {
     val full_wmask = FillInterleaved(8, wmask)
     ((~full_wmask & old_data) | (full_wmask & new_data))
   }
 
-  val s2_data = WireInit(VecInit((0 until DCacheBanks).map(i => {
+  val s2_data = WireInit(VecInit((0 until nBanks).map(i => {
     data_resp(i).raw_data
   })))
 
-  for (i <- 0 until DCacheBanks) {
+  for (i <- 0 until nBanks) {
     val old_data = s2_data(i)
     val new_data = get_data_of_bank(i, s2_req.store_data)
     // for amo hit, we should use read out SRAM data
@@ -479,7 +479,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s3_req_addr_dup = (0 until 5).map(_ => RegEnable(s2_req.addr, s2_fire_to_s3))
   val s3_req_probe_dup = (0 until 10).map(_ => RegEnable(s2_req.probe, s2_fire_to_s3))
   val s3_req_miss_dup = (0 until 10).map(_ => RegEnable(s2_req.miss, s2_fire_to_s3))
-  val s3_req_word_idx_dup = (0 until DCacheBanks).map(_ => RegEnable(s2_req.word_idx, s2_fire_to_s3))
+  val s3_req_word_idx_dup = (0 until nBanks).map(_ => RegEnable(s2_req.word_idx, s2_fire_to_s3))
 
   val s3_need_replacement_dup = RegEnable(s2_need_replacement, s2_fire_to_s3)
 
@@ -617,9 +617,9 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
 
   // merge amo write data
 //  val amo_bitmask = FillInterleaved(8, s3_req.amo_mask)
-  val s3_amo_data_merged = Wire(Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W)))
-  val s3_sc_data_merged = Wire(Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W)))
-  for (i <- 0 until DCacheBanks) {
+  val s3_amo_data_merged = Wire(Vec(nBanks, UInt(rowBits.W)))
+  val s3_sc_data_merged = Wire(Vec(nBanks, UInt(rowBits.W)))
+  for (i <- 0 until nBanks) {
     val old_data = s3_store_data_merged(i)
     val new_data = amoalu.io.out
     val wmask = Mux(
@@ -1095,10 +1095,10 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   )
   assert(!(s3_valid && banked_wmask.orR && !update_data))
 
-  val s3_sc_data_merged_dup_for_data_w_valid = Wire(Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W)))
+  val s3_sc_data_merged_dup_for_data_w_valid = Wire(Vec(nBanks, UInt(rowBits.W)))
   val s3_req_amo_data_dup_for_data_w_valid = RegEnable(s2_req.amo_data, s2_fire_to_s3)
   val s3_req_amo_mask_dup_for_data_w_valid = RegEnable(s2_req.amo_mask, s2_fire_to_s3)
-  for (i <- 0 until DCacheBanks) {
+  for (i <- 0 until nBanks) {
     val old_data = s3_store_data_merged(i)
     s3_sc_data_merged_dup_for_data_w_valid(i) := mergePutData(old_data, s3_req_amo_data_dup_for_data_w_valid,
       Mux(
@@ -1112,11 +1112,11 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   when (s2_fire_to_s3) { s3_valid_dup_for_data_w_valid := true.B }
   .elsewhen (s3_fire_dup_for_data_w_valid) { s3_valid_dup_for_data_w_valid := false.B }
 
-  val s3_valid_dup_for_data_w_bank = RegInit(VecInit(Seq.fill(DCacheBanks)(false.B))) // TODO
-  val data_write_ready_dup_for_data_w_bank = io.data_write_ready_dup.drop(dataWritePort).take(DCacheBanks)
-  val tag_write_ready_dup_for_data_w_bank = io.tag_write_ready_dup.drop(dataWritePort).take(DCacheBanks)
-  val wb_ready_dup_for_data_w_bank = io.wb_ready_dup.drop(dataWritePort).take(DCacheBanks)
-  for (i <- 0 until DCacheBanks) {
+  val s3_valid_dup_for_data_w_bank = RegInit(VecInit(Seq.fill(nBanks)(false.B))) // TODO
+  val data_write_ready_dup_for_data_w_bank = io.data_write_ready_dup.drop(dataWritePort).take(nBanks)
+  val tag_write_ready_dup_for_data_w_bank = io.tag_write_ready_dup.drop(dataWritePort).take(nBanks)
+  val wb_ready_dup_for_data_w_bank = io.wb_ready_dup.drop(dataWritePort).take(nBanks)
+  for (i <- 0 until nBanks) {
     val s3_req_miss_dup_for_data_w_bank = RegEnable(s2_req.miss, s2_fire_to_s3)
     val s3_req_probe_dup_for_data_w_bank = RegEnable(s2_req.probe, s2_fire_to_s3)
     val s3_tag_match_dup_for_data_w_bank = RegEnable(s2_tag_match, s2_fire_to_s3)
@@ -1317,10 +1317,10 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s3_req_word_idx_dup_for_wb_valid = RegEnable(s2_req.word_idx, s2_fire_to_s3)
   val s3_replace_nothing_dup_for_wb_valid = s3_req_replace_dup_for_wb_valid && s3_coh_dup_for_wb_valid.state === ClientStates.Nothing
 
-  val s3_sc_data_merged_dup_for_wb_valid = Wire(Vec(DCacheBanks, UInt(DCacheSRAMRowBits.W)))
+  val s3_sc_data_merged_dup_for_wb_valid = Wire(Vec(nBanks, UInt(rowBits.W)))
   val s3_req_amo_data_dup_for_wb_valid = RegEnable(s2_req.amo_data, s2_fire_to_s3)
   val s3_req_amo_mask_dup_for_wb_valid = RegEnable(s2_req.amo_mask, s2_fire_to_s3)
-  for (i <- 0 until DCacheBanks) {
+  for (i <- 0 until nBanks) {
     val old_data = s3_store_data_merged(i)
     s3_sc_data_merged_dup_for_wb_valid(i) := mergePutData(old_data, s3_req_amo_data_dup_for_wb_valid,
       Mux(

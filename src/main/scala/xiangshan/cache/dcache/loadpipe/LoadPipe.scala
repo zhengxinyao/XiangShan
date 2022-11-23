@@ -39,7 +39,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
     val tag_resp = Input(Vec(nWays, UInt(encTagBits.W)))
 
     val banked_data_read = DecoupledIO(new L1BankedDataReadReq)
-    val banked_data_resp = Input(Vec(DCacheBanks, new L1BankedDataReadResult()))
+    val banked_data_resp = Input(Vec(nBanks, new L1BankedDataReadResult()))
     val read_error_delayed = Input(Bool())
 
     // banked data read conflict
@@ -111,7 +111,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   val s1_paddr_dup_dcache = io.lsu.s1_paddr_dup_dcache
   // LSU may update the address from io.lsu.s1_paddr, which affects the bank read enable only.
   val s1_vaddr = Cat(s1_req.addr(PAddrBits - 1, blockOffBits), io.lsu.s1_paddr_dup_lsu(blockOffBits - 1, 0))
-  val s1_bank_oh = UIntToOH(addr_to_dcache_bank(s1_vaddr))
+  val s1_bank_oh = UIntToOH(get_bank(s1_vaddr))
   val s1_nack = RegNext(io.nack)
   val s1_nack_data = !io.banked_data_read.ready
   val s1_fire = s1_valid && s2_ready
@@ -226,7 +226,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   val s2_nack = s2_nack_hit || s2_nack_no_mshr || s2_nack_data
 
   val banked_data_resp = io.banked_data_resp
-  val s2_bank_addr = addr_to_dcache_bank(s2_paddr)
+  val s2_bank_addr = get_bank(s2_paddr)
   dontTouch(s2_bank_addr)
 
   val s2_instrtype = s2_req.instrtype

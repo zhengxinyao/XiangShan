@@ -70,8 +70,8 @@ class SQAddrModule(dataWidth: Int, numEntries: Int, numRead: Int, numWrite: Int,
   for (i <- 0 until numForward) {
     for (j <- 0 until numEntries) {
       // io.forwardMmask(i)(j) := io.forwardMdata(i)(dataWidth-1, 3) === data(j)(dataWidth-1, 3)
-      val linehit = io.forwardMdata(i)(dataWidth-1, DCacheLineOffset) === data(j)(dataWidth-1, DCacheLineOffset)
-      val wordhit = io.forwardMdata(i)(DCacheLineOffset-1, DCacheWordOffset) === data(j)(DCacheLineOffset-1, DCacheWordOffset)
+      val linehit = io.forwardMdata(i)(dataWidth-1, blockOffBits) === data(j)(dataWidth-1, blockOffBits)
+      val wordhit = io.forwardMdata(i)(blockOffBits-1, wordOffBits) === data(j)(blockOffBits-1, wordOffBits)
       io.forwardMmask(i)(j) := linehit && (wordhit || lineflag(j))
     }
   }
@@ -125,9 +125,9 @@ class SQData8Module(numEntries: Int, numRead: Int, numWrite: Int, numForward: In
 
   require(isPow2(StoreQueueNWriteBanks))
   require(StoreQueueNWriteBanks > 1)
-  def get_bank(in: UInt): UInt = in(log2Up(StoreQueueNWriteBanks) -1, 0)
-  def get_bank_index(in: UInt): UInt = in >> log2Up(StoreQueueNWriteBanks)
-  def get_vec_index(index: Int, bank: Int): Int = {
+  def get_sdata_bank(in: UInt): UInt = in(log2Up(StoreQueueNWriteBanks) -1, 0)
+  def get_sdata_bank_index(in: UInt): UInt = in >> log2Up(StoreQueueNWriteBanks)
+  def get_sdata_vec_index(index: Int, bank: Int): Int = {
     (index << log2Up(StoreQueueNWriteBanks)) + bank
   }
 
@@ -140,14 +140,14 @@ class SQData8Module(numEntries: Int, numRead: Int, numWrite: Int, numForward: In
   // })
   (0 until numWrite).map(i => {
     (0 until StoreQueueNWriteBanks).map(bank => {
-      val s0_wen = io.data.wen(i) && get_bank(io.data.waddr(i)) === bank.U
+      val s0_wen = io.data.wen(i) && get_sdata_bank(io.data.waddr(i)) === bank.U
       val s1_wen = RegNext(s0_wen)
       val s1_wdata = RegEnable(io.data.wdata(i), s0_wen)
-      val s1_waddr = RegEnable(get_bank_index(io.data.waddr(i)), s0_wen)
+      val s1_waddr = RegEnable(get_sdata_bank_index(io.data.waddr(i)), s0_wen)
       val numRegsPerBank = StoreQueueSize / StoreQueueNWriteBanks
       (0 until numRegsPerBank).map(index => {
         when(s1_wen && s1_waddr === index.U){
-          data(get_vec_index(index, bank)).data := s1_wdata
+          data(get_sdata_vec_index(index, bank)).data := s1_wdata
         }
       })
       s0_wen.suggestName("data_s0_wen_" + i +"_bank_" + bank)
@@ -164,14 +164,14 @@ class SQData8Module(numEntries: Int, numRead: Int, numWrite: Int, numForward: In
   // })
   (0 until numWrite).map(i => {
     (0 until StoreQueueNWriteBanks).map(bank => {
-      val s0_wen = io.mask.wen(i) && get_bank(io.mask.waddr(i)) === bank.U
+      val s0_wen = io.mask.wen(i) && get_sdata_bank(io.mask.waddr(i)) === bank.U
       val s1_wen = RegNext(s0_wen)
       val s1_wdata = RegEnable(io.mask.wdata(i), s0_wen)
-      val s1_waddr = RegEnable(get_bank_index(io.mask.waddr(i)), s0_wen)
+      val s1_waddr = RegEnable(get_sdata_bank_index(io.mask.waddr(i)), s0_wen)
       val numRegsPerBank = StoreQueueSize / StoreQueueNWriteBanks
       (0 until numRegsPerBank).map(index => {
         when(s1_wen && s1_waddr === index.U){
-          data(get_vec_index(index, bank)).valid := s1_wdata
+          data(get_sdata_vec_index(index, bank)).valid := s1_wdata
         }
       })
       s0_wen.suggestName("mask_s0_wen_" + i +"_bank_" + bank)

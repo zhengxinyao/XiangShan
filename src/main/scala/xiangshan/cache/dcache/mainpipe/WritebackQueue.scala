@@ -91,7 +91,7 @@ class WritebackReq(implicit p: Parameters) extends WritebackReqWodata {
 class ReleaseUpdate(implicit p: Parameters) extends DCacheBundle {
   // only consider store here
   val addr = UInt(PAddrBits.W)
-  val mask = UInt(DCacheBanks.W)
+  val mask = UInt(nBanks.W)
   val data = UInt((cfg.blockBytes * 8).W)
 }
 
@@ -100,7 +100,7 @@ class ReleaseUpdate(implicit p: Parameters) extends DCacheBundle {
 class WBQEntryReleaseUpdate(implicit p: Parameters) extends DCacheBundle {
   // only consider store here
   val addr = UInt(PAddrBits.W)
-  val mask_delayed = UInt(DCacheBanks.W)
+  val mask_delayed = UInt(nBanks.W)
   val data_delayed = UInt((cfg.blockBytes * 8).W)
   val mask_orr = Bool()
 }
