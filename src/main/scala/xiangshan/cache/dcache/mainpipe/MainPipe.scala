@@ -99,6 +99,10 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val io = IO(new Bundle() {
     // probe queue
     val probe_req = Flipped(DecoupledIO(new MainPipeReq))
+    val probe_resp = Output(ValidIO(new DCacheBundle(){
+      val id = UInt(log2Up(cfg.nProbeEntries).W)
+      val replay = Bool()
+    }))
     // store miss go to miss queue
     val miss_req = DecoupledIO(new MissReq)
     // store buffer
@@ -655,7 +659,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
     s3_tag_match && s3_req_probe_dup(6) && s3_req.probe_need_data || s3_coh_dup(3) === ClientStates.Dirty
   }
 
-  val s3_probe_can_go = s3_req_probe_dup(7) && io.wb.ready && (io.meta_write.ready || !probe_update_meta)
+  val s3_probe_can_go = s3_req_probe_dup(7)
   val s3_store_can_go = s3_req_source_dup_1 === STORE_SOURCE.U && !s3_req_probe_dup(8) && (io.meta_write.ready || !store_update_meta) && (io.data_write.ready || !update_data)
   val s3_amo_can_go = s3_amo_hit_dup && (io.meta_write.ready || !amo_update_meta) && (io.data_write.ready || !update_data) && (s3_s_amoalu_dup(0) || !amo_wait_amoalu)
   val s3_miss_can_go = s3_req_miss_dup(4) &&
@@ -734,9 +738,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s3_can_do_amo_write_dup_for_meta_w_valid = s3_can_do_amo_dup_for_meta_w_valid && isWrite(s3_req_cmd_dup_for_meta_w_valid) && !s3_sc_fail_dup_for_meta_w_valid
   val update_data_dup_for_meta_w_valid = s3_req_miss_dup_for_meta_w_valid || s3_store_hit_dup_for_meta_w_valid || s3_can_do_amo_write_dup_for_meta_w_valid
 
-  val s3_probe_can_go_dup_for_meta_w_valid = s3_req_probe_dup_for_meta_w_valid &&
-    io.wb_ready_dup(metaWritePort) &&
-    (io.meta_write.ready || !probe_update_meta_dup_for_meta_w_valid)
+  val s3_probe_can_go_dup_for_meta_w_valid = s3_req_probe_dup_for_meta_w_valid
   val s3_store_can_go_dup_for_meta_w_valid = s3_req_source_dup_for_meta_w_valid === STORE_SOURCE.U && !s3_req_probe_dup_for_meta_w_valid &&
     (io.meta_write.ready || !store_update_meta_dup_for_meta_w_valid) &&
     (io.data_write_ready_dup(metaWritePort) || !update_data_dup_for_meta_w_valid)
@@ -858,9 +860,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s3_can_do_amo_write_dup_for_err_w_valid = s3_can_do_amo_dup_for_err_w_valid && isWrite(s3_req_cmd_dup_for_err_w_valid) && !s3_sc_fail_dup_for_err_w_valid
   val update_data_dup_for_err_w_valid = s3_req_miss_dup_for_err_w_valid || s3_store_hit_dup_for_err_w_valid || s3_can_do_amo_write_dup_for_err_w_valid
 
-  val s3_probe_can_go_dup_for_err_w_valid = s3_req_probe_dup_for_err_w_valid &&
-    io.wb_ready_dup(errWritePort) &&
-    (io.meta_write.ready || !probe_update_meta_dup_for_err_w_valid)
+  val s3_probe_can_go_dup_for_err_w_valid = s3_req_probe_dup_for_err_w_valid
   val s3_store_can_go_dup_for_err_w_valid = s3_req_source_dup_for_err_w_valid === STORE_SOURCE.U && !s3_req_probe_dup_for_err_w_valid &&
     (io.meta_write.ready || !store_update_meta_dup_for_err_w_valid) &&
     (io.data_write_ready_dup(errWritePort) || !update_data_dup_for_err_w_valid)
@@ -953,9 +953,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s3_can_do_amo_write_dup_for_tag_w_valid = s3_can_do_amo_dup_for_tag_w_valid && isWrite(s3_req_cmd_dup_for_tag_w_valid) && !s3_sc_fail_dup_for_tag_w_valid
   val update_data_dup_for_tag_w_valid = s3_req_miss_dup_for_tag_w_valid || s3_store_hit_dup_for_tag_w_valid || s3_can_do_amo_write_dup_for_tag_w_valid
 
-  val s3_probe_can_go_dup_for_tag_w_valid = s3_req_probe_dup_for_tag_w_valid &&
-    io.wb_ready_dup(tagWritePort) &&
-    (io.meta_write.ready || !probe_update_meta_dup_for_tag_w_valid)
+  val s3_probe_can_go_dup_for_tag_w_valid = s3_req_probe_dup_for_tag_w_valid
   val s3_store_can_go_dup_for_tag_w_valid = s3_req_source_dup_for_tag_w_valid === STORE_SOURCE.U && !s3_req_probe_dup_for_tag_w_valid &&
     (io.meta_write.ready || !store_update_meta_dup_for_tag_w_valid) &&
     (io.data_write_ready_dup(tagWritePort) || !update_data_dup_for_tag_w_valid)
@@ -1048,9 +1046,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s3_can_do_amo_write_dup_for_data_w_valid = s3_can_do_amo_dup_for_data_w_valid && isWrite(s3_req_cmd_dup_for_data_w_valid) && !s3_sc_fail_dup_for_data_w_valid
   val update_data_dup_for_data_w_valid = s3_req_miss_dup_for_data_w_valid || s3_store_hit_dup_for_data_w_valid || s3_can_do_amo_write_dup_for_data_w_valid
 
-  val s3_probe_can_go_dup_for_data_w_valid = s3_req_probe_dup_for_data_w_valid &&
-    io.wb_ready_dup(dataWritePort) &&
-    (io.meta_write.ready || !probe_update_meta_dup_for_data_w_valid)
+  val s3_probe_can_go_dup_for_data_w_valid = s3_req_probe_dup_for_data_w_valid
   val s3_store_can_go_dup_for_data_w_valid = s3_req_source_dup_for_data_w_valid === STORE_SOURCE.U && !s3_req_probe_dup_for_data_w_valid &&
     (io.meta_write.ready || !store_update_meta_dup_for_data_w_valid) &&
     (io.data_write_ready_dup(dataWritePort) || !update_data_dup_for_data_w_valid)
@@ -1178,9 +1174,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
     val s3_can_do_amo_write_dup_for_data_w_bank = s3_can_do_amo_dup_for_data_w_bank && isWrite(s3_req_cmd_dup_for_data_w_bank) && !s3_sc_fail_dup_for_data_w_bank
     val update_data_dup_for_data_w_bank = s3_req_miss_dup_for_data_w_bank || s3_store_hit_dup_for_data_w_bank || s3_can_do_amo_write_dup_for_data_w_bank
 
-    val s3_probe_can_go_dup_for_data_w_bank = s3_req_probe_dup_for_data_w_bank &&
-      wb_ready_dup_for_data_w_bank(i) &&
-      (io.meta_write.ready || !probe_update_meta_dup_for_data_w_bank)
+    val s3_probe_can_go_dup_for_data_w_bank = s3_req_probe_dup_for_data_w_bank
     val s3_store_can_go_dup_for_data_w_bank = s3_req_source_dup_for_data_w_bank === STORE_SOURCE.U && !s3_req_probe_dup_for_data_w_bank &&
       (io.meta_write.ready || !store_update_meta_dup_for_data_w_bank) &&
       (data_write_ready_dup_for_data_w_bank(i) || !update_data_dup_for_data_w_bank)
@@ -1281,9 +1275,7 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   val s3_can_do_amo_write_dup_for_wb_valid = s3_can_do_amo_dup_for_wb_valid && isWrite(s3_req_cmd_dup_for_wb_valid) && !s3_sc_fail_dup_for_wb_valid
   val update_data_dup_for_wb_valid = s3_req_miss_dup_for_wb_valid || s3_store_hit_dup_for_wb_valid || s3_can_do_amo_write_dup_for_wb_valid
 
-  val s3_probe_can_go_dup_for_wb_valid = s3_req_probe_dup_for_wb_valid &&
-    io.wb_ready_dup(wbPort) &&
-    (io.meta_write.ready || !probe_update_meta_dup_for_wb_valid)
+  val s3_probe_can_go_dup_for_wb_valid = s3_req_probe_dup_for_wb_valid
   val s3_store_can_go_dup_for_wb_valid = s3_req_source_dup_for_wb_valid === STORE_SOURCE.U && !s3_req_probe_dup_for_wb_valid &&
     (io.meta_write.ready || !store_update_meta_dup_for_wb_valid) &&
     (io.data_write_ready_dup(wbPort) || !update_data_dup_for_wb_valid)
@@ -1458,7 +1450,12 @@ class MainPipe(implicit p: Parameters) extends DCacheModule with HasPerfEvents {
   io.replace_resp.bits.id := s3_req.miss_id
   io.replace_resp.bits.replay := !s3_replace_nothing && !io.wb.ready
 
-  io.meta_write.valid := s3_fire_dup_for_meta_w_valid && update_meta_dup_for_meta_w_valid
+  io.probe_resp.valid := s3_fire && s3_req_probe_dup(3)
+  io.probe_resp.bits.id := s3_req.id
+  io.probe_resp.bits.replay := !io.wb.ready || (!io.meta_write.ready && probe_update_meta)
+
+  io.meta_write.valid := Mux(s3_req_probe_dup(3), s3_fire_dup_for_meta_w_valid && probe_update_meta && io.wb.ready, s3_fire_dup_for_meta_w_valid && update_meta_dup_for_meta_w_valid)
+  // io.meta_write.valid := s3_fire_dup_for_meta_w_valid && update_meta_dup_for_meta_w_valid
   io.meta_write.bits.idx := s3_idx_dup(2)
   io.meta_write.bits.way_en := s3_way_en_dup(0)
   io.meta_write.bits.meta.coh := new_coh
