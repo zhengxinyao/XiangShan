@@ -31,6 +31,8 @@ class AtomicsResp(implicit p: Parameters) extends DCacheBundle {
   val ack_miss_queue = Bool()
 
   val id     = UInt(reqIdWidth.W)
+
+  val replay_from_miss_queue = Bool()
 }
 
 class AtomicsReplayEntry(implicit p: Parameters) extends DCacheModule

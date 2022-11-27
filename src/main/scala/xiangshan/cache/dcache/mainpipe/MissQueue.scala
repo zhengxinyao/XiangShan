@@ -144,6 +144,8 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
     // main pipe: amo miss
     val main_pipe_req = DecoupledIO(new MainPipeReq)
     val main_pipe_resp = Input(Bool())
+    // for amo miss req replay
+    val main_pipe_replay_needed = Input(Bool())
 
     val block_addr = ValidIO(UInt(PAddrBits.W))
 
@@ -357,8 +359,15 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   }
 
   when (io.main_pipe_resp) {
-    w_mainpipe_resp := true.B
+    when(io.main_pipe_replay_needed) {
+      // replay this amo miss to main pipe
+      s_mainpipe_req := false.B
+    }.otherwise {
+      w_mainpipe_resp := true.B
+    }
   }
+
+  XSPerfAccumulate("amo_miss_req_replayed", io.main_pipe_resp && io.main_pipe_replay_needed)
 
   def before_read_sent_can_merge(new_req: MissReqWoStoreData): Bool = {
     acquire_not_sent && req.isLoad && (new_req.isLoad || new_req.isStore)
@@ -653,6 +662,7 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
       e.io.replace_pipe_resp := io.replace_pipe_resp.valid && io.replace_pipe_resp.bits.id === i.U
       e.io.replace_pipe_replay_needed := io.replace_pipe_resp.bits.replay
       e.io.main_pipe_resp := io.main_pipe_resp.valid && io.main_pipe_resp.bits.ack_miss_queue && io.main_pipe_resp.bits.miss_id === i.U
+      e.io.main_pipe_replay_needed := io.main_pipe_resp.bits.replay_from_miss_queue
 
       io.debug_early_replace(i) := e.io.debug_early_replace
   }
