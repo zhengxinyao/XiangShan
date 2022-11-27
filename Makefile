@@ -23,6 +23,7 @@ TEST_FILE = $(shell find ./src/test/scala -name '*.scala')
 MEM_GEN = ./scripts/vlsi_mem_gen
 
 SIMTOP  = top.SimTop
+SIMMemBlock  = top.SimMemBlock
 IMAGE  ?= temp
 CONFIG ?= DefaultConfig
 NUM_CORES ?= 1
@@ -64,6 +65,10 @@ TIMELOG = $(BUILD_DIR)/time.log
 TIME_CMD = time -a -o $(TIMELOG)
 
 .DEFAULT_GOAL = verilog
+
+memblock:
+	$(TIME_CMD) mill -i XiangShan.test.runMain $(SIMMemBlock) --config $(CONFIG) \
+	 --full-stacktrace --infer-rw --gen-mem-verilog full
 
 help:
 	mill -i XiangShan.test.runMain $(SIMTOP) --help
