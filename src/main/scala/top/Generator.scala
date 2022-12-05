@@ -69,7 +69,7 @@ object Generator {
         })
         (new circt.stage.ChiselStage).execute(mfcArgs, Seq(
           ChiselGeneratorAnnotation(mod _),
-          circt.stage.CIRCTTargetAnnotation(circt.stage.CIRCTTarget.Verilog),
+          circt.stage.CIRCTTargetAnnotation(circt.stage.CIRCTTarget.SystemVerilog),
           circt.stage.CIRCTHandover(circt.stage.CIRCTHandover.CHIRRTL)
         ))
       case SFC =>
