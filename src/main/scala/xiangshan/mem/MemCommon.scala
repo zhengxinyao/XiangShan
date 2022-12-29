@@ -76,6 +76,7 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp {
   val isLoadReplay = Bool()
 }
 
+// TODO: ldu/lq io to be refactored
 class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
   // queue entry data, except flag bits, will be updated if writeQueue is true,
   // valid bit in LqWriteBundle will be ignored
@@ -191,15 +192,10 @@ class LoadDataFromDcacheBundle(implicit p: Parameters) extends DCacheBundle {
   val uop = new MicroOp // for data selection, only fwen and fuOpType are used
   val addrOffset = UInt(3.W) // for data selection
 
+  // raw data from dcache
   val dcacheData = UInt(XLEN.W)
 
-  /* WHQ-dcache: optimize data sram read fanout
-  val bankedDcacheData = Vec(DCacheBanks, UInt(64.W))
-  val bank_oh = UInt(DCacheBanks.W)
-  def dcacheData(): UInt = {
-    Mux1H(bank_oh, bankedDcacheData)
-  }
-  */
+  // dcache data resp merge fwd data
   def mergedData(): UInt = {
     val rdataVec = VecInit((0 until XLEN / 8).map(j =>
       Mux(forwardMask(j), forwardData(j), dcacheData(8*(j+1)-1, 8*j))
