@@ -438,7 +438,11 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
             s_sleep
           ))
           req := req_later.toWritebackReqCtrl
-          remain_set := Mux(req_later.hasData, ~0.U(refillCycles.W), 1.U(refillCycles.W))
+          when(io.release_wakeup.valid && io.release_wakeup.bits === req_later.miss_id || !req_later.delay_release) {
+            remain_set := Mux(req_later.hasData, ~0.U(refillCycles.W), 1.U(refillCycles.W))
+          }.otherwise {
+            remain_set := 0.U
+          }
           when (io.release_wakeup.valid && io.release_wakeup.bits === req_later.miss_id) {
             req.delay_release := false.B
           }
