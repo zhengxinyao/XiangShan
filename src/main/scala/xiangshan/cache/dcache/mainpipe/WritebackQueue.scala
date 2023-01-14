@@ -141,6 +141,8 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
 
     val probe_ttob_check_req = Flipped(ValidIO(new ProbeToBCheckReq))
     val probe_ttob_check_resp = ValidIO(new ProbeToBCheckResp)
+
+    val ila_flag = Output(Bool())
   })
 
   val s_invalid :: s_sleep :: s_release_req :: s_release_resp :: Nil = Enum(4)
@@ -503,6 +505,12 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
     }
   }
 
+  val ila_flag = Wire(Bool())
+  ila_flag := state_dup_0 === s_release_req && !req.voluntary && release_done && !merge && release_later && (io.release_wakeup.valid && io.release_wakeup.bits === req_later.miss_id || !req_later.delay_release)
+  io.ila_flag := ila_flag
+  dontTouch(ila_flag)
+  dontTouch(io.ila_flag)
+
   // When does this entry merge a new req?
   // 1. When this entry is free
   // 2. When this entry wants to release while still waiting for release_wakeup signal,
@@ -618,6 +626,9 @@ class WritebackQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
   io.req_ready_dup.zipWithIndex.foreach { case (rdy, i) =>
     rdy := Cat(entries.map(_.io.primary_ready_dup(i))).orR
   }
+
+  val ila_flag = Cat(entries.map(_.io.ila_flag)).orR
+  dontTouch(ila_flag)
 
   io.probe_ttob_check_resp.valid := RegNext(io.probe_ttob_check_req.valid) // for debug only
   io.probe_ttob_check_resp.bits.toN := VecInit(entries.map(e => e.io.probe_ttob_check_resp.bits.toN)).asUInt.orR
