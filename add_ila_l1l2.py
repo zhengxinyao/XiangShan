@@ -238,7 +238,7 @@ other_targets = {
         "wire  ila_flag"
     },
     "WritebackEntry": {
-        "reg [1:0] state",
+        "reg [1:0] state;",
         "reg [35:0] paddr_dup_0",
         "reg  req_voluntary",
         "reg [3:0] req_miss_id",
@@ -253,11 +253,11 @@ other_targets = {
         "wire  update",
         "wire  merge",
         "reg  release_later",
-        "wire  release_done;",
+        "wire  release_done ",
         "wire  ila_flag"
     },
     "WritebackEntry_16": {
-        "reg [1:0] state",
+        "reg [1:0] state;",
         "reg [35:0] paddr_dup_0",
         "reg  req_voluntary",
         "reg [3:0] req_miss_id",
@@ -272,7 +272,7 @@ other_targets = {
         "wire  update",
         "wire  merge",
         "reg  release_later",
-        "wire  release_done;",
+        "wire  release_done ",
         "wire  ila_flag"
     }
 }
