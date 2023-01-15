@@ -442,6 +442,7 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
           req := req_later.toWritebackReqCtrl
           when(io.release_wakeup.valid && io.release_wakeup.bits === req_later.miss_id || !req_later.delay_release) {
             remain_set := Mux(req_later.hasData, ~0.U(refillCycles.W), 1.U(refillCycles.W))
+            remain_clr := 0.U
           }.otherwise {
             remain_set := 0.U
           }
