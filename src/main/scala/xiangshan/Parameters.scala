@@ -170,6 +170,7 @@ case class XSCoreParameters
   EnableUncacheWriteOutstanding: Boolean = true,
   MMUAsidLen: Int = 16, // max is 16, 0 is not supported now
   ReSelectLen: Int = 6, // load replay queue replay select counter len
+  DcacheRefillBufferSize: Int = 4,
   itlbParameters: TLBParameters = TLBParameters(
     name = "itlb",
     fetchi = true,
@@ -295,6 +296,7 @@ trait HasXSParameter {
   val VAddrBits = coreParams.VAddrBits // VAddrBits is Virtual Memory addr bits
   val AsidLength = coreParams.AsidLength
   val ReSelectLen = coreParams.ReSelectLen
+  val DcacheRefillBufferSize = coreParams.DcacheRefillBufferSize
   val AddrBytes = AddrBits / 8 // unused
   val DataBits = XLEN
   val DataBytes = DataBits / 8

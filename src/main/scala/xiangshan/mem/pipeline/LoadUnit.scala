@@ -692,7 +692,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
     val sbuffer = new LoadForwardQueryIO
     val lsq = new LoadToLsqIO
     val tlDchannel = Input(new DcacheToLduForwardIO)
-    val forward_mshr = Flipped(new LduToMissqueueForwardIO)
+    val forward_mshr = Flipped(new LduToRefillBufferForwardIO)
     val refill = Flipped(ValidIO(new Refill))
     val fastUop = ValidIO(new MicroOp) // early wakeup signal generated in load_s1, send to RS in load_s2
     val trigger = Vec(3, new LoadUnitTriggerIO)

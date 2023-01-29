@@ -200,7 +200,7 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
 
   // refill data with store data, this reg will be used to store:
   // 1. store data (if needed), before l2 refill data
-  // 2. store data and l2 refill data merged result (i.e. new cacheline taht will be write to data array)
+  // 2. store data and l2 refill data merged result (i.e. new cacheline that will be write to data array)
   val refill_and_store_data = Reg(Vec(blockRows, UInt(rowBits.W)))
   // raw data refilled to l1 by l2
   val refill_data_raw = Reg(Vec(blockBytes/beatBytes, UInt(beatBits.W)))
@@ -564,7 +564,6 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
     val mem_finish = DecoupledIO(new TLBundleE(edge.bundle))
 
     val refill_pipe_req = DecoupledIO(new RefillPipeReq)
-    val refill_pipe_req_dup = Vec(nDupStatus, DecoupledIO(new RefillPipeReqCtrl))
     val refill_pipe_resp = Flipped(ValidIO(UInt(log2Up(cfg.nMissEntries).W)))
 
     val replace_pipe_req = DecoupledIO(new MainPipeReq)
@@ -588,8 +587,8 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
       val tag = UInt(tagBits.W) // paddr
     }))
 
-    // forward missqueue
-    val forward = Vec(LoadPipelineWidth, new LduToMissqueueForwardIO)
+    // do forward check in missqueue
+    val forward = Vec(LoadPipelineWidth, new LduToRefillBufferForwardIO)
   })
   
   // 128KBL1: FIXME: provide vaddr for l2
@@ -619,10 +618,8 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
     val req_valid = io.forward(i).valid
     val paddr = io.forward(i).paddr
 
-    val (forward_mshr, forwardData) = forwardInfo_vec(id).forward(req_valid, paddr)
+    io.forward(i) := DontCare
     io.forward(i).forward_result_valid := forwardInfo_vec(id).check(req_valid, paddr)
-    io.forward(i).forward_mshr := forward_mshr
-    io.forward(i).forwardData := forwardData
   })
 
   assert(RegNext(PopCount(secondary_ready_vec) <= 1.U))
@@ -689,14 +686,11 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
   // io.refill_pipe_req_dup,
   // Some("refill_pipe_req"))
   val out_refill_pipe_req = Wire(Decoupled(new RefillPipeReq))
-  val out_refill_pipe_req_ctrl = Wire(Decoupled(new RefillPipeReqCtrl))
-  out_refill_pipe_req_ctrl.valid := out_refill_pipe_req.valid
-  out_refill_pipe_req_ctrl.bits := out_refill_pipe_req.bits.getCtrl
-  out_refill_pipe_req.ready := out_refill_pipe_req_ctrl.ready
+  // val out_refill_pipe_req_ctrl = Wire(Decoupled(new RefillPipeReqCtrl))
+  // out_refill_pipe_req_ctrl.valid := out_refill_pipe_req.valid
+  // out_refill_pipe_req_ctrl.bits := out_refill_pipe_req.bits.getCtrl
+  // out_refill_pipe_req.ready := out_refill_pipe_req_ctrl.ready
   arbiter(entries.map(_.io.refill_pipe_req), out_refill_pipe_req, Some("refill_pipe_req"))
-  for (dup <- io.refill_pipe_req_dup) {
-    AddPipelineReg(out_refill_pipe_req_ctrl, dup, false.B)
-  }
   AddPipelineReg(out_refill_pipe_req, io.refill_pipe_req, false.B)
 
   arbiter_with_pipereg(entries.map(_.io.replace_pipe_req), io.replace_pipe_req, Some("replace_pipe_req"))
