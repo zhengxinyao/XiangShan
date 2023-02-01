@@ -33,10 +33,10 @@ import freechips.rocketchip.interrupts._
 import freechips.rocketchip.jtag.JTAGIO
 import freechips.rocketchip.tile.{BusErrorUnit, BusErrorUnitParams, XLen}
 import freechips.rocketchip.tilelink
-import freechips.rocketchip.util.{ElaborationArtefacts, HasRocketChipStageUtils, UIntToOH1}
+import freechips.rocketchip.util.{AsyncQueueParams, ElaborationArtefacts, HasRocketChipStageUtils, UIntToOH1}
 import huancun.debug.TLLogger
 import huancun.{HCCacheParamsKey, HuanCun}
-import huancun.utils.ResetGen
+import huancun.utils.{ResetGen, STD_CLKGT_func}
 import freechips.rocketchip.devices.debug.{DebugIO, ResetCtrlIO}
 
 abstract class BaseXSSoc()(implicit p: Parameters) extends LazyModule
@@ -90,7 +90,24 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
     misc.core_to_l3_ports(i) :=* core_with_l2(i).memory_port
   }
 
-  l3cacheOpt.map(_.ctlnode.map(_ := misc.peripheralXbar))
+  val l3InParams = AsyncQueueParams(8, 3, true, true)
+  val l3InAsyncSource = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSource(None)))
+  val l3InAsyncSink = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSink(l3InParams)))
+
+  val l3OutParams = AsyncQueueParams(8, 3, true, true)
+  val l3OutAsyncSource = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSource(None)))
+  val l3OutAsyncSink = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSink(l3OutParams)))
+
+  val l3CtlParams = AsyncQueueParams(1, 3, true, true)
+  val l3CtlAsyncSource = l3cacheOpt.map(_.ctlnode.map(_ => LazyModule(new TLAsyncCrossingSource(None))))
+  val l3CtlAsyncSink = l3cacheOpt.map(_.ctlnode.map(_ => LazyModule(new TLAsyncCrossingSink(l3CtlParams))))
+
+  l3cacheOpt.map(_.ctlnode.map({ ctl =>
+    ctl :=
+      l3CtlAsyncSink.get.get.node :=
+      l3CtlAsyncSource.get.get.node :=
+      misc.peripheralXbar
+  }))
   l3cacheOpt.map(_.intnode.map(int => {
     misc.plic.intnode := IntBuffer() := int
   }))
@@ -106,8 +123,15 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
   })
 
   l3cacheOpt match {
-    case Some(l3) =>
-      misc.l3_out :*= l3.node :*= TLBuffer.chainNode(2) :*= misc.l3_banked_xbar
+    case Some(l3) => {
+      misc.l3_out :*=
+        l3OutAsyncSink.get.node :*=
+        l3OutAsyncSource.get.node :*=
+        l3.node:*=
+        l3InAsyncSink.get.node :*=
+        l3InAsyncSource.get.node :*=
+        misc.l3_banked_xbar
+    }
     case None =>
   }
 
@@ -144,12 +168,42 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
       val riscv_halt = Output(Vec(NumCores, Bool()))
     })
 
-    val reset_sync = withClockAndReset(io.clock.asClock, io.reset) { ResetGen() }
+    val reset_sync = withClockAndReset(io.clock.asClock, io.reset) { ResetGen(6) }
     val jtag_reset_sync = withClockAndReset(io.systemjtag.jtag.TCK, io.systemjtag.reset) { ResetGen() }
 
     // override LazyRawModuleImp's clock and reset
     childClock := io.clock.asClock
     childReset := reset_sync
+
+    val clkGate = Module(new STD_CLKGT_func)
+    val clk_en = withClockAndReset(io.clock.asClock, io.reset) {RegInit(false.B)}
+    clk_en := ~clk_en
+    clkGate.io.TE := false.B
+    clkGate.io.E := clk_en
+    clkGate.io.CK := childClock
+    val clock_div2 = clkGate.io.Q
+    val reset_div2 = withClockAndReset(clock_div2, io.reset) { ResetGen() }
+    l3cacheOpt.foreach(l3 => {
+      l3InAsyncSource.get.module.clock := childClock
+      l3InAsyncSource.get.module.reset := childReset
+      l3InAsyncSink.get.module.clock := clock_div2
+      l3InAsyncSink.get.module.reset := reset_div2
+
+      l3.module.clock := clock_div2
+      l3.module.reset := reset_div2
+
+      l3OutAsyncSource.get.module.clock := clock_div2
+      l3OutAsyncSource.get.module.reset := reset_div2
+      l3OutAsyncSink.get.module.clock := childClock
+      l3OutAsyncSink.get.module.reset := childReset
+
+      l3.ctlnode.foreach(_ => {
+        l3CtlAsyncSource.get.get.module.clock := childClock
+        l3CtlAsyncSource.get.get.module.reset := childReset
+        l3CtlAsyncSink.get.get.module.clock := clock_div2
+        l3CtlAsyncSink.get.get.module.reset := reset_div2
+      })
+    })
 
     // output
     io.debug_reset := misc.module.debug_module_io.debugIO.ndreset
@@ -197,7 +251,7 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
     withClockAndReset(io.clock.asClock, reset_sync) {
       // Modules are reset one by one
       // reset ----> SYNC --> {SoCMisc, L3 Cache, Cores}
-      val resetChain = Seq(Seq(misc.module) ++ l3cacheOpt.map(_.module) ++ core_with_l2.map(_.module))
+      val resetChain = Seq(Seq(misc.module) ++ core_with_l2.map(_.module))
       ResetGen(resetChain, reset_sync, !debugOpts.FPGAPlatform)
     }
 
