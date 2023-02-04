@@ -33,7 +33,7 @@ import freechips.rocketchip.interrupts._
 import freechips.rocketchip.jtag.JTAGIO
 import freechips.rocketchip.tile.{BusErrorUnit, BusErrorUnitParams, XLen}
 import freechips.rocketchip.tilelink
-import freechips.rocketchip.util.{AsyncQueueParams, ElaborationArtefacts, HasRocketChipStageUtils, UIntToOH1}
+import freechips.rocketchip.util.{ElaborationArtefacts, FastToSlow, HasRocketChipStageUtils, SlowToFast}
 import huancun.debug.TLLogger
 import huancun.{HCCacheParamsKey, HuanCun}
 import huancun.utils.{ResetGen, STD_CLKGT_func}
@@ -90,22 +90,19 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
     misc.core_to_l3_ports(i) :=* core_with_l2(i).memory_port
   }
 
-  val l3InParams = AsyncQueueParams(8, 3, true, true)
-  val l3InAsyncSource = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSource(None)))
-  val l3InAsyncSink = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSink(l3InParams)))
+  val l3InRationalSource = l3cacheOpt.map(_ => LazyModule(new TLRationalCrossingSource()))
+  val l3InRationalSink = l3cacheOpt.map(_ => LazyModule(new TLRationalCrossingSink(FastToSlow)))
 
-  val l3OutParams = AsyncQueueParams(8, 3, true, true)
-  val l3OutAsyncSource = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSource(None)))
-  val l3OutAsyncSink = l3cacheOpt.map(_ => LazyModule(new TLAsyncCrossingSink(l3OutParams)))
+  val l3OutRationalSource = l3cacheOpt.map(_ => LazyModule(new TLRationalCrossingSource()))
+  val l3OutRationalSink = l3cacheOpt.map(_ => LazyModule(new TLRationalCrossingSink(SlowToFast)))
 
-  val l3CtlParams = AsyncQueueParams(1, 3, true, true)
-  val l3CtlAsyncSource = l3cacheOpt.map(_.ctlnode.map(_ => LazyModule(new TLAsyncCrossingSource(None))))
-  val l3CtlAsyncSink = l3cacheOpt.map(_.ctlnode.map(_ => LazyModule(new TLAsyncCrossingSink(l3CtlParams))))
+  val l3CtlRationalSource = l3cacheOpt.map(_.ctlnode.map(_ => LazyModule(new TLRationalCrossingSource())))
+  val l3CtlRationalSink = l3cacheOpt.map(_.ctlnode.map(_ => LazyModule(new TLRationalCrossingSink(FastToSlow))))
 
   l3cacheOpt.map(_.ctlnode.map({ ctl =>
     ctl :=
-      l3CtlAsyncSink.get.get.node :=
-      l3CtlAsyncSource.get.get.node :=
+      l3CtlRationalSink.get.get.node :=
+      l3CtlRationalSource.get.get.node :=
       misc.peripheralXbar
   }))
   l3cacheOpt.map(_.intnode.map(int => {
@@ -125,11 +122,11 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
   l3cacheOpt match {
     case Some(l3) => {
       misc.l3_out :*=
-        l3OutAsyncSink.get.node :*=
-        l3OutAsyncSource.get.node :*=
+        l3OutRationalSink.get.node :*=
+        l3OutRationalSource.get.node :*=
         l3.node:*=
-        l3InAsyncSink.get.node :*=
-        l3InAsyncSource.get.node :*=
+        l3InRationalSink.get.node :*=
+        l3InRationalSource.get.node :*=
         misc.l3_banked_xbar
     }
     case None =>
@@ -184,24 +181,24 @@ class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
     val clock_div2 = clkGate.io.Q
     val reset_div2 = withClockAndReset(clock_div2, io.reset) { ResetGen() }
     l3cacheOpt.foreach(l3 => {
-      l3InAsyncSource.get.module.clock := childClock
-      l3InAsyncSource.get.module.reset := childReset
-      l3InAsyncSink.get.module.clock := clock_div2
-      l3InAsyncSink.get.module.reset := reset_div2
+      l3InRationalSource.get.module.clock := childClock
+      l3InRationalSource.get.module.reset := childReset
+      l3InRationalSink.get.module.clock := clock_div2
+      l3InRationalSink.get.module.reset := reset_div2
 
       l3.module.clock := clock_div2
       l3.module.reset := reset_div2
 
-      l3OutAsyncSource.get.module.clock := clock_div2
-      l3OutAsyncSource.get.module.reset := reset_div2
-      l3OutAsyncSink.get.module.clock := childClock
-      l3OutAsyncSink.get.module.reset := childReset
+      l3OutRationalSource.get.module.clock := clock_div2
+      l3OutRationalSource.get.module.reset := reset_div2
+      l3OutRationalSink.get.module.clock := childClock
+      l3OutRationalSink.get.module.reset := childReset
 
       l3.ctlnode.foreach(_ => {
-        l3CtlAsyncSource.get.get.module.clock := childClock
-        l3CtlAsyncSource.get.get.module.reset := childReset
-        l3CtlAsyncSink.get.get.module.clock := clock_div2
-        l3CtlAsyncSink.get.get.module.reset := reset_div2
+        l3CtlRationalSource.get.get.module.clock := childClock
+        l3CtlRationalSource.get.get.module.reset := childReset
+        l3CtlRationalSink.get.get.module.clock := clock_div2
+        l3CtlRationalSink.get.get.module.reset := reset_div2
       })
     })
 
