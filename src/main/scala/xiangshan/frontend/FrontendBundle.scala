@@ -530,6 +530,7 @@ class SpeculativeInfo(implicit p: Parameters) extends XSBundle
   val histPtr = new CGHPtr
   val rasSp = UInt(log2Ceil(RasSize).W)
   val rasTop = new RASEntry
+  val brIdx = UInt(64.W)
 }
 
 @chiselName
@@ -541,6 +542,7 @@ class BranchPredictionBundle(implicit p: Parameters) extends XSBundle
   val ftq_idx = new FtqPtr
   val full_pred = new FullBranchPrediction
 
+  val brIdx = UInt(64.W)
 
   def target(pc: UInt) = full_pred.target(pc)
   def cfiIndex         = full_pred.cfiIndex

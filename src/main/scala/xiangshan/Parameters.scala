@@ -23,7 +23,7 @@ import xiangshan.backend.exu._
 import xiangshan.backend.dispatch.DispatchParameters
 import xiangshan.cache.DCacheParameters
 import xiangshan.cache.prefetch._
-import xiangshan.frontend.{BasePredictor, BranchPredictionResp, FTB, FakePredictor, RAS, Tage, ITTage, Tage_SC, FauFTB}
+import xiangshan.frontend.{BasePredictor, BranchPredictionResp, FTB, FakePredictor, RAS, Tage, ITTage, Tage_SC, FauFTB, OracleBP}
 import xiangshan.frontend.icache.ICacheParameters
 import xiangshan.cache.mmu.{L2TLBParameters, TLBParameters}
 import freechips.rocketchip.diplomacy.AddressSet
@@ -103,7 +103,8 @@ case class XSCoreParameters
       val tage = Module(new Tage_SC()(p))
       val ras = Module(new RAS()(p))
       val ittage = Module(new ITTage()(p))
-      val preds = Seq(ubtb, tage, ftb, ittage, ras)
+      val oracle = Module(new OracleBP()(p))
+      val preds = Seq(ubtb, tage, ftb, ittage, ras, oracle)
       preds.map(_.io := DontCare)
 
       // ubtb.io.resp_in(0)  := resp_in
@@ -116,8 +117,9 @@ case class XSCoreParameters
       ftb.io.in.bits.resp_in(0)  := tage.io.out
       ittage.io.in.bits.resp_in(0)  := ftb.io.out
       ras.io.in.bits.resp_in(0) := ittage.io.out
+      oracle.io.in.bits.resp_in(0) := ras.io.out
 
-      (preds, ras.io.out)
+      (preds, oracle.io.out)
     }),
   IBufSize: Int = 48,
   DecodeWidth: Int = 6,
