@@ -427,6 +427,9 @@ trait HasXSParameter {
   val icacheParameters = coreParams.icacheParameters
   val dcacheParameters = coreParams.dcacheParametersOpt.getOrElse(DCacheParameters())
 
+  // vector load store parameters
+  val VLSSegIdxBits = log2Up(8)
+
   // dcache block cacheline when lr for LRSCCycles - LRSCBackOff cycles
   // for constrained LR/SC loop
   val LRSCCycles = 64

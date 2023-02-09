@@ -70,15 +70,25 @@ class VLSU2CtrlIO(implicit p: Parameters) extends XSBundle {
   val enq = new VlsqEnqIO
 }
 
+// Vector specualtive CSR input
+class VecMemConfig(implicit p: Parameters) extends XSBundle {
+  val lmul = UInt(3.W)
+  val sew = UInt(2.W)
+}
+
 // Vector load/store source operand input
-class VecMemOperand(implicit p: Parameters) extends XSBundle {
-  val mask = UInt(128.W)
-  val vs2 = UInt(128.W) // address offsets
-  val vs3 = UInt(128.W) // store data
+class VecMemOperand(implicit p: Parameters) extends XSBundleWithMicroOp {
+  val vmask = UInt(VLEN.W)
+  val baseaddr = UInt(VAddrBits.W) // base address from rs1
+  val stride = UInt(XLEN.W) // stride from rs2
+  val index = UInt(VLEN.W) // index from vs2
+  val data = UInt(VLEN.W) // store data from vs3
   val avd = UInt(5.W) // architectural vector register destinaton
   // CHANGEME: update physical vector register destination width
   val pvd = UInt(8.W) // physical vector register destinaton
   val vlsqidx = new VlsqPtr
+  val segidx = new UInt(VLSSegIdxBits.W)
+  val config = new VecMemConfig
 }
 
 // Vector load/store ctrl info
@@ -89,6 +99,8 @@ class VecMemCtrl(implicit p: Parameters) extends XSBundle {
   val mop = UInt(2.W)
   val nf = UInt(2.W)
   val xumop = UInt(5.W) // lumop or sumop
+  val vma = Bool()
+  val vta = Bool()
   
   def Inst2VecMemCtrl(inst: UInt): VecMemCtrl = {
     val ctrl = Wire(new VecMemCtrl)
@@ -98,6 +110,8 @@ class VecMemCtrl(implicit p: Parameters) extends XSBundle {
     ctrl.vm := inst(25)
     ctrl.xumop := inst(24, 20)
     ctrl.vwidth := inst(14, 12)
+    ctrl.vma := inst(7)
+    ctrl.vta := inst(6)
     ctrl
   }
   
@@ -108,7 +122,18 @@ class VecMemCtrl(implicit p: Parameters) extends XSBundle {
     vm := inst(25)
     xumop := inst(24, 20)
     vwidth := inst(14, 12)
+    vma := inst(7)
+    vta := inst(6)
   }
+}
+
+// Vector Load/Store Decode Buffer Input Req
+class BaseVecDecodeEnqReq (implicit p: Parameters) extends VecMemOperand
+
+class VecLoadDecodeEnqReq (implicit p: Parameters) extends BaseVecDecodeEnqReq {
+}
+
+class VecStoreDecodeEnqReq (implicit p: Parameters) extends BaseVecDecodeEnqReq {
 }
 
 // Extended micro-op for vector load/store
@@ -132,11 +157,25 @@ class VlsqEnqIO(implicit p: Parameters) extends XSBundle {
 
 class BaseVectorLsq(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
-    val int2vlsu = Flipped(new Int2VLSUIO)
+    // val int2vlsu = Flipped(new Int2VLSUIO)
     val vec2vlsu = Flipped(new Vec2VLSUIO)
     val vlsu2vec = new VLSU2VecIO
     val vlsu2int = new VLSU2IntIO
     val vlsu2ctrl = new VLSU2CtrlIO
   })
 
+}
+
+// Vector load/store flow queue enq IO
+class VlsfqEnqIO(implicit p: Parameters) extends XSBundle {
+  val rawOperand = new VecMemOperand
+  val vaddr = UInt(VAddrBits.W)
+  val bytemask = UInt((CacheLineSize/8).W)
+  val uopidx = UInt(4.W)
+}
+
+class VectorLSFlowQueue(implicit p: Parameters) extends XSModule {
+  val io = IO(new Bundle() {
+    val in = Vec(VecMemSrcInWidth, Flipped(Decoupled(new VlsfqEnqIO)))
+  })
 }
