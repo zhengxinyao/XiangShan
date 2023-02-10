@@ -26,7 +26,6 @@ import xiangshan.cache.{HasDCacheParameters, MemoryOpConstants}
 import utils._
 import freechips.rocketchip.diplomacy.{IdRange, LazyModule, LazyModuleImp}
 import freechips.rocketchip.tilelink._
-import huancun.{PreferCacheKey, PreferCacheField}
 import xiangshan.backend.fu.{PMP, PMPChecker, PMPReqBundle, PMPRespBundle}
 import xiangshan.backend.fu.util.HasCSRConst
 
@@ -37,7 +36,7 @@ class PTW()(implicit p: Parameters) extends LazyModule with HasPtwConst {
       "ptw",
       sourceId = IdRange(0, MemReqWidth)
     )),
-    requestFields = Seq(PreferCacheField())
+    requestFields = Nil//Seq(PreferCacheField())
   )))
 
   lazy val module = new PTWImp(this)
@@ -242,7 +241,7 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
   )._2
   mem.a.bits := memRead
   mem.a.valid := mem_arb.io.out.valid && !flush
-  mem.a.bits.user.lift(PreferCacheKey).foreach(_ := RegNext(io.csr.prefercache, true.B))
+  // mem.a.bits.user.lift(PreferCacheKey).foreach(_ := RegNext(io.csr.prefercache, true.B))
   mem.d.ready := true.B
   // mem -> data buffer
   val refill_data = Reg(Vec(blockBits / l1BusDataWidth, UInt(l1BusDataWidth.W)))

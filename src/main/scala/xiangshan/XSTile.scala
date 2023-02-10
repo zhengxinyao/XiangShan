@@ -13,6 +13,7 @@ import huancun.utils.ResetGen
 import system.HasSoCParameter
 import top.BusPerfMonitor
 import utils.{TLClientsMerger, TLEdgeBuffer, IntBuffer}
+import coupledL2.{CoupledL2, L2ParamKey}
 
 class L1BusErrorUnitInfo(implicit val p: Parameters) extends Bundle with HasSoCParameter {
   val ecc_error = Valid(UInt(soc.PAddrBits.W))
@@ -80,8 +81,8 @@ class XSTile()(implicit p: Parameters) extends LazyModule
   private val core = LazyModule(new XSCore())
   private val misc = LazyModule(new XSTileMisc())
   private val l2cache = coreParams.L2CacheParamsOpt.map(l2param =>
-    LazyModule(new HuanCun()(new Config((_, _, _) => {
-      case HCCacheParamsKey => l2param
+    LazyModule(new CoupledL2()(new Config((_, _, _) => {
+      case L2ParamKey => l2param
     })))
   )
 
@@ -157,7 +158,8 @@ class XSTile()(implicit p: Parameters) extends LazyModule
     core.module.io.hartId := io.hartId
     io.cpu_halt := core.module.io.cpu_halt
     if(l2cache.isDefined){
-      core.module.io.perfEvents.zip(l2cache.get.module.io.perfEvents.flatten).foreach(x => x._1.value := x._2)
+      // TODO
+      // core.module.io.perfEvents.zip(l2cache.get.module.io.perfEvents.flatten).foreach(x => x._1.value := x._2)
     }
     else {
       core.module.io.perfEvents <> DontCare
@@ -165,12 +167,13 @@ class XSTile()(implicit p: Parameters) extends LazyModule
 
     misc.module.beu_errors.icache <> core.module.io.beu_errors.icache
     misc.module.beu_errors.dcache <> core.module.io.beu_errors.dcache
-    if(l2cache.isDefined){
-      misc.module.beu_errors.l2.ecc_error.valid := l2cache.get.module.io.ecc_error.valid
-      misc.module.beu_errors.l2.ecc_error.bits := l2cache.get.module.io.ecc_error.bits
-    } else {
+    // TODO
+    // if(l2cache.isDefined){
+    //   misc.module.beu_errors.l2.ecc_error.valid := l2cache.get.module.io.ecc_error.valid
+    //   misc.module.beu_errors.l2.ecc_error.bits := l2cache.get.module.io.ecc_error.bits
+    // } else {
       misc.module.beu_errors.l2 <> 0.U.asTypeOf(misc.module.beu_errors.l2)
-    }
+    // }
 
     // Modules are reset one by one
     // io_reset ----
