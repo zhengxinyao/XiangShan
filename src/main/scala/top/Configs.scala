@@ -279,11 +279,11 @@ class WithNKBL2
         sets = l2sets,
         echoField = Nil,
         reqField = Nil,
-        clientCaches = Seq(CacheParameters(
+        clientCaches = Seq(L1Param(
           "dcache",
           sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
           ways = p.dcacheParametersOpt.get.nWays + 2,
-          blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
+          // blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
         )),
         prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams())
