@@ -31,6 +31,7 @@ import system.SoCParamsKey
 import huancun._
 import huancun.debug._
 import xiangshan.mem.prefetch.{PrefetcherParams, SMSParams}
+import coupledL2._
 
 import scala.math.min
 
@@ -235,12 +236,18 @@ case class XSCoreParameters
     nProbeEntries = 8,
     nReleaseEntries = 18
   )),
-  L2CacheParamsOpt: Option[HCCacheParameters] = Some(HCCacheParameters(
+  // L2CacheParamsOpt: Option[HCCacheParameters] = Some(HCCacheParameters(
+  //   name = "l2",
+  //   level = 2,
+  //   ways = 8,
+  //   sets = 1024, // default 512KB L2
+  //   prefetch = Some(huancun.prefetch.PrefetchReceiverParams())
+  // )),
+  L2CacheParamsOpt: Option[L2Param] = Some(L2Param(
     name = "l2",
-    level = 2,
     ways = 8,
     sets = 1024, // default 512KB L2
-    prefetch = Some(huancun.prefetch.PrefetchReceiverParams())
+    prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams())
   )),
   L2NBanks: Int = 1,
   usePTWRepeater: Boolean = false,

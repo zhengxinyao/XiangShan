@@ -13,6 +13,9 @@
 [submodule "fudian"]
 	path = fudian
 	url = https://github.com/OpenXiangShan/fudian.git
+[submodule "coupledl2"]
+	path = coupledl2
+	url = https://github.com/OpenXiangShan/CoupledL2.git
 [submodule "utility"]
 	path = utility
-	url = https://github.com/OpenXiangShan/utility
+	url = https://github.com/OpenXiangShan/Utility.git

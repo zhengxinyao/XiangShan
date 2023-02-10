@@ -29,10 +29,12 @@ import freechips.rocketchip.devices.debug._
 import freechips.rocketchip.tile.MaxHartIdBits
 import xiangshan.backend.dispatch.DispatchParameters
 import xiangshan.backend.exu.ExuParameters
+import xiangshan.mem.prefetch.SMSParams
 import xiangshan.cache.DCacheParameters
 import xiangshan.cache.mmu.{L2TLBParameters, TLBParameters}
 import device.{EnableJtag, XSDebugModuleParams}
 import huancun._
+import coupledL2._
 
 class BaseConfig(n: Int) extends Config((site, here, up) => {
   case XLen => 64
@@ -90,6 +92,7 @@ class MinimalConfig(n: Int = 1) extends Config(
           LduCnt = 2,
           StuCnt = 2
         ),
+        prefetcher = Some(SMSParams()),
         icacheParameters = ICacheParameters(
           nSets = 64, // 16KB ICache
           tagECC = Some("parity"),
@@ -217,6 +220,47 @@ class WithNKBL1D(n: Int, ways: Int = 8) extends Config((site, here, up) => {
     ))
 })
 
+// L2CacheParamsOpt must be L2Params type now
+
+// class WithNKBL2
+// (
+//   n: Int,
+//   ways: Int = 8,
+//   inclusive: Boolean = true,
+//   banks: Int = 1,
+//   alwaysReleaseData: Boolean = false
+// ) extends Config((site, here, up) => {
+//   case XSTileKey =>
+//     val upParams = up(XSTileKey)
+//     val l2sets = n * 1024 / banks / ways / 64
+//     upParams.map(p => p.copy(
+//       L2CacheParamsOpt = Some(HCCacheParameters(
+//         name = "L2",
+//         level = 2,
+//         ways = ways,
+//         sets = l2sets,
+//         inclusive = inclusive,
+//         alwaysReleaseData = alwaysReleaseData,
+//         clientCaches = Seq(CacheParameters(
+//           "dcache",
+//           sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
+//           ways = p.dcacheParametersOpt.get.nWays + 2,
+//           blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
+//           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
+//         )),
+//         reqField = Seq(PreferCacheField()),
+//         echoField = Seq(huancun.DirtyField()),
+//         prefetch = Some(huancun.prefetch.PrefetchReceiverParams()),
+//         enablePerf = true,
+//         sramDepthDiv = 2,
+//         tagECC = None,
+//         dataECC = None,
+//         simulation = !site(DebugOptionsKey).FPGAPlatform
+//       )),
+//       L2NBanks = banks
+//     ))
+// })
+
 class WithNKBL2
 (
   n: Int,
@@ -229,13 +273,12 @@ class WithNKBL2
     val upParams = up(XSTileKey)
     val l2sets = n * 1024 / banks / ways / 64
     upParams.map(p => p.copy(
-      L2CacheParamsOpt = Some(HCCacheParameters(
+      L2CacheParamsOpt = Some(L2Param(
         name = "L2",
-        level = 2,
         ways = ways,
         sets = l2sets,
-        inclusive = inclusive,
-        alwaysReleaseData = alwaysReleaseData,
+        echoField = Nil,
+        reqField = Nil,
         clientCaches = Seq(CacheParameters(
           "dcache",
           sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
@@ -243,14 +286,7 @@ class WithNKBL2
           blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
         )),
-        reqField = Seq(PreferCacheField()),
-        echoField = Seq(DirtyField()),
-        prefetch = Some(huancun.prefetch.PrefetchReceiverParams()),
-        enablePerf = true,
-        sramDepthDiv = 2,
-        tagECC = Some("secded"),
-        dataECC = Some("secded"),
-        simulation = !site(DebugOptionsKey).FPGAPlatform
+        prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams())
       )),
       L2NBanks = banks
     ))
@@ -320,4 +356,9 @@ class DefaultConfig(n: Int = 1) extends Config(
     ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, alwaysReleaseData = true)
     ++ new WithNKBL1D(128)
     ++ new BaseConfig(n)
+)
+
+class CoupledL2DebugMinimalConfig(n: Int = 1) extends Config(
+  new WithNKBL2(128, banks = 2)
+    ++ new MinimalConfig(n) // 32KB L1D, 256KB L3
 )

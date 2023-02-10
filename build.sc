@@ -126,11 +126,15 @@ object difftest extends XSModule with SbtModule {
 object fudian extends XSModule with SbtModule
 
 object utility extends XSModule with SbtModule {
-
+  override def ivyDeps = Agg(common.getVersion("chisel3"))
   override def millSourcePath = os.pwd / "utility"
+  override def moduleDeps = super.moduleDeps ++ Seq(rocketchip)
+}
 
+object coupledl2 extends XSModule with SbtModule {
+  override def millSourcePath = os.pwd / "coupledl2"
   override def moduleDeps = super.moduleDeps ++ Seq(
-    rocketchip
+    rocketchip, huancun, utility
   )
 }
 
@@ -143,6 +147,7 @@ trait CommonXiangShan extends XSModule with SbtModule { m =>
   def huancunModule: PublishModule
   def fudianModule: PublishModule
   def utilityModule: PublishModule
+  def coupledl2Module: PublishModule
 
   override def millSourcePath = os.pwd
 
@@ -155,7 +160,8 @@ trait CommonXiangShan extends XSModule with SbtModule { m =>
     difftestModule,
     huancunModule,
     fudianModule,
-    utilityModule
+    utilityModule,
+    coupledl2Module
   )
 
   object test extends Tests with TestModule.ScalaTest {
@@ -176,4 +182,5 @@ object XiangShan extends CommonXiangShan {
   override def huancunModule = huancun
   override def fudianModule = fudian
   override def utilityModule = utility
+  override def coupledl2Module = coupledl2
 }
