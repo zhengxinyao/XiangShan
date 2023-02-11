@@ -277,8 +277,6 @@ class WithNKBL2
         name = "L2",
         ways = ways,
         sets = l2sets,
-        echoField = Nil,
-        reqField = Nil,
         clientCaches = Seq(L1Param(
           "dcache",
           sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
@@ -286,6 +284,8 @@ class WithNKBL2
           // blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
         )),
+        // reqField = Seq(PreferCacheField()),
+        echoField = Seq(huancun.DirtyField()),
         prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams())
       )),
       L2NBanks = banks

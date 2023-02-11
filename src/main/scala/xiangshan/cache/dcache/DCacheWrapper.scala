@@ -60,7 +60,7 @@ case class DCacheParameters
     PrefetchField()//,
     // PreferCacheField() // always prefer cache when L2 is inclusive
   ) ++ aliasBitsOpt.map(AliasField)
-  val echoFields: Seq[BundleFieldBase] = Seq(DirtyField())
+  val echoFields: Seq[BundleFieldBase] = Nil //Seq(DirtyField())
 
   def tagCode: Code = Code.fromString(tagECC)
 
