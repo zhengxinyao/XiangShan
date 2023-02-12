@@ -286,7 +286,8 @@ class WithNKBL2
         )),
         // reqField = Seq(PreferCacheField()),
         echoField = Seq(huancun.DirtyField()),
-        prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams())
+        prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams()),
+        enablePerf = true
       )),
       L2NBanks = banks
     ))
