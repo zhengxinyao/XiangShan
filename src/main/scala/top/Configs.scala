@@ -220,6 +220,24 @@ class WithNKBL1D(n: Int, ways: Int = 8) extends Config((site, here, up) => {
     ))
 })
 
+class WithNKBL1I(n: Int, ways: Int = 4) extends Config((site, here, up) => {
+  case XSTileKey =>
+    val sets = n * 1024 / ways / 64
+    up(XSTileKey).map(_.copy(
+      icacheParameters = ICacheParameters(
+        nSets = sets,
+        nWays = ways,
+        tagECC = None,
+        dataECC = None,
+        replacer = Some("setplru"),
+        nMissEntries = 2,
+        nProbeEntries = 2,
+        nPrefetchEntries = 2,
+        hasPrefetch = true
+      )
+    ))
+})
+
 // L2CacheParamsOpt must be L2Params type now
 
 // class WithNKBL2
@@ -274,7 +292,7 @@ class WithNKBL2
     val l2sets = n * 1024 / banks / ways / 64
     upParams.map(p => p.copy(
       L2CacheParamsOpt = Some(L2Param(
-        name = "L2",
+        name = "CPL2",
         ways = ways,
         sets = l2sets,
         clientCaches = Seq(L1Param(
@@ -303,7 +321,7 @@ class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1
     up(SoCParamsKey).copy(
       L3NBanks = banks,
       L3CacheParamsOpt = Some(HCCacheParameters(
-        name = "L3",
+        name = "HuanCun L3",
         level = 3,
         ways = ways,
         sets = sets,
@@ -362,4 +380,12 @@ class DefaultConfig(n: Int = 1) extends Config(
 class CoupledL2DebugMinimalConfig(n: Int = 1) extends Config(
   new WithNKBL2(128, banks = 2)
     ++ new MinimalConfig(n) // 32KB L1D, 256KB L3
+)
+
+class CoupledL2DefaultConfig(n: Int = 1) extends Config(
+  new WithNKBL3(4096, inclusive = false, banks = 4)
+    ++ new WithNKBL2(1024, banks = 4)
+    ++ new WithNKBL1D(64)
+    ++ new WithNKBL1I(16) // no alias
+    ++ new BaseConfig(n)
 )
