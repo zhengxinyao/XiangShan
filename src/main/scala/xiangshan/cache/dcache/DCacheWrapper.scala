@@ -26,7 +26,7 @@ import freechips.rocketchip.diplomacy.{IdRange, LazyModule, LazyModuleImp, Trans
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util.{BundleFieldBase, UIntToOH1}
 import device.RAMHelper
-import coupledL2.{AliasField, AliasKey, DirtyField, PrefetchField}
+import huancun.{AliasField, AliasKey, DirtyField, PreferCacheField, PrefetchField}
 import huancun.utils.FastArbiter
 import mem.{AddPipelineReg}
 
@@ -55,10 +55,10 @@ case class DCacheParameters
   val setBytes = nSets * blockBytes
   val aliasBitsOpt = if(setBytes > pageSize) Some(log2Ceil(setBytes / pageSize)) else None
   val reqFields: Seq[BundleFieldBase] = Seq(
-    PrefetchField()//,
-    // PreferCacheField() // always prefer cache when L2 is inclusive
+    PrefetchField(),
+    PreferCacheField() // always prefer cache when L2 is inclusive
   ) ++ aliasBitsOpt.map(AliasField)
-  val echoFields: Seq[BundleFieldBase] = Nil //Seq(DirtyField())
+  val echoFields: Seq[BundleFieldBase] = Seq(DirtyField())
 
   def tagCode: Code = Code.fromString(tagECC)
 

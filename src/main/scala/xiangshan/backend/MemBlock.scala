@@ -21,7 +21,7 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.diplomacy.{BundleBridgeSource, LazyModule, LazyModuleImp}
 import freechips.rocketchip.tile.HasFPUParameters
-import coupledL2.PrefetchRecv
+import huancun.PrefetchRecv
 import huancun.utils.{RegNextN, ValidIODelay}
 import utils._
 import xiangshan._

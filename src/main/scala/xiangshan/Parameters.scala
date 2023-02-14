@@ -229,19 +229,19 @@ case class XSCoreParameters
     nProbeEntries = 8,
     nReleaseEntries = 18
   )),
-  // L2CacheParamsOpt: Option[HCCacheParameters] = Some(HCCacheParameters(
-  //   name = "l2",
-  //   level = 2,
-  //   ways = 8,
-  //   sets = 1024, // default 512KB L2
-  //   prefetch = Some(huancun.prefetch.PrefetchReceiverParams())
-  // )),
-  L2CacheParamsOpt: Option[L2Param] = Some(L2Param(
+  L2CacheParamsOpt: Option[HCCacheParameters] = Some(HCCacheParameters(
     name = "l2",
+    level = 2,
     ways = 8,
     sets = 1024, // default 512KB L2
-    prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams())
+    prefetch = Some(huancun.prefetch.PrefetchReceiverParams())
   )),
+  // L2CacheParamsOpt: Option[L2Param] = Some(L2Param(
+  //   name = "l2",
+  //   ways = 8,
+  //   sets = 1024, // default 512KB L2
+  //   prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams())
+  // )),
   L2NBanks: Int = 1,
   usePTWRepeater: Boolean = false,
   softPTW: Boolean = false // dpi-c debug only

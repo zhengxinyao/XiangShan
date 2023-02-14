@@ -21,6 +21,7 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.tilelink.TLPermissions._
 import freechips.rocketchip.tilelink.{TLArbiter, TLBundleC, TLBundleD, TLEdgeOut}
+import huancun.DirtyKey
 import utils.{HasPerfEvents, HasTLDump, XSDebug, XSPerfAccumulate}
 
 class WritebackReqCtrl(implicit p: Parameters) extends DCacheBundle {
@@ -312,7 +313,7 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
     data = beat_data(beat)
   )._2
 
-  // voluntaryReleaseData.echo.lift(DirtyKey).foreach(_ := req.dirty)
+  voluntaryReleaseData.echo.lift(DirtyKey).foreach(_ := req.dirty)
   when(busy) {
     assert(!req.dirty || req.hasData)
   }

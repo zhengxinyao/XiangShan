@@ -22,6 +22,7 @@ import chisel3.util._
 import freechips.rocketchip.tilelink.{ClientMetadata, ClientStates, TLArbiter, TLBundleC, TLBundleD, TLEdgeOut, TLPermissions}
 import xiangshan._
 import utils._
+import huancun.{DirtyField, DirtyKey}
 
 class ReleaseReq(implicit p: Parameters) extends ICacheBundle{
   val addr = UInt(PAddrBits.W)
@@ -106,7 +107,7 @@ class RealeaseEntry(edge: TLEdgeOut)(implicit p: Parameters) extends ICacheModul
     data = beat_data(beat)
   )._2
 
-  // voluntaryReleaseData.echo.lift(DirtyKey).foreach(_ := req.dirty)
+  voluntaryReleaseData.echo.lift(DirtyKey).foreach(_ := req.dirty)
 
   io.mem_release.valid := Mux(!req.voluntary && req.hasData, busy,  state === s_release_req )
   io.mem_release.bits  := Mux(req.voluntary, voluntaryReleaseData, 

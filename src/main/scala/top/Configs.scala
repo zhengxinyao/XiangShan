@@ -220,45 +220,6 @@ class WithNKBL1D(n: Int, ways: Int = 4) extends Config((site, here, up) => {
 
 // L2CacheParamsOpt must be L2Params type now
 
-// class WithNKBL2
-// (
-//   n: Int,
-//   ways: Int = 8,
-//   inclusive: Boolean = true,
-//   banks: Int = 1,
-//   alwaysReleaseData: Boolean = false
-// ) extends Config((site, here, up) => {
-//   case XSTileKey =>
-//     val upParams = up(XSTileKey)
-//     val l2sets = n * 1024 / banks / ways / 64
-//     upParams.map(p => p.copy(
-//       L2CacheParamsOpt = Some(HCCacheParameters(
-//         name = "L2",
-//         level = 2,
-//         ways = ways,
-//         sets = l2sets,
-//         inclusive = inclusive,
-//         alwaysReleaseData = alwaysReleaseData,
-//         clientCaches = Seq(CacheParameters(
-//           "dcache",
-//           sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
-//           ways = p.dcacheParametersOpt.get.nWays + 2,
-//           blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
-//           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
-//         )),
-//         reqField = Seq(PreferCacheField()),
-//         echoField = Seq(huancun.DirtyField()),
-//         prefetch = Some(huancun.prefetch.PrefetchReceiverParams()),
-//         enablePerf = true,
-//         sramDepthDiv = 2,
-//         tagECC = None,
-//         dataECC = None,
-//         simulation = !site(DebugOptionsKey).FPGAPlatform
-//       )),
-//       L2NBanks = banks
-//     ))
-// })
-
 class WithNKBL2
 (
   n: Int,
@@ -271,25 +232,64 @@ class WithNKBL2
     val upParams = up(XSTileKey)
     val l2sets = n * 1024 / banks / ways / 64
     upParams.map(p => p.copy(
-      L2CacheParamsOpt = Some(L2Param(
+      L2CacheParamsOpt = Some(HCCacheParameters(
         name = "L2",
+        level = 2,
         ways = ways,
         sets = l2sets,
-        clientCaches = Seq(L1Param(
+        inclusive = inclusive,
+        alwaysReleaseData = alwaysReleaseData,
+        clientCaches = Seq(CacheParameters(
           "dcache",
           sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
           ways = p.dcacheParametersOpt.get.nWays + 2,
-          // blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
+          blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
         )),
-        // reqField = Seq(PreferCacheField()),
+        reqField = Seq(PreferCacheField()),
         echoField = Seq(huancun.DirtyField()),
-        prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams()),
-        enablePerf = true
+        prefetch = Some(huancun.prefetch.PrefetchReceiverParams()),
+        enablePerf = true,
+        sramDepthDiv = 2,
+        tagECC = None,
+        dataECC = None,
+        simulation = !site(DebugOptionsKey).FPGAPlatform
       )),
       L2NBanks = banks
     ))
 })
+
+// class WithNKBL2
+// (
+//   n: Int,
+//   ways: Int = 8,
+//   inclusive: Boolean = true,
+//   banks: Int = 1,
+//   alwaysReleaseData: Boolean = false
+// ) extends Config((site, here, up) => {
+//   case XSTileKey =>
+//     val upParams = up(XSTileKey)
+//     val l2sets = n * 1024 / banks / ways / 64
+//     upParams.map(p => p.copy(
+//       L2CacheParamsOpt = Some(L2Param(
+//         name = "L2",
+//         ways = ways,
+//         sets = l2sets,
+//         clientCaches = Seq(L1Param(
+//           "dcache",
+//           sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
+//           ways = p.dcacheParametersOpt.get.nWays + 2,
+//           // blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
+//           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
+//         )),
+//         // reqField = Seq(PreferCacheField()),
+//         echoField = Seq(huancun.DirtyField()),
+//         prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams()),
+//         enablePerf = true
+//       )),
+//       L2NBanks = banks
+//     ))
+// })
 
 class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1) extends Config((site, here, up) => {
   case SoCParamsKey =>
@@ -354,6 +354,6 @@ class DefaultConfig(n: Int = 1) extends Config(
 )
 
 class CoupledL2DebugMinimalConfig(n: Int = 1) extends Config(
-  new WithNKBL2(128, banks = 2)
+  new WithNKBL2(128, inclusive = false, banks = 2)
     ++ new MinimalConfig(n) // 32KB L1D, 256KB L3
 )
