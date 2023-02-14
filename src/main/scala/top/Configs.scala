@@ -377,7 +377,7 @@ class CoupledL2DebugMinimalConfig(n: Int = 1) extends Config(
 )
 
 class CoupledL2DefaultConfig(n: Int = 1) extends Config(
-  new WithNKBL3(4096, inclusive = false, banks = 4)
+  new WithNKBL3(6 * 1024, inclusive = false, banks = 4, ways = 6)
     ++ new WithNKBL2(1024, banks = 4)
     ++ new WithNKBL1D(64)
     ++ new WithNKBL1I(16) // no alias
