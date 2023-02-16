@@ -154,7 +154,7 @@ case class XSCoreParameters
     LduCnt = 2,
     StuCnt = 2
   ),
-  prefetcher: Option[PrefetcherParams] = Some(SMSParams()),
+  prefetcher: Option[PrefetcherParams] = None,//Some(SMSParams()),
   LoadPipelineWidth: Int = 2,
   StorePipelineWidth: Int = 2,
   StoreBufferSize: Int = 16,

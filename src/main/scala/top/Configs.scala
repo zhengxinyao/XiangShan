@@ -291,7 +291,7 @@ class WithNKBL2
 //     ))
 // })
 
-class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1) extends Config((site, here, up) => {
+class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1, alwaysReleaseData: Boolean = false) extends Config((site, here, up) => {
   case SoCParamsKey =>
     val sets = n * 1024 / banks / ways / 64
     val tiles = site(XSTileKey)
@@ -306,13 +306,19 @@ class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1
         ways = ways,
         sets = sets,
         inclusive = inclusive,
-        clientCaches = tiles.map{ core =>
-          val l2params = core.L2CacheParamsOpt.get.toCacheParams
-          l2params.copy(
-            sets = 2 * clientDirBytes / core.L2NBanks / l2params.ways / 64,
-            blockGranularity = log2Ceil(clientDirBytes / core.L2NBanks / l2params.ways / 64 / tiles.size)
+        alwaysReleaseData = alwaysReleaseData,
+        clientCaches = tiles.map { p =>
+          CacheParameters(
+            "dcache",
+            sets = 2 * p.dcacheParametersOpt.get.nSets / banks,
+            ways = p.dcacheParametersOpt.get.nWays + 2,
+            blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
+            aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
           )
         },
+        reqField = Seq(PreferCacheField()),
+        echoField = Seq(huancun.DirtyField()),
+        prefetch = None,//Some(huancun.prefetch.PrefetchReceiverParams()),
         enablePerf = true,
         ctrl = Some(CacheCtrl(
           address = 0x39000000,
@@ -325,6 +331,13 @@ class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1
         simulation = !site(DebugOptionsKey).FPGAPlatform
       ))
     )
+})
+
+class WithoutL2 extends Config((_, _, up) => {
+  case XSTileKey =>
+    up(XSTileKey).map(p => p.copy(
+      L2CacheParamsOpt = None
+    ))
 })
 
 class WithL3DebugConfig extends Config(
@@ -347,8 +360,9 @@ class MediumConfig(n: Int = 1) extends Config(
 )
 
 class DefaultConfig(n: Int = 1) extends Config(
-  new WithNKBL3(6 * 1024, inclusive = false, banks = 4, ways = 6)
-    ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, alwaysReleaseData = true)
+  new WithNKBL3(2 * 512, inclusive = false, banks = 4, alwaysReleaseData = true)
+    // ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, alwaysReleaseData = true)
+    ++ new WithoutL2
     ++ new WithNKBL1D(64)
     ++ new BaseConfig(n)
 )
