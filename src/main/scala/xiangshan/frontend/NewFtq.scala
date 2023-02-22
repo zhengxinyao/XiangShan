@@ -437,6 +437,23 @@ class FtqPcMemWrapper(numOtherReads: Int)(implicit p: Parameters) extends XSModu
   io.commPtr_rdata      := mem.io.rdata.last
 }
 
+class OracleBrInfo(implicit p: Parameters) extends XSBundle {
+  val brType = UInt(2.W)
+
+  def isCFI = brType =/= BrType.notCFI
+  def isBr = brType === BrType.branch
+  def isJal = brType === BrType.jal
+  def isJalr = brType === BrType.jalr
+}
+
+class OracleBlockBrInfo(implicit p: Parameters) extends XSBundle {
+  val brInfos = Vec(PredictWidth, new OracleBrInfo)
+
+  def fromPdWb(pdWb: PredecodeWritebackBundle) = {
+    brInfos.zipWithIndex.foreach({case (br, i) => br.brType := Mux(pdWb.pd(i).valid /*&& pdWb.instrRange(i)*/, pdWb.pd(i).brType, BrType.notCFI)})
+  }
+}
+
 class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper
   with HasBackendRedirectInfo with BPUUtils with HasBPUConst with HasPerfEvents 
   with HasICacheParameters{
@@ -483,6 +500,39 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   val copied_ifu_ptr = Seq.fill(copyNum)(RegInit(FtqPtr(false.B, 0.U)))
   val copied_bpu_ptr = Seq.fill(copyNum)(RegInit(FtqPtr(false.B, 0.U)))
   require(FtqSize >= 4)
+
+  val brNonSpecCnt = RegInit(0.U.asTypeOf(UInt(64.W)))
+  val brInfo = Reg(Vec(FtqSize, new OracleBlockBrInfo))
+
+  def brSum(specPtr: FtqPtr, commPtr: FtqPtr, redirectValid: Vec[Bool]):UInt = {
+    val specArray = Wire(Vec(FtqSize, UInt(64.W)))
+
+    val specSum = WireInit(0.U.asTypeOf(UInt(64.W)))
+    val spec_greater_comm = specPtr.value >= commPtr.value
+    when (spec_greater_comm) {
+      brInfo.zipWithIndex.foreach({ case (br, i) =>
+        when (i.U >= commPtr.value && i.U < specPtr.value) {
+          specArray(i) := br.brInfos.map(a => a.isCFI.asUInt.asTypeOf(UInt(64.W))).reduce(_ + _)
+        } .otherwise {
+          specArray(i) := 0.U
+        }
+      })
+    } .otherwise {
+      brInfo.zipWithIndex.foreach({ case (br, i) =>
+        when (i.U >= commPtr.value || i.U < specPtr.value) {
+          specArray(i) := br.brInfos.map(a => a.isCFI.asUInt.asTypeOf(UInt(64.W))).reduce(_ + _)
+        } .otherwise {
+          specArray(i) := 0.U
+        }
+      })
+    }
+    specArray(specPtr.value) := brInfo(specPtr.value).brInfos.zipWithIndex.map{ case (a, i) => Mux(redirectValid(i), a.isCFI.asUInt.asTypeOf(UInt(64.W)), 0.U)}.reduce(_ + _)
+
+    specSum := specArray.reduce(_ + _)
+
+    brNonSpecCnt + specSum
+  }
+
   val ifuPtr_write       = WireInit(ifuPtr)
   val ifuPtrPlus1_write  = WireInit(ifuPtrPlus1)
   val ifuPtrPlus2_write  = WireInit(ifuPtrPlus2)
@@ -793,6 +843,10 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   ftq_pd_mem.io.waddr(0) := pdWb.bits.ftqIdx.value
   ftq_pd_mem.io.wdata(0).fromPdWb(pdWb.bits)
 
+  when (ifu_wb_valid) {
+    brInfo(pdWb.bits.ftqIdx.value).fromPdWb(pdWb.bits)
+  }
+
   val hit_pd_valid = entry_hit_status(ifu_wb_idx) === h_hit && ifu_wb_valid
   val hit_pd_mispred = hit_pd_valid && pdWb.bits.misOffset.valid
   val hit_pd_mispred_reg = RegNext(hit_pd_mispred, init=false.B)
@@ -872,6 +926,9 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   val fromBackendRedirect = WireInit(backendRedirectReg)
   val backendRedirectCfi = fromBackendRedirect.bits.cfiUpdate
   backendRedirectCfi.fromFtqRedirectSram(stage3CfiInfo)
+  val backendRedirectInstrValid = Wire(Vec(PredictWidth, Bool()))
+  backendRedirectInstrValid.zipWithIndex.foreach({case (a, i) => a := i.U <= fromBackendRedirect.bits.ftqOffset})
+  backendRedirectCfi.brIdx := brSum(fromBackendRedirect.bits.ftqIdx, commPtr, backendRedirectInstrValid)
 
   val r_ftb_entry = ftb_entry_mem.io.rdata.init.last
   val r_ftqOffset = fromBackendRedirect.bits.ftqOffset
@@ -905,8 +962,13 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   ifuRedirectCfiUpdate.target := pdWb.bits.target
   ifuRedirectCfiUpdate.taken := pdWb.bits.cfiOffset.valid
   ifuRedirectCfiUpdate.isMisPred := pdWb.bits.misOffset.valid
+  ifuRedirectCfiUpdate.brIdx := DontCare
 
   val ifuRedirectReg = RegNext(fromIfuRedirect, init=0.U.asTypeOf(Valid(new Redirect)))
+
+  val ifuRedirectInstrValid = Wire(Vec(PredictWidth, Bool()))
+  ifuRedirectInstrValid.zipWithIndex.foreach({case (a, i) => a := pdWb.bits.pd(i).valid && i.U <= fromIfuRedirect.bits.ftqOffset})
+
   val ifuRedirectToBpu = WireInit(ifuRedirectReg)
   ifuFlush := fromIfuRedirect.valid || ifuRedirectToBpu.valid
 
@@ -917,6 +979,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   val toBpuCfi = ifuRedirectToBpu.bits.cfiUpdate
   toBpuCfi.fromFtqRedirectSram(ftq_redirect_sram.io.rdata.head)
+  toBpuCfi.brIdx := brSum(RegNext(pdWb.bits.ftqIdx), commPtr, RegNext(ifuRedirectInstrValid))
   when (ifuRedirectReg.bits.cfiUpdate.pd.isRet) {
     toBpuCfi.target := toBpuCfi.rasEntry.retAddr
   }
@@ -1142,6 +1205,14 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   update.br_taken_mask     := ftbEntryGen.taken_mask
   update.jmp_taken         := ftbEntryGen.jmp_taken
 
+  val commitBrAppend = brInfo(do_commit_ptr.value).brInfos.zipWithIndex.map({ case (a, i) =>
+    Mux(commitStateQueue(do_commit_ptr.value)(i) === c_commited, a.isCFI.asUInt.asTypeOf(UInt(64.W)), 0.U)
+  }).reduce(_ + _)
+
+  when (do_commit) {
+
+    brNonSpecCnt := brNonSpecCnt + commitBrAppend
+  }
   // update.full_pred.fromFtbEntry(ftbEntryGen.new_entry, update.pc)
   // update.full_pred.jalr_target := commit_target
   // update.full_pred.hit := true.B
@@ -1323,6 +1394,9 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   val commit_pred_stage = RegNext(pred_stage(commPtr.value))
 
+  //when (do_commit) {
+  //   XSError(commitBrAppend =/= RegNext(PopCount(mbpInstrs)), "brNonSpecCnt append mismatch!")
+  //}
   def pred_stage_map(src: UInt, name: String) = {
     (0 until numBpStages).map(i =>
       f"${name}_stage_${i+1}" -> PopCount(src.asBools.map(_ && commit_pred_stage === BP_STAGES(i)))

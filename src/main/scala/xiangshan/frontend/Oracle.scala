@@ -76,10 +76,10 @@ class OracleBP(implicit p: Parameters) extends BasePredictor with OracleBPParams
   val s2_full_pred = io.in.bits.resp_in(0).s2.full_pred
 
   val pc_hit_br_slot = VecInit((0 until OraclePredictWidth).map(i => pcs(i) === s2_pc + s2_full_pred.offsets(0) * 2.U))
-  val pc_hit_jr_slot = VecInit((0 until OraclePredictWidth).map(i => pcs(i) === s2_pc + s2_full_pred.offsets(0) * 2.U))
+  val pc_hit_jr_slot = VecInit((0 until OraclePredictWidth).map(i => pcs(i) === s2_pc + s2_full_pred.offsets(1) * 2.U))
 
-  val pc_hit_br = pc_hit_br_slot.asUInt().orR()
-  val pc_hit_jr = pc_hit_jr_slot.asUInt().orR()
+  val pc_hit_br = pc_hit_br_slot.asUInt().orR() && s2_full_pred.slot_valids(0)
+  val pc_hit_jr = pc_hit_jr_slot.asUInt().orR() && s2_full_pred.slot_valids(1)
 
   val pc_hit_br_pos = PriorityEncoder(pc_hit_br_slot) + 1.U
   val pc_hit_jr_pos = PriorityEncoder(pc_hit_jr_slot) + 1.U
@@ -107,7 +107,7 @@ class OracleBP(implicit p: Parameters) extends BasePredictor with OracleBPParams
     bphelper.redirectIdx := 0.U
   }
   val redirectpcs = VecInit((0 until 16).map(i => bphelper.redirectpc((i+1)*64-1, i*64)))
-  val redirectpchit = VecInit((0 until 15).map(i => 
+  val redirectpchit = VecInit((0 until 15).map(i =>
       redirectpcs(i) === io.redirect.bits.cfiUpdate.pc || (redirectpcs(i) < io.redirect.bits.cfiUpdate.pc && redirectpcs(i+1) > io.redirect.bits.cfiUpdate.pc)
       ))
   // at most 16 pcs
@@ -142,7 +142,7 @@ class OracleBP(implicit p: Parameters) extends BasePredictor with OracleBPParams
   }
 
   when (io.redirect.valid && io.redirect.bits.cfiUpdate.isMisPred && reach_mem) {
-    brIdx := io.redirect.bits.cfiUpdate.brIdx + redirectAdder
+    brIdx := io.redirect.bits.cfiUpdate.brIdx //+ redirectAdder
   }
 
   if (OracleBranch) {
