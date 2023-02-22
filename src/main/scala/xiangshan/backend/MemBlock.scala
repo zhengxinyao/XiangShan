@@ -114,6 +114,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val lqCancelCnt = Output(UInt(log2Up(LoadQueueSize + 1).W))
     val sqCancelCnt = Output(UInt(log2Up(StoreQueueSize + 1).W))
     val sqDeq = Output(UInt(log2Ceil(EnsbufferWidth + 1).W))
+
+    val l2_hint = Input(Valid(new L2ToL1Hint()))
   })
 
   override def writebackSource1: Option[Seq[Seq[DecoupledIO[ExuOutput]]]] = Some(Seq(io.writeback))
@@ -398,6 +400,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     lsq.io.s3_replay_from_fetch(i) <> loadUnits(i).io.lsq.s3_replay_from_fetch
     lsq.io.s3_delayed_load_error(i) <> loadUnits(i).io.s3_delayed_load_error
 
+    lsq.io.l2_hint.valid := io.l2_hint.valid
+    lsq.io.l2_hint.bits.sourceId := io.l2_hint.bits.sourceId
     // alter writeback exception info
     io.s3_delayed_load_error(i) := loadUnits(i).io.lsq.s3_delayed_load_error
 

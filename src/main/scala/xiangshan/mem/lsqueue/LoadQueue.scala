@@ -120,6 +120,7 @@ class LoadQueueIOBundle(implicit p: Parameters) extends XSBundle {
   val storeDataValidVec = Vec(StoreQueueSize, Input(Bool()))
 
   val tlbReplayDelayCycleCtrl = Vec(4, Input(UInt(ReSelectLen.W)))
+  val l2_hint = Input(Valid(new L2ToL1Hint()))
 }
 
 // Load Queue
@@ -335,8 +336,30 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     getFirstOne(toVec(loadReplayRemSelVecNotFire(rem)), remReplayDeqMask(rem))
   ))
 
+  // l2 hint wakes up cache missed load
+  // l2 will send GrantData in next 3 cycle, wake up the missed load early and sent them to load pipe, so them will hit the data in D channel or mshr in load S1
+  // CAM logic
+  val hintWakeVec = VecInit((0 until LoadQueueSize).map(i => {
+    allocated(i) && block_by_cache_miss(i) && miss_mshr_id(i) === io.l2_hint.bits.sourceId
+  })).asUInt() // use uint instead vec to reduce verilog lines
+
+  (0 until LoadPipelineWidth).foreach(index => {
+    when(hintWakeVec(index) && io.l2_hint.valid) {
+      block_by_cache_miss(index) := false.B
+      creditUpdate(index) := 0.U
+    }
+  })
+
+  val hintWakeRemSel = Seq.tabulate(LoadPipelineWidth)(rem => getFirstOne(toVec(getRemBits(hintWakeVec)(rem)), remReplayDeqMask(rem)))
+
   val loadReplaySelGen = Wire(Vec(LoadPipelineWidth, UInt(log2Up(LoadQueueSize).W)))
   val loadReplaySelVGen = Wire(Vec(LoadPipelineWidth, Bool()))
+
+  val loadWakeSelGen = Wire(Vec(LoadPipelineWidth, UInt(log2Up(LoadQueueSize).W)))
+  val loadWakeSelVGen = Wire(Vec(LoadPipelineWidth, Bool()))
+
+  val loadSelGen = Wire(Vec(LoadPipelineWidth, UInt(log2Up(LoadQueueSize).W)))
+  val loadSelVGen = Wire(Vec(LoadPipelineWidth, Bool()))
 
   (0 until LoadPipelineWidth).foreach(index => {
     loadReplaySelGen(index) := (
@@ -346,14 +369,29 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     loadReplaySelVGen(index) := Mux(replayRemFire(index), loadReplayRemSelVecFire(index).asUInt.orR, loadReplayRemSelVecNotFire(index).asUInt.orR)
   })
 
-  (0 until LoadPipelineWidth).map(i => {
-    // vaddrModule rport 0 and 1 is used by exception and mmio 
-    vaddrModule.io.raddr(2 + i) := loadReplaySelGen(i)
+  (0 until LoadPipelineWidth).foreach(index => {
+    loadWakeSelGen(index) := (
+      if (LoadPipelineWidth > 1) Cat(hintWakeRemSel(index), index.U(log2Ceil(LoadPipelineWidth).W))
+      else hintWakeRemSel(index)
+    )
+    loadWakeSelVGen(index) := getRemBits(hintWakeVec)(index).asUInt.orR && io.l2_hint.valid
+  })
+
+  XSPerfAccumulate("wakeup", PopCount((0 until LoadPipelineWidth).map{case i => {loadWakeSelVGen(i)}})) 
+
+  (0 until LoadPipelineWidth).foreach(index => {
+    loadSelGen(index) := Mux(loadWakeSelVGen(index), loadWakeSelGen(index), loadReplaySelGen(index))
+    loadSelVGen(index) := loadWakeSelVGen(index) || loadReplaySelVGen(index)
   })
 
   (0 until LoadPipelineWidth).map(i => {
-    loadReplaySel(i) := RegNext(loadReplaySelGen(i))
-    loadReplaySelV(i) := RegNext(loadReplaySelVGen(i), init = false.B)
+    // vaddrModule rport 0 and 1 is used by exception and mmio 
+    vaddrModule.io.raddr(2 + i) := loadSelGen(i)
+  })
+
+  (0 until LoadPipelineWidth).map(i => {
+    loadReplaySel(i) := RegNext(loadSelGen(i))
+    loadReplaySelV(i) := RegNext(loadSelVGen(i), init = false.B)
   })
   
   // stage2: replay to load pipeline (if no load in S0)
