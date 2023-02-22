@@ -62,8 +62,8 @@ class FMUL_pipe(val mulLat: Int = 2)(implicit p: Parameters)
 
     val in1 = src1
     val in2 = Mux(fpCtrl.fmaCmd(1), invert_sign(src2, t.len), src2)
-    s1.io.a := in1
-    s1.io.b := in2
+    s1.io.a := in2
+    s1.io.b := in1
     s1.io.rm := rm
 
     s2.io.in := S1Reg(s1.io.out)
