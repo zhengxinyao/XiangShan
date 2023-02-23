@@ -363,6 +363,7 @@ class ExceptionInfo(implicit p: Parameters) extends XSBundleWithMicroOp {
 
 class RobCommitInfo(implicit p: Parameters) extends XSBundle {
   val ldest = UInt(5.W)
+  val lsrc = UInt(5.W) // for MEMatrix only
   val rfWen = Bool()
   val fpWen = Bool()
   val wflags = Bool()

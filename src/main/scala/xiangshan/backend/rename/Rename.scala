@@ -52,12 +52,10 @@ class Rename(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHe
 
   // create free list and rat
   val intFreeList = Module(new MEFreeList(NRPhyRegs))
-  val intRefCounter = Module(new RefCounter(NRPhyRegs))
+  val intMEMatrix = Module(new MEMatrix)
   val fpFreeList = Module(new StdFreeList(NRPhyRegs - 32))
 
-  intRefCounter.io.commit        <> io.robCommits
-  intRefCounter.io.redirect      := io.redirect.valid
-  intRefCounter.io.debug_int_rat <> io.debug_int_rat
+  intMEMatrix.io.commit := io.robCommits
   intFreeList.io.commit    <> io.robCommits
   intFreeList.io.debug_rat <> io.debug_int_rat
   fpFreeList.io.commit     <> io.robCommits
@@ -208,9 +206,6 @@ class Rename(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHe
     } else {
       walkPdest(i) := io.out(i).bits.pdest
     }
-
-    intRefCounter.io.allocate(i).valid := Mux(io.robCommits.isWalk, walkIntSpecWen(i), intSpecWen(i))
-    intRefCounter.io.allocate(i).bits := Mux(io.robCommits.isWalk, walkPdest(i), io.out(i).bits.pdest)
   }
 
   /**
@@ -314,12 +309,10 @@ class Rename(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHe
         fpFreeList.io.freeReq(i)  := commitValid && needDestRegCommit(fp, io.robCommits.info(i))
         fpFreeList.io.freePhyReg(i) := io.robCommits.info(i).old_pdest
       } else { // Integer free list
-        intFreeList.io.freeReq(i) := intRefCounter.io.freeRegs(i).valid
-        intFreeList.io.freePhyReg(i) := intRefCounter.io.freeRegs(i).bits
+        intFreeList.io.freeReq(i) := intMEMatrix.io.freeRegs(i).valid
+        intFreeList.io.freePhyReg(i) := intMEMatrix.io.freeRegs(i).bits
       }
     }
-    intRefCounter.io.deallocate(i).valid := commitValid && needDestRegCommit(false, io.robCommits.info(i)) && !io.robCommits.isWalk
-    intRefCounter.io.deallocate(i).bits := io.robCommits.info(i).old_pdest
   }
 
   when(io.robCommits.isWalk) {

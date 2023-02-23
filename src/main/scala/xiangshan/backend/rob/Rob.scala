@@ -940,6 +940,7 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
   dispatchData.io.waddr := allocatePtrVec.map(_.value)
   dispatchData.io.wdata.zip(io.enq.req.map(_.bits)).foreach{ case (wdata, req) =>
     wdata.ldest := req.ctrl.ldest
+    wdata.lsrc := req.ctrl.lsrc(0)
     wdata.rfWen := req.ctrl.rfWen
     wdata.fpWen := req.ctrl.fpWen
     wdata.wflags := req.ctrl.fpu.wflags
