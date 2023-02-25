@@ -420,9 +420,9 @@ class ICacheDataArray(implicit p: Parameters) extends ICacheArray
     }
   }
 
-  def getECCFromBlock(cacheblock: UInt) = {
+  def getECCFromBlock(cacheblock: UInt, unitNum: Int = dataCodeUnitNum) = {
     // require(cacheblock.getWidth == blockBits)
-    VecInit((0 until dataCodeUnitNum).map { w =>
+    VecInit((0 until unitNum).map { w =>
       val unit = cacheblock(dataCodeUnit * (w + 1) - 1, dataCodeUnit * w)
       getECCFromEncUnit(cacheParams.dataCode.encode(unit))
     })
@@ -529,10 +529,10 @@ class ICacheDataArray(implicit p: Parameters) extends ICacheArray
     case (a, i) => a := Cat(0.U.asTypeOf(UInt((blockBits / 2).W)), read_datas(0)(i))
   } // := Cat(0.U.asTypeOf(UInt((blockBits / 2).W)), read_datas(1)) // Mux(port_1_read_0_reg, read_datas(0) , read_datas(1))
   io.readResp.codes(0).zipWithIndex.map{
-    case (a, i) => a := Mux(port_0_read_this_reg, Cat(read_codes(1)(i), read_codes(0)(i)), Cat(read_codes(1)(i), 0.U.asTypeOf(UInt((dataCodeEntryBits / 2).W))))
+    case (a, i) => a := Mux(port_0_read_this_reg, Cat(read_codes(1)(i), read_codes(0)(i)), Cat(read_codes(1)(i), getECCFromBlock(0.U.asTypeOf(UInt((blockBits / 2).W)), dataCodeUnitNum / 2).asUInt))
   } //:=  Mux(port_0_read_1_reg, read_codes(1) , read_codes(0))
   io.readResp.codes(1).zipWithIndex.map{
-    case (a, i) => a := Cat(0.U.asTypeOf(UInt((dataCodeEntryBits / 2).W)), read_codes(0)(i))
+    case (a, i) => a := Cat(getECCFromBlock(0.U.asTypeOf(UInt((blockBits / 2).W)), dataCodeUnitNum / 2).asUInt, read_codes(0)(i))
   } //:=  Mux(port_1_read_0_reg, read_codes(0) , read_codes(1))
 
   io.write.ready := true.B
