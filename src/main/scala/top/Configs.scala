@@ -213,7 +213,8 @@ class WithNKBL1D(n: Int, ways: Int = 4) extends Config((site, here, up) => {
         replacer = Some("setplru"),
         nMissEntries = 16,
         nProbeEntries = 8,
-        nReleaseEntries = 18
+        nReleaseEntries = 18,
+        alwaysReleaseData = false
       ))
     ))
 })
