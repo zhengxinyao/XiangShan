@@ -283,7 +283,7 @@ class WithNKBL2
   ways: Int = 8,
   inclusive: Boolean = true,
   banks: Int = 1,
-  alwaysReleaseData: Boolean = true
+  releaseData: Int = 1
 ) extends Config((site, here, up) => {
   case XSTileKey =>
     val upParams = up(XSTileKey)
@@ -300,7 +300,7 @@ class WithNKBL2
           // blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
         )),
-        alwaysReleaseData = alwaysReleaseData,
+        releaseData = releaseData,
         reqField = Seq(huancun.PreferCacheField()),
         echoField = Seq(huancun.DirtyField()),
         prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams()),
@@ -360,14 +360,14 @@ class DefaultL3DebugConfig(n: Int = 1) extends Config(
 
 class MediumConfig(n: Int = 1) extends Config(
   new WithNKBL3(4096, inclusive = false, banks = 4)
-    ++ new WithNKBL2(512, inclusive = false, alwaysReleaseData = true)
+    ++ new WithNKBL2(512, inclusive = false, releaseData = 1)
     ++ new WithNKBL1D(128)
     ++ new BaseConfig(n)
 )
 
 class DefaultConfig(n: Int = 1) extends Config(
   new WithNKBL3(6 * 1024, inclusive = false, banks = 4, ways = 6)
-    ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, alwaysReleaseData = true)
+    ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, releaseData = 1)
     ++ new WithNKBL1D(64)
     ++ new BaseConfig(n)
 )
