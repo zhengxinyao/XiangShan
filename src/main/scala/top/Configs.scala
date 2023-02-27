@@ -283,7 +283,7 @@ class WithNKBL2
   ways: Int = 8,
   inclusive: Boolean = true,
   banks: Int = 1,
-  alwaysReleaseData: Boolean = false
+  alwaysReleaseData: Boolean = true
 ) extends Config((site, here, up) => {
   case XSTileKey =>
     val upParams = up(XSTileKey)
@@ -300,6 +300,7 @@ class WithNKBL2
           // blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
         )),
+        alwaysReleaseData = alwaysReleaseData,
         reqField = Seq(huancun.PreferCacheField()),
         echoField = Seq(huancun.DirtyField()),
         prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams()),
