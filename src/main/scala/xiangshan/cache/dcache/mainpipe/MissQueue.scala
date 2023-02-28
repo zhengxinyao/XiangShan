@@ -28,7 +28,6 @@ import freechips.rocketchip.tilelink.MemoryOpCategories._
 import freechips.rocketchip.tilelink.TLPermissions._
 import difftest._
 import coupledL2.{AliasKey, DirtyKey, PrefetchKey}
-import huancun.utils.FastArbiter
 import mem.{AddPipelineReg}
 import mem.trace._
 

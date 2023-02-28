@@ -11,7 +11,7 @@ import huancun.debug.TLLogger
 import huancun.{HCCacheParamsKey, HuanCun}
 import system.HasSoCParameter
 import top.BusPerfMonitor
-import utils.{TLClientsMerger, TLEdgeBuffer, IntBuffer}
+import utility._
 import coupledL2.{CoupledL2, L2ParamKey}
 
 class L1BusErrorUnitInfo(implicit val p: Parameters) extends Bundle with HasSoCParameter {
@@ -168,7 +168,7 @@ class XSTile()(implicit p: Parameters) extends LazyModule
       core.module.io.l2_hint.bits.sourceId := DontCare
       core.module.io.l2_hint.valid := false.B
     }
-    
+
       misc.module.beu_errors.l2 <> 0.U.asTypeOf(misc.module.beu_errors.l2)
 
     // Modules are reset one by one

@@ -28,7 +28,6 @@ import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util.{BundleFieldBase, UIntToOH1}
 import device.RAMHelper
 import coupledL2.{AliasField, AliasKey, DirtyField, PrefetchField}
-import huancun.utils.FastArbiter
 import mem.{AddPipelineReg}
 import xiangshan.cache.dcache.ReplayCarry
 

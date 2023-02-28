@@ -167,6 +167,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   val cache_no_replay = RegInit(VecInit(List.fill(LoadQueueSize)(true.B)))
   val forward_data_valid = RegInit(VecInit(List.fill(LoadQueueSize)(true.B)))
   val cache_hited = RegInit(VecInit(List.fill(LoadQueueSize)(true.B)))
+  val last_beat = RegInit(VecInit(List.fill(LoadQueueSize)(true.B)))
 
 
   /**
@@ -343,14 +344,18 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     allocated(i) && block_by_cache_miss(i) && miss_mshr_id(i) === io.l2_hint.bits.sourceId
   })).asUInt() // use uint instead vec to reduce verilog lines
 
-  (0 until LoadPipelineWidth).foreach(index => {
+  (0 until LoadQueueSize).foreach(index => {
     when(hintWakeVec(index) && io.l2_hint.valid) {
       block_by_cache_miss(index) := false.B
       creditUpdate(index) := 0.U
     }
   })
+  
+  val hintSelVec = VecInit((0 until LoadQueueSize).map(i => {
+    hintWakeVec(i) && !last_beat(i)
+  })).asUInt() // use uint instead vec to reduce verilog lines
 
-  val hintWakeRemSel = Seq.tabulate(LoadPipelineWidth)(rem => getFirstOne(toVec(getRemBits(hintWakeVec)(rem)), remReplayDeqMask(rem)))
+  val hintWakeRemSel = Seq.tabulate(LoadPipelineWidth)(rem => getFirstOne(toVec(getRemBits(hintSelVec)(rem)), remReplayDeqMask(rem)))
 
   val loadReplaySelGen = Wire(Vec(LoadPipelineWidth, UInt(log2Up(LoadQueueSize).W)))
   val loadReplaySelVGen = Wire(Vec(LoadPipelineWidth, Bool()))
@@ -374,7 +379,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
       if (LoadPipelineWidth > 1) Cat(hintWakeRemSel(index), index.U(log2Ceil(LoadPipelineWidth).W))
       else hintWakeRemSel(index)
     )
-    loadWakeSelVGen(index) := getRemBits(hintWakeVec)(index).asUInt.orR && io.l2_hint.valid
+    loadWakeSelVGen(index) := getRemBits(hintSelVec)(index).asUInt.orR && io.l2_hint.valid
   })
 
   XSPerfAccumulate("wakeup", PopCount((0 until LoadPipelineWidth).map{case i => {loadWakeSelVGen(i)}})) 
@@ -624,6 +629,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
                                   !io.replaySlow(i).cache_hited && !io.replaySlow(i).can_forward_full_data && // cache miss
                                   !(io.refill.valid && io.refill.bits.id === io.replaySlow(i).miss_mshr_id) && // no refill in this cycle
                                   creditUpdate(idx) =/= 0.U // credit is not zero
+      last_beat(idx) := io.replaySlow(i).data_in_last_beat
     }
 
   }

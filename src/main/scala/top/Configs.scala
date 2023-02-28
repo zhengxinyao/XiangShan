@@ -92,7 +92,6 @@ class MinimalConfig(n: Int = 1) extends Config(
           LduCnt = 2,
           StuCnt = 2
         ),
-        prefetcher = Some(SMSParams()),
         icacheParameters = ICacheParameters(
           nSets = 64, // 16KB ICache
           tagECC = Some("parity"),
@@ -321,7 +320,7 @@ class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1
     up(SoCParamsKey).copy(
       L3NBanks = banks,
       L3CacheParamsOpt = Some(HCCacheParameters(
-        name = "HuanCun L3",
+        name = "HuanCun_L3",
         level = 3,
         ways = ways,
         sets = sets,
