@@ -532,8 +532,8 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
 
   val (a_to_d_penalty_sample, a_to_d_penalty) = TransactionLatencyCounter(io.mem_acquire.fire(), io.mem_grant.fire() && refill_done)
   XSPerfHistogram("a_to_d_penalty", a_to_d_penalty, a_to_d_penalty_sample, 0, 20, 1, true, true)
-  XSPerfHistogram("a_to_d_penalty", a_to_d_penalty, a_to_d_penalty_sample, 20, 300, 10, true, false)
-  XSPerfHistogram("a_to_d_penalty", a_to_d_penalty, a_to_d_penalty_sample, 300, 500, 20, true, false)
+  XSPerfHistogram("a_to_d_penalty", a_to_d_penalty, a_to_d_penalty_sample, 20, 300, 10, true, true)
+  XSPerfHistogram("a_to_d_penalty", a_to_d_penalty, a_to_d_penalty_sample, 300, 500, 20, true, true)
   XSPerfHistogram("a_to_d_penalty", a_to_d_penalty, a_to_d_penalty_sample, 500, 1000, 100, true, false)
 }
 
