@@ -201,6 +201,12 @@ class MinimalSimConfig(n: Int = 1) extends Config(
   })
 )
 
+class WithoutL3() extends Config((site, here, up) => {
+  case SoCParamsKey => up(SoCParamsKey).copy(
+      L3CacheParamsOpt = None
+    )
+})
+
 class WithNKBL1D(n: Int, ways: Int = 4) extends Config((site, here, up) => {
   case XSTileKey =>
     val sets = n * 1024 / ways / 64
@@ -379,6 +385,14 @@ class CoupledL2DebugMinimalConfig(n: Int = 1) extends Config(
 
 class CoupledL2DefaultConfig(n: Int = 1) extends Config(
   new WithNKBL3(6 * 1024, inclusive = false, banks = 4, ways = 6)
+    ++ new WithNKBL2(1024, banks = 4)
+    ++ new WithNKBL1D(64)
+    ++ new WithNKBL1I(16) // no alias
+    ++ new BaseConfig(n)
+)
+
+class CoupledL2AloneConfig(n: Int = 1) extends Config(
+  new WithoutL3()
     ++ new WithNKBL2(1024, banks = 4)
     ++ new WithNKBL1D(64)
     ++ new WithNKBL1I(16) // no alias
