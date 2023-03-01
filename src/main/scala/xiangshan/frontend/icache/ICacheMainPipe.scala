@@ -434,7 +434,7 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
 
   val s2_meta_errors    = RegEnable(s1_meta_errors,    s1_fire)
   val s2_data_errorBits = RegEnable(s1_data_errorBits, s1_fire)
-  val s2_data_cacheline = RegEnable(s1_final_hit_data, s1_fire)
+  val s2_data_cacheline = RegEnable(s1_data_cacheline, s1_fire)
 
   val s2_data_errors    = Wire(Vec(PortNumber,Vec(nWays, Bool())))
 
@@ -449,11 +449,11 @@ class ICacheMainPipe(implicit p: Parameters) extends ICacheModule
                                        cacheParams.dataCode.decode(data_full_wayBits(w)(u)).error ))))
     if(i == 0){
       (0 until nWays).map{ w =>
-        s2_data_errors(i)(w) := RegNext(RegNext(s1_fire)) && RegNext(data_error_wayBits(w)).reduce(_||_)
+        s2_data_errors(i)(w) := RegNext(RegNext(s1_fire)) && RegNext(RegNext(!s1_ipf_hit_latch(i) && s1_port_hit(i))) && RegNext(data_error_wayBits(w)).reduce(_||_)
       }
     } else {
       (0 until nWays).map{ w =>
-        s2_data_errors(i)(w) := RegNext(RegNext(s1_fire)) && RegNext(RegNext(s1_double_line)) && RegNext(data_error_wayBits(w)).reduce(_||_)
+        s2_data_errors(i)(w) := RegNext(RegNext(s1_fire)) && RegNext(RegNext(!s1_ipf_hit_latch(i) && s1_port_hit(i))) && RegNext(RegNext(s1_double_line)) && RegNext(data_error_wayBits(w)).reduce(_||_)
       }
     }
   }
