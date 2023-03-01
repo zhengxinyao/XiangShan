@@ -129,8 +129,11 @@ case class XSCoreParameters
   EnableLoadFastWakeUp: Boolean = true, // NOTE: not supported now, make it false
   IssQueSize: Int = 16,
   NRPhyRegs: Int = 192,
-  LoadQueueSize: Int = 80,
-  LoadQueueNWriteBanks: Int = 8,
+  LoadQueueFlagSize: Int = 80,
+  LoadQueueRARSize: Int = 80,
+  LoadQueueRAWSize: Int = 128, // LoadQueueRAWSize must be power of 2
+  LoadQueueReplaySize: Int = 80, // LoadQueueReplaySize > LoadQueueFlagSize - Load_RS size
+  LoadQueueNWriteBanks: Int = 2,
   StoreQueueSize: Int = 64,
   StoreQueueNWriteBanks: Int = 8,
   VlsQueueSize: Int = 8,
@@ -390,7 +393,10 @@ trait HasXSParameter {
   val PhyRegIdxWidth = log2Up(NRPhyRegs)
   val RobSize = coreParams.RobSize
   val IntRefCounterWidth = log2Ceil(RobSize)
-  val LoadQueueSize = coreParams.LoadQueueSize
+  val LoadQueueFlagSize = coreParams.LoadQueueFlagSize
+  val LoadQueueRARSize = coreParams.LoadQueueRARSize
+  val LoadQueueRAWSize = coreParams.LoadQueueRAWSize
+  val LoadQueueReplaySize = coreParams.LoadQueueReplaySize
   val LoadQueueNWriteBanks = coreParams.LoadQueueNWriteBanks
   val StoreQueueSize = coreParams.StoreQueueSize
   val StoreQueueNWriteBanks = coreParams.StoreQueueNWriteBanks
