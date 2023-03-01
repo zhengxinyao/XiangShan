@@ -574,15 +574,21 @@ class RefillBufferForwardIO(implicit p: Parameters) extends DCacheBundle {
   val inflight = Bool()
   val paddr = UInt(PAddrBits.W)
   val raw_data = Vec(blockBytes/beatBytes, UInt(beatBits.W))
+  val firstbeat_valid = Bool()
+  val lastbeat_valid = Bool()
 
-  def apply(entry_valid : Bool, entry_paddr : UInt, entry_rawdata : Vec[UInt]) = {
+  def apply(entry_valid : Bool, entry_paddr : UInt, entry_rawdata : Vec[UInt], buffer_firstbeat_valid : Bool, buffer_lastbeat_valid : Bool) = {
     inflight := entry_valid
     paddr := entry_paddr
     raw_data := entry_rawdata
+    firstbeat_valid := buffer_firstbeat_valid
+    lastbeat_valid := buffer_lastbeat_valid
   }
 
   def forward(req_valid : Bool, req_paddr : UInt) = {
-    val all_match = req_valid && inflight && req_paddr(PAddrBits - 1, blockOffBits) === paddr(PAddrBits - 1, blockOffBits)
+    val beat_match = (req_paddr(log2Up(refillBytes)) === 0.U && firstbeat_valid) ||
+                     (req_paddr(log2Up(refillBytes)) === 1.U && lastbeat_valid)
+    val all_match = req_valid && inflight && req_paddr(PAddrBits - 1, blockOffBits) === paddr(PAddrBits - 1, blockOffBits) && beat_match
 
     val forward_valid = RegInit(false.B)
     val forwardData = RegInit(VecInit(List.fill(8)(0.U(8.W))))
@@ -733,7 +739,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   val missQueue    = Module(new MissQueue(edge))
   val probeQueue   = Module(new ProbeQueue(edge))
   val wb           = Module(new WritebackQueue(edge))
-  val refillBuffer = Module(new RefillBuffer)
+  val refillBuffer = Module(new RefillBuffer(edge))
 
   missQueue.io.hartId := io.hartId
 
@@ -1003,12 +1009,22 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   missQueue.io.mem_grant.valid := false.B
   missQueue.io.mem_grant.bits  := DontCare
 
+  refillBuffer.io.mem_grant.valid := false.B
+  refillBuffer.io.mem_grant.bits := DontCare
+
+  missQueue.io.refillBufferReady := refillBuffer.io.mem_grant.ready
+
   wb.io.mem_grant.valid := false.B
   wb.io.mem_grant.bits  := DontCare
 
+  refillBuffer.io.entry_release_vec := missQueue.io.mshr_release_vec
+  refillBuffer.io.mshr_paddr_vec := missQueue.io.mshr_paddr_vec
   // in L1DCache, we ony expect Grant[Data] and ReleaseAck
   bus.d.ready := false.B
   when (bus.d.bits.opcode === TLMessages.Grant || bus.d.bits.opcode === TLMessages.GrantData) {
+    refillBuffer.io.mem_grant.valid := bus.d.valid
+    refillBuffer.io.mem_grant.bits := bus.d.bits
+    // actually, bus.d.ready is missQueue.io.mem_grant.ready
     missQueue.io.mem_grant <> bus.d
   } .elsewhen (bus.d.bits.opcode === TLMessages.ReleaseAck) {
     wb.io.mem_grant <> bus.d

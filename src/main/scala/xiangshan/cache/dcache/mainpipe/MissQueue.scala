@@ -158,8 +158,12 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
     })
 
     val req_handled_by_this_entry = Output(Bool())
+    val entry_release_next_cycle = Output(Bool())
+    val entry_paddr = Output(UInt(PAddrBits.W))
 
     val forwardInfo = Output(new MissEntryForwardIO)
+
+    val refillBufferReady = Input(Bool())
   })
 
   assert(!RegNext(io.primary_valid && !io.primary_ready))
@@ -213,6 +217,10 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   val req_handled_by_this_entry = primary_fire || secondary_fire
 
   io.req_handled_by_this_entry := req_handled_by_this_entry
+
+  io.entry_release_next_cycle := release_entry && req_valid
+
+  io.entry_paddr := req.addr
 
   when (release_entry && req_valid) {
     req_valid := false.B
@@ -442,7 +450,7 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   io.mem_acquire.bits.user.lift(PreferCacheKey).foreach(_ := false.B)
   require(nSets <= 256)
 
-  io.mem_grant.ready := !w_grantlast && s_acquire
+  io.mem_grant.ready := !w_grantlast && s_acquire && io.refillBufferReady
 
   val grantack = RegEnable(edge.GrantAck(io.mem_grant.bits), io.mem_grant.fire())
   assert(RegNext(!io.mem_grant.fire() || edge.isRequest(io.mem_grant.bits)))
@@ -589,6 +597,12 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
 
     // do forward check in missqueue
     val forward = Vec(LoadPipelineWidth, new LduToRefillBufferForwardIO)
+
+    // ready from refill buffer
+    val refillBufferReady = Input(Bool())
+
+    val mshr_release_vec = Output(Vec(cfg.nMissEntries, Bool()))
+    val mshr_paddr_vec = Output(Vec(cfg.nMissEntries, UInt(PAddrBits.W)))
   })
   
   // 128KBL1: FIXME: provide vaddr for l2
@@ -611,6 +625,10 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
   val req_handled_vec = entries.map(_.io.req_handled_by_this_entry)
   assert(PopCount(req_handled_vec) <= 1.U, "Only one mshr can handle a req")
   io.resp.id := OHToUInt(req_handled_vec)
+
+  val entry_release_vec = entries.map(_.io.entry_release_next_cycle)
+  io.mshr_release_vec := VecInit(entry_release_vec)
+  io.mshr_paddr_vec := VecInit(entries.map(_.io.entry_paddr))
 
   val forwardInfo_vec = VecInit(entries.map(_.io.forwardInfo))
   (0 until LoadPipelineWidth).map(i => {
@@ -673,6 +691,8 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
       e.io.main_pipe_resp := io.main_pipe_resp.valid && io.main_pipe_resp.bits.ack_miss_queue && io.main_pipe_resp.bits.miss_id === i.U
 
       io.debug_early_replace(i) := e.io.debug_early_replace
+
+      e.io.refillBufferReady := io.refillBufferReady
   }
 
   io.req.ready := accept
