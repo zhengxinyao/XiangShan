@@ -150,11 +150,18 @@ trait HaveAXI4MemPort {
   ))
 
   val mem_xbar = TLXbar()
-  mem_xbar :=*
-    TLXbar() :=*
-    TLBuffer.chainNode(2) :=*
-    TLCacheCork() :=*
-    bankedNode
+  if (soc.L3CacheParamsOpt.isEmpty) {
+    mem_xbar :=*
+      TLXbar() :=*
+      TLBuffer.chainNode(2) :=*
+      bankedNode
+  } else {
+    mem_xbar :=*
+      TLXbar() :=*
+      TLBuffer.chainNode(2) :=*
+      TLCacheCork() :=*
+      bankedNode
+  }
 
   mem_xbar :=
     TLWidthWidget(8) :=
@@ -248,10 +255,18 @@ class SoCMisc()(implicit p: Parameters) extends BaseSoC
   }
 
   for ((core_out, i) <- core_to_l3_ports.zipWithIndex){
-    l3_banked_xbar :=*
-      TLLogger(s"L3_L2_$i", !debugOpts.FPGAPlatform) :=*
-      TLBuffer() :=
-      core_out
+    if (soc.L3CacheParamsOpt.isEmpty) {
+      l3_banked_xbar :=*
+        TLCacheCork() :=
+        TLLogger(s"L3_L2_$i", !debugOpts.FPGAPlatform) :=*
+        TLBuffer() :=
+        core_out
+    } else {
+      l3_banked_xbar :=*
+        TLLogger(s"L3_L2_$i", !debugOpts.FPGAPlatform) :=*
+        TLBuffer() :=
+        core_out
+    }
   }
   l3_banked_xbar := TLBuffer.chainNode(2) := l3_xbar
 

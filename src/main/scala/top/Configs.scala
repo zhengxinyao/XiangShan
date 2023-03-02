@@ -201,6 +201,12 @@ class MinimalSimConfig(n: Int = 1) extends Config(
   })
 )
 
+class WithoutL3() extends Config((site, here, up) => {
+  case SoCParamsKey => up(SoCParamsKey).copy(
+      L3CacheParamsOpt = None
+    )
+})
+
 class WithNKBL1D(n: Int, ways: Int = 4) extends Config((site, here, up) => {
   case XSTileKey =>
     val sets = n * 1024 / ways / 64
@@ -284,7 +290,7 @@ class WithNKBL2
   ways: Int = 8,
   inclusive: Boolean = true,
   banks: Int = 1,
-  alwaysReleaseData: Boolean = false
+  releaseData: Int = 1
 ) extends Config((site, here, up) => {
   case XSTileKey =>
     val upParams = up(XSTileKey)
@@ -301,7 +307,8 @@ class WithNKBL2
           // blockGranularity = log2Ceil(2 * p.dcacheParametersOpt.get.nSets / banks),
           aliasBitsOpt = p.dcacheParametersOpt.get.aliasBitsOpt
         )),
-        // reqField = Seq(PreferCacheField()),
+        releaseData = releaseData,
+        reqField = Seq(huancun.PreferCacheField()),
         echoField = Seq(huancun.DirtyField()),
         prefetch = Some(coupledL2.prefetch.PrefetchReceiverParams()),
         enablePerf = true
@@ -360,14 +367,14 @@ class DefaultL3DebugConfig(n: Int = 1) extends Config(
 
 class MediumConfig(n: Int = 1) extends Config(
   new WithNKBL3(4096, inclusive = false, banks = 4)
-    ++ new WithNKBL2(512, inclusive = false, alwaysReleaseData = true)
+    ++ new WithNKBL2(512, inclusive = false, releaseData = 1)
     ++ new WithNKBL1D(128)
     ++ new BaseConfig(n)
 )
 
 class DefaultConfig(n: Int = 1) extends Config(
   new WithNKBL3(6 * 1024, inclusive = false, banks = 4, ways = 6)
-    ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, alwaysReleaseData = true)
+    ++ new WithNKBL2(2 * 512, inclusive = false, banks = 4, releaseData = 1)
     ++ new WithNKBL1D(64)
     ++ new BaseConfig(n)
 )
@@ -379,6 +386,14 @@ class CoupledL2DebugMinimalConfig(n: Int = 1) extends Config(
 
 class CoupledL2DefaultConfig(n: Int = 1) extends Config(
   new WithNKBL3(6 * 1024, inclusive = false, banks = 4, ways = 6)
+    ++ new WithNKBL2(1024, banks = 4)
+    ++ new WithNKBL1D(64)
+    ++ new WithNKBL1I(16) // no alias
+    ++ new BaseConfig(n)
+)
+
+class CoupledL2AloneConfig(n: Int = 1) extends Config(
+  new WithoutL3()
     ++ new WithNKBL2(1024, banks = 4)
     ++ new WithNKBL1D(64)
     ++ new WithNKBL1I(16) // no alias
