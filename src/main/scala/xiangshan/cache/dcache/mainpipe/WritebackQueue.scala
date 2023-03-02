@@ -210,7 +210,8 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
   // --------------------------------------------------------------------------------
   // s_invalid: receive requests
   // new req entering
-  when (io.req.valid && io.primary_valid && io.primary_ready) {
+  val alloc = io.req.valid && io.primary_valid && io.primary_ready
+  when (alloc) {
     assert (remain === 0.U)
     req := io.req.bits
     s_data_override := false.B
@@ -523,7 +524,7 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
     data := mergeData(data, io.release_update.bits.data_delayed, io.release_update.bits.mask_delayed)
   }
 
-  when (!s_data_override && req.hasData) {
+  when (!s_data_override && (req.hasData || RegNext(alloc))) {
     data := io.req_data.data
   }
 
