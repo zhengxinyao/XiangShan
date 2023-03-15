@@ -71,6 +71,7 @@ class MinimalConfig(n: Int = 1) extends Config(
         IBufSize = 16,
         StoreBufferSize = 4,
         StoreBufferThreshold = 3,
+        DcacheRefillBufferSize = 2,
         dpParams = DispatchParameters(
           IntDqSize = 12,
           FpDqSize = 12,
@@ -244,6 +245,8 @@ class WithNKBL2
         )),
         reqField = Seq(PreferCacheField()),
         echoField = Seq(DirtyField()),
+        respField = Seq(PaddrField(up(SoCParamsKey).PAddrBits)),
+        respKey = Seq(PaddrKey),
         prefetch = Some(huancun.prefetch.BOPParameters()),
         enablePerf = true,
         sramDepthDiv = 2,
@@ -279,6 +282,7 @@ class WithNKBL3(n: Int, ways: Int = 8, inclusive: Boolean = true, banks: Int = 1
           address = 0x39000000,
           numCores = tiles.size
         )),
+        respField = Seq(PaddrField(up(SoCParamsKey).PAddrBits)),
         sramClkDivBy2 = true,
         sramDepthDiv = 4,
         tagECC = Some("secded"),

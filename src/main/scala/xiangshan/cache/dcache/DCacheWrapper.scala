@@ -25,9 +25,9 @@ import utils._
 import utility._
 import freechips.rocketchip.diplomacy.{IdRange, LazyModule, LazyModuleImp, TransferSizes}
 import freechips.rocketchip.tilelink._
-import freechips.rocketchip.util.{BundleFieldBase, UIntToOH1}
+import freechips.rocketchip.util.{BundleFieldBase, UIntToOH1, BundleKeyBase}
 import device.RAMHelper
-import huancun.{AliasField, AliasKey, DirtyField, PreferCacheField, PrefetchField}
+import huancun.{AliasField, AliasKey, DirtyField, PreferCacheField, PrefetchField, PaddrKey, PaddrField}
 import utility.FastArbiter
 import mem.{AddPipelineReg}
 
@@ -59,6 +59,7 @@ case class DCacheParameters
     PrefetchField(),
     PreferCacheField()
   ) ++ aliasBitsOpt.map(AliasField)
+  val respKeys: Seq[BundleKeyBase] = Seq(PaddrKey)
   val echoFields: Seq[BundleFieldBase] = Seq(DirtyField())
 
   def tagCode: Code = Code.fromString(tagECC)
@@ -695,7 +696,8 @@ class DCache()(implicit p: Parameters) extends LazyModule with HasDCacheParamete
       supportsProbe = TransferSizes(cfg.blockBytes)
     )),
     requestFields = cacheParams.reqFields,
-    echoFields = cacheParams.echoFields
+    echoFields = cacheParams.echoFields,
+    responseKeys = cacheParams.respKeys
   )
 
   val clientNode = TLClientNode(Seq(clientParameters))

@@ -24,6 +24,7 @@ import xiangshan._
 import utils._
 import freechips.rocketchip.tilelink._
 import mem.{AddPipelineReg}
+import huancun.{PaddrKey, PaddrField}
 
 class RefillBufferPtr(implicit p: Parameters) extends CircularQueuePtr[RefillBufferPtr](
   p => p(XSCoreParamsKey).DcacheRefillBufferSize
@@ -72,7 +73,9 @@ class RefillBufferEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheM
     when(io.mem_grant.fire()) {
         req.miss_id := io.mem_grant.bits.source
         opcode_r := io.mem_grant.bits.opcode
-        req.addr := io.mshr_paddr_vec(io.mem_grant.bits.source)
+        // req.addr := io.mshr_paddr_vec(io.mem_grant.bits.source)
+        req.addr := io.mem_grant.bits.user.lift(PaddrKey).getOrElse(0.U)
+        assert(io.mem_grant.bits.user.lift(PaddrKey).getOrElse(0.U) === io.mshr_paddr_vec(io.mem_grant.bits.source), "sourceD paddr is not equals to MSHR paddr")
         when(refillBufferState === s_idle) {
             when(io.mem_grant.bits.opcode === TLMessages.Grant) {
                 refillBufferState := s_sleep
@@ -229,4 +232,5 @@ class RefillBuffer(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule
     QueuePerf(DcacheRefillBufferSize, validCount, validCount === DcacheRefillBufferSize.U)
     XSPerfAccumulate("forward_refill_buffer", PopCount((0 until LoadPipelineWidth).map(i => io.forward(i).forward_refill_buffer)))
     XSPerfAccumulate("refill_buffer_not_ready", !io.mem_grant.ready)
+    XSPerfAccumulate("tl_d_user_paddr_not_zero", io.mem_grant.fire() && (io.mem_grant.bits.user.lift(PaddrKey).getOrElse(0.U) =/= 0.U))
 }
