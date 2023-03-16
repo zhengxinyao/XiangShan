@@ -403,12 +403,9 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper wi
     val forward_D = Input(Bool())
     val forwardData_D = Input(Vec(8, UInt(8.W)))
 
-    // forward mshr data
-    val forward_mshr = Input(Bool())
-    val forwardData_mshr = Input(Vec(8, UInt(8.W)))
-
-    // indicate whether forward tilelink D channel or mshr data is valid
-    val forward_result_valid = Input(Bool())
+    // forward refillBuffer data
+    val forward_refillBuffer = Input(Bool())
+    val forwardData_refillBuffer = Input(Vec(8, UInt(8.W)))
   })
 
   val pmp = WireInit(io.pmpResp)
@@ -421,7 +418,7 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper wi
 
   val s2_is_prefetch = io.in.bits.isSoftPrefetch
 
-  val forward_D_or_mshr_valid = io.forward_result_valid && (io.forward_D || io.forward_mshr)
+  val forward_D_or_mshr_valid = (io.forward_D || io.forward_refillBuffer)
 
   // assert(!reset && io.forward_D && io.forward_mshr && io.in.valid && io.in.bits.forward_tlDchannel, "forward D and mshr at the same time")
 
@@ -543,9 +540,8 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper wi
   // forward D or mshr
   io.loadDataFromDcache.forward_D := io.forward_D
   io.loadDataFromDcache.forwardData_D := io.forwardData_D
-  io.loadDataFromDcache.forward_mshr := io.forward_mshr
-  io.loadDataFromDcache.forwardData_mshr := io.forwardData_mshr
-  io.loadDataFromDcache.forward_result_valid := io.forward_result_valid
+  io.loadDataFromDcache.forward_refillBuffer := io.forward_refillBuffer
+  io.loadDataFromDcache.forwardData_refillBuffer := io.forwardData_refillBuffer
 
   io.s2_can_replay_from_fetch := !s2_mmio && !s2_is_prefetch && !s2_tlb_miss
   // if forward fail, replay this inst from fetch
@@ -692,7 +688,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
     val sbuffer = new LoadForwardQueryIO
     val lsq = new LoadToLsqIO
     val tlDchannel = Input(new DcacheToLduForwardIO)
-    val forward_mshr = Flipped(new LduToRefillBufferForwardIO)
+    val forward_refillBuffer = Flipped(new LduToRefillBufferForwardIO)
     val refill = Flipped(ValidIO(new Refill))
     val fastUop = ValidIO(new MicroOp) // early wakeup signal generated in load_s1, send to RS in load_s2
     val trigger = Vec(3, new LoadUnitTriggerIO)
@@ -812,21 +808,19 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   PipelineConnect(load_s1.io.out, load_s2.io.in, true.B,
     load_s1.io.out.bits.uop.robIdx.needFlush(io.redirect) || cancelPointerChasing)
 
-  val (forward_D, forwardData_D) = io.tlDchannel.forward(load_s1.io.out.valid && load_s1.io.out.bits.forward_tlDchannel, load_s1.io.out.bits.mshrid, load_s1.io.out.bits.paddr)
+  val (forward_D, forwardData_D) = io.tlDchannel.forward(load_s1.io.out.valid && load_s1.io.out.bits.forward_tlDchannel, load_s1.io.out.bits.paddr)
 
-  io.forward_mshr.valid := load_s1.io.out.valid && load_s1.io.out.bits.forward_tlDchannel
-  io.forward_mshr.mshrid := load_s1.io.out.bits.mshrid
-  io.forward_mshr.paddr := load_s1.io.out.bits.paddr
-  val (forward_result_valid, forward_mshr, forwardData_mshr) = io.forward_mshr.forward()
+  io.forward_refillBuffer.valid  := load_s1.io.out.valid && load_s1.io.out.bits.forward_tlDchannel
+  io.forward_refillBuffer.paddr  := load_s1.io.out.bits.paddr
+  val (forward_refillBuffer, forwardData_refillBuffer) = io.forward_refillBuffer.forward()
 
-  XSPerfAccumulate("successfully_forward_channel_D", forward_D && forward_result_valid)
-  XSPerfAccumulate("successfully_forward_mshr", forward_mshr && forward_result_valid)
+  XSPerfAccumulate("successfully_forward_channel_D", forward_D)
+  XSPerfAccumulate("successfully_forward_refillBuffer", forward_refillBuffer)
   // load s2
   load_s2.io.forward_D := forward_D
   load_s2.io.forwardData_D := forwardData_D
-  load_s2.io.forward_result_valid := forward_result_valid
-  load_s2.io.forward_mshr := forward_mshr
-  load_s2.io.forwardData_mshr := forwardData_mshr
+  load_s2.io.forward_refillBuffer := forward_refillBuffer
+  load_s2.io.forwardData_refillBuffer := forwardData_refillBuffer
   io.dcache.s2_kill := load_s2.io.dcache_kill // to kill mmio resp which are redirected
   load_s2.io.dcacheResp <> io.dcache.resp
   load_s2.io.pmpResp <> io.pmp
@@ -868,7 +862,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   // assert(load_s2.io.dcacheResp.bits.data === io.dcache.resp.bits.data)
 
   // now io.fastUop.valid is sent to RS in load_s2
-  val forward_D_or_mshr_valid = forward_result_valid && (forward_D || forward_mshr)
+  val forward_D_or_mshr_valid = (forward_D || forward_refillBuffer)
   val s2_dcache_hit = io.dcache.s2_hit || forward_D_or_mshr_valid // dcache hit dup in lsu side
 
   io.fastUop.valid := RegNext(

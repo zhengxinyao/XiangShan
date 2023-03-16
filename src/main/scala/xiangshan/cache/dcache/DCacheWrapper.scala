@@ -486,26 +486,26 @@ class DCacheToSbufferIO(implicit p: Parameters) extends DCacheBundle {
 class DcacheToLduForwardIO(implicit p: Parameters) extends DCacheBundle {
   val valid = Bool()
   val data = UInt(l1BusDataWidth.W)
-  val mshrid = UInt(log2Up(cfg.nMissEntries).W)
+  val paddr = UInt(PAddrBits.W)
   val last = Bool()
 
-  def apply(req_valid : Bool, req_data : UInt, req_mshrid : UInt, req_last : Bool) = {
+  def apply(req_valid : Bool, req_data : UInt, req_last : Bool, req_paddr: UInt) = {
     valid := req_valid
     data := req_data
-    mshrid := req_mshrid
     last := req_last
+    paddr := req_paddr
   }
 
   def dontCare() = {
     valid := false.B
     data := DontCare
-    mshrid := DontCare
     last := DontCare
+    paddr := DontCare
   }
 
-  def forward(req_valid : Bool, req_mshr_id : UInt, req_paddr : UInt) = {
+  def forward(req_valid : Bool, req_paddr : UInt) = {
     val all_match = req_valid && valid &&
-                req_mshr_id === mshrid &&
+                req_paddr(PAddrBits - 1, blockOffBits) === paddr(PAddrBits - 1, blockOffBits) &&
                 req_paddr(log2Up(refillBytes)) === last
 
     val forward_D = RegInit(false.B)
@@ -611,60 +611,25 @@ class RefillBufferForwardIO(implicit p: Parameters) extends DCacheBundle {
   }
 }
 
-// forward mshr's data to ldu
-class LduToMissqueueForwardIO(implicit p: Parameters) extends DCacheBundle {
-  // req
-  val valid = Input(Bool())
-  val mshrid = Input(UInt(log2Up(cfg.nMissEntries).W))
-  val paddr = Input(UInt(PAddrBits.W))
-  // resp
-  val forward_mshr = Output(Bool())
-  val forwardData = Output(Vec(8, UInt(8.W)))
-  val forward_result_valid = Output(Bool())
-
-  def connect(sink: LduToMissqueueForwardIO) = {
-    sink.valid := valid
-    sink.mshrid := mshrid
-    sink.paddr := paddr
-    forward_mshr := sink.forward_mshr
-    forwardData := sink.forwardData
-    forward_result_valid := sink.forward_result_valid
-  }
-
-  def forward() = {
-    (forward_result_valid, forward_mshr, forwardData)
-  }
-}
-
 // forward refillBuffer's data to ldu
 class LduToRefillBufferForwardIO(implicit p: Parameters) extends DCacheBundle {
   // req
   val valid = Input(Bool())
-  val mshrid = Input(UInt(log2Up(cfg.nMissEntries).W))
   val paddr = Input(UInt(PAddrBits.W))
   // resp
-  val forward_refill_buffer = Output(Bool())
+  val forward_refillBuffer = Output(Bool())
   val forwardData = Output(Vec(8, UInt(8.W)))
-  val forward_result_valid = Output(Bool())
 
   // get forward result from refill buffer
   def connect_refill_buffer(sink: LduToRefillBufferForwardIO) = {
     sink.valid := valid
-    sink.mshrid := mshrid
     sink.paddr := paddr
-    forward_refill_buffer := sink.forward_refill_buffer
+    forward_refillBuffer := sink.forward_refillBuffer
     forwardData := sink.forwardData
-  }
-  // get forward valid check signal from mshr
-  def connect_mshr(sink: LduToRefillBufferForwardIO) = {
-    sink.valid := valid
-    sink.mshrid := mshrid
-    sink.paddr := paddr
-    forward_result_valid := sink.forward_result_valid
   }
 
   def forward() = {
-    (forward_result_valid, forward_refill_buffer, forwardData)
+    (forward_refillBuffer, forwardData)
   }
 }
 
@@ -675,7 +640,7 @@ class DCacheToLsuIO(implicit p: Parameters) extends DCacheBundle {
   val atomics  = Flipped(new AtomicWordIO)  // atomics reqs
   val release = ValidIO(new Release) // cacheline release hint for ld-ld violation check 
   val forward_D = Output(Vec(LoadPipelineWidth, new DcacheToLduForwardIO))
-  val forward_mshr = Vec(LoadPipelineWidth, new LduToRefillBufferForwardIO)
+  val forward_refillBuffer = Vec(LoadPipelineWidth, new LduToRefillBufferForwardIO)
 }
 
 class DCacheIO(implicit p: Parameters) extends DCacheBundle {
@@ -834,7 +799,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   (0 until LoadPipelineWidth).map(i => {
     val (_, _, done, _) = edge.count(bus.d)
     when(bus.d.bits.opcode === TLMessages.GrantData) {
-      io.lsu.forward_D(i).apply(bus.d.valid, bus.d.bits.data, bus.d.bits.source, done)
+      io.lsu.forward_D(i).apply(bus.d.valid, bus.d.bits.data, done, bus.d.bits.user.lift(PaddrKey).getOrElse(0.U))
     }.otherwise {
       io.lsu.forward_D(i).dontCare()
     }
@@ -888,8 +853,7 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   }
 
   // forward refillbuffer and do mshr check
-  (0 until LoadPipelineWidth).map(i => io.lsu.forward_mshr(i).connect_mshr(missQueue.io.forward(i)))
-  (0 until LoadPipelineWidth).map(i => io.lsu.forward_mshr(i).connect_refill_buffer(refillBuffer.io.forward(i)))
+  (0 until LoadPipelineWidth).map(i => io.lsu.forward_refillBuffer(i).connect_refill_buffer(refillBuffer.io.forward(i)))
 
   // refill to load queue
   io.lsu.lsq <> missQueue.io.refill_to_ldq

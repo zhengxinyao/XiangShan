@@ -221,16 +221,16 @@ class RefillBuffer(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule
 
         val (forward_valid_vec, forwardData_vec) = forwardInfo_vec.map{info => info.forward(req_valid, paddr)}.unzip
         io.forward(i) := DontCare
-        io.forward(i).forward_refill_buffer := Cat(forward_valid_vec).orR
+        io.forward(i).forward_refillBuffer := Cat(forward_valid_vec).orR
         io.forward(i).forwardData := ParallelMux(forward_valid_vec zip forwardData_vec)
-        assert(!io.forward(i).forward_refill_buffer || (PopCount(forward_valid_vec) === 0.U || PopCount(forward_valid_vec) === 1.U), s"port{$i} can not forward 2 or more entries in refillBuffer")
+        assert(!io.forward(i).forward_refillBuffer || (PopCount(forward_valid_vec) === 0.U || PopCount(forward_valid_vec) === 1.U), s"port{$i} can not forward 2 or more entries in refillBuffer")
         // io.forward(i).forward_data := forwardData_vec.zip(forward_valid_vec).reduce(Mux(_._2, _._1, 0.U) | Mux(_._2, _._1, 0.U))
   })
 
     // perf 
     val validCount = distanceBetween(enqPtrExt, deqPtrExt)
     QueuePerf(DcacheRefillBufferSize, validCount, validCount === DcacheRefillBufferSize.U)
-    XSPerfAccumulate("forward_refill_buffer", PopCount((0 until LoadPipelineWidth).map(i => io.forward(i).forward_refill_buffer)))
+    XSPerfAccumulate("forward_refillBuffer", PopCount((0 until LoadPipelineWidth).map(i => io.forward(i).forward_refillBuffer)))
     XSPerfAccumulate("refill_buffer_not_ready", !io.mem_grant.ready)
     XSPerfAccumulate("tl_d_user_paddr_not_zero", io.mem_grant.fire() && (io.mem_grant.bits.user.lift(PaddrKey).getOrElse(0.U) =/= 0.U))
 }

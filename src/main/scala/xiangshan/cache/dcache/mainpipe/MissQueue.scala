@@ -161,8 +161,6 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
     val entry_release_next_cycle = Output(Bool())
     val entry_paddr = Output(UInt(PAddrBits.W))
 
-    val forwardInfo = Output(new MissEntryForwardIO)
-
     val refillBufferReady = Input(Bool())
   })
 
@@ -530,8 +528,6 @@ class MissEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule {
   io.debug_early_replace.bits.idx := addr_to_dcache_set(req.vaddr)
   io.debug_early_replace.bits.tag := req.replace_tag
 
-  io.forwardInfo.apply(req_valid, req.addr, refill_data_raw, w_grantfirst, w_grantlast)
-
   XSPerfAccumulate("miss_req_primary", primary_fire)
   XSPerfAccumulate("miss_req_merged", secondary_fire)
   XSPerfAccumulate("load_miss_penalty_to_use",
@@ -595,9 +591,6 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
       val tag = UInt(tagBits.W) // paddr
     }))
 
-    // do forward check in missqueue
-    val forward = Vec(LoadPipelineWidth, new LduToRefillBufferForwardIO)
-
     // ready from refill buffer
     val refillBufferReady = Input(Bool())
 
@@ -629,16 +622,6 @@ class MissQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule wi
   val entry_release_vec = entries.map(_.io.entry_release_next_cycle)
   io.mshr_release_vec := VecInit(entry_release_vec)
   io.mshr_paddr_vec := VecInit(entries.map(_.io.entry_paddr))
-
-  val forwardInfo_vec = VecInit(entries.map(_.io.forwardInfo))
-  (0 until LoadPipelineWidth).map(i => {
-    val id = io.forward(i).mshrid
-    val req_valid = io.forward(i).valid
-    val paddr = io.forward(i).paddr
-
-    io.forward(i) := DontCare
-    io.forward(i).forward_result_valid := forwardInfo_vec(id).check(req_valid, paddr)
-  })
 
   assert(RegNext(PopCount(secondary_ready_vec) <= 1.U))
 //  assert(RegNext(PopCount(secondary_reject_vec) <= 1.U))

@@ -205,18 +205,16 @@ class LoadDataFromDcacheBundle(implicit p: Parameters) extends DCacheBundle {
   val forward_D = Input(Bool())
   val forwardData_D = Input(Vec(8, UInt(8.W)))
 
-  // forward mshr data
-  val forward_mshr = Input(Bool())
-  val forwardData_mshr = Input(Vec(8, UInt(8.W)))
-
-  val forward_result_valid = Input(Bool())
+  // forward refillBuffer data
+  val forward_refillBuffer = Input(Bool())
+  val forwardData_refillBuffer = Input(Vec(8, UInt(8.W)))
 
   // val dcacheData = UInt(64.W)
   def dcacheData(): UInt = {
     val dcache_data = Mux1H(bank_oh, bankedDcacheData)
-    val use_D = forward_D && forward_result_valid
-    val use_mshr = forward_mshr && forward_result_valid
-    Mux(use_D, forwardData_D.asUInt, Mux(use_mshr, forwardData_mshr.asUInt, dcache_data))
+    val use_D = forward_D
+    val use_refillBuffer = forward_refillBuffer
+    Mux(use_D, forwardData_D.asUInt, Mux(use_refillBuffer, forwardData_refillBuffer.asUInt, dcache_data))
   }
 
   def mergedData(): UInt = {
