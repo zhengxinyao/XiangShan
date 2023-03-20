@@ -83,7 +83,6 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp with 
   val mask = UInt((VLEN/8).W)
   val data = UInt((VLEN+1).W)
   val wlineflag = Bool() // store write the whole cache line
-  val rlineflag = Bool() // load read the whole cache line
 
   val miss = Bool()
   val tlbMiss = Bool()
@@ -101,8 +100,13 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp with 
   def isSWPrefetch = isPrefetch && !isHWPrefetch
 
   // Vector instruction
-  val isVec = Bool()
-  val Vecvlflowidx = UInt(5.W)
+  val vec128bit = Bool()
+  //val dataSize            = UInt(4.W)   //the memory access width of flow entry
+  val uop_unit_stride_fof = Bool()
+  val rob_idx_valid       = Vec(2,Bool())
+  val rob_idx             = Vec(2,UInt(log2Up(RobSize).W))
+  val reg_offset          = Vec(2,UInt(4.W))
+  val offset              = Vec(2,UInt(4.W))
 
   // For debug usage
   val isFirstIssue = Bool()
@@ -136,7 +140,6 @@ class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
     data := input.data
     uop := input.uop
     wlineflag := input.wlineflag
-    rlineflag := input.rlineflag
     miss := input.miss
     tlbMiss := input.tlbMiss
     ptwBack := input.ptwBack
@@ -146,8 +149,14 @@ class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
     forwardData := input.forwardData
     isPrefetch := input.isPrefetch
     isHWPrefetch := input.isHWPrefetch
-    isVec := input.isVec
-    Vecvlflowidx := input.Vecvlflowidx
+    vec128bit := input.vec128bit
+    //dataSize            := input.dataSize
+    uop_unit_stride_fof := input.uop_unit_stride_fof
+    rob_idx_valid       := input.rob_idx_valid
+    rob_idx             := input.rob_idx
+    reg_offset          := input.reg_offset
+    offset              := input.offset
+    //Vecvlflowidx := input.Vecvlflowidx
     isFirstIssue := input.isFirstIssue
     dcacheRequireReplay := input.dcacheRequireReplay
     canAccept := input.canAccept
@@ -181,7 +190,6 @@ class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
     data := input.data
     uop := input.uop
     wlineflag := input.wlineflag
-    rlineflag := input.rlineflag
     miss := input.miss
     tlbMiss := input.tlbMiss
     ptwBack := input.ptwBack
@@ -192,7 +200,7 @@ class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
     forwardData := input.forwardData
     isPrefetch := input.isPrefetch
     isHWPrefetch := input.isHWPrefetch
-    isVec := input.isVec
+    vec128bit := input.vec128bit
     isFirstIssue := input.isFirstIssue
     isLoadReplay := input.isLoadReplay
     mshrid := input.mshrid
@@ -218,7 +226,6 @@ class LoadForwardQueryIO(implicit p: Parameters) extends XSBundleWithMicroOp {
   val pc = Output(UInt(VAddrBits.W)) //for debug
   val valid = Output(Bool())
 
-  val rlineflag = Output(Bool())
   val forwardMaskFast = Input(Vec((VLEN/8), Bool())) // resp to load_s1
   val forwardMask = Input(Vec((VLEN/8), Bool())) // resp to load_s2
   val forwardData = Input(Vec((VLEN/8), UInt(8.W))) // resp to load_s2
@@ -238,7 +245,6 @@ class LoadForwardQueryIO(implicit p: Parameters) extends XSBundleWithMicroOp {
 
   // mdp strict dependency
   val schedWait = Input(Bool())
-  // forward addr invalid
   val addrInvalid = Input(Bool())
 }
 
@@ -273,6 +279,7 @@ class LoadViolationQueryReq(implicit p: Parameters) extends XSBundleWithMicroOp 
   val miss = Bool()
   val mask = UInt(8.W)
   val paddr = UInt(PAddrBits.W)
+  //val rlineflag = Bool()
 }
 
 class LoadViolationQueryResp(implicit p: Parameters) extends XSBundle {
@@ -312,8 +319,7 @@ class LoadDataFromDcacheBundle(implicit p: Parameters) extends DCacheBundle {
   // val bank_oh = UInt(DCacheBanks.W)
 
   // new dcache
-  val bankAddr = UInt()
-  val respDcacheData = UInt(DCacheLineBits.W)
+  val respDcacheData = UInt(VLEN.W)
   val forwardMask = Vec(VLEN/8, Bool())
   val forwardData = Vec(VLEN/8, UInt(8.W))
   val uop = new MicroOp // for data selection, only fwen and fuOpType are used
@@ -333,8 +339,7 @@ class LoadDataFromDcacheBundle(implicit p: Parameters) extends DCacheBundle {
     // old dcache
     // val dcache_data = Mux1H(bank_oh, bankedDcacheData)
     // new dcache
-    val bankedDCacheData = VecInit((0 until (DCacheBanks * XLEN) / VLEN).map(b => respDcacheData(VLEN * b (b + 1) - 1, VLEN * b)))
-    val dcache_data = Mux1H(UIntToOH(bankAddr), bankedDCacheData)
+    val dcache_data = respDcacheData
     val use_D = forward_D && forward_result_valid
     val use_mshr = forward_mshr && forward_result_valid
     Mux(use_D, forwardData_D.asUInt, Mux(use_mshr, forwardData_mshr.asUInt, dcache_data))

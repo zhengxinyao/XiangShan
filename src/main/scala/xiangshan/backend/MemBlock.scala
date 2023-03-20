@@ -80,7 +80,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val VecloadRegIn = Vec(2, Flipped(Decoupled(new VecOperand())))
     // out
     val writeback = Vec(exuParameters.LsExuCnt + exuParameters.StuCnt, DecoupledIO(new ExuOutput))
-    val Vecwriteback = DecoupledIO(new ExuOutput)
+    val Vecwriteback = Vec(2,DecoupledIO(new VecWriteback))
+    val vecFeedback = Vec(2,Output(Bool()))
     val s3_delayed_load_error = Vec(exuParameters.LduCnt, Output(Bool()))
     val otherFastWakeup = Vec(exuParameters.LduCnt + 2 * exuParameters.StuCnt, ValidIO(new MicroOp))
     // prefetch to l1 req
@@ -224,6 +225,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
   val vlflowqueue = Module(new VlflowQueue)
   val vluopqueue= Module(new VluopQueue)
+  val vlExcSignal = Module(new VlExcSignal)
 
   // TODO: fast load wakeup
   val lsq     = Module(new LsqWrapper)
@@ -347,6 +349,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     // forward
     loadUnits(i).io.lsq.forward <> lsq.io.forward(i)
     loadUnits(i).io.sbuffer <> sbuffer.io.forward(i)
+    //loadUnits(i).io.sbufferLineForwardMask <> sbuffer.io.sbufferLineForwardMask(i)
+    //loadUnits(i).io.sbufferLineForwardData <> sbuffer.io.sbufferLineForwardData(i)
     loadUnits(i).io.tlDchannel := dcache.io.lsu.forward_D(i)
     loadUnits(i).io.forward_mshr <> dcache.io.lsu.forward_mshr(i)
     // ld-ld violation check
@@ -569,11 +573,16 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   uncache.io.flush.valid := sbuffer.io.flush.valid
 
   // Vector Load/Store Queue
-  vlflowqueue.io.loadRegIn <> io.VecloadRegIn
-  vluopqueue.io.loadRegIn <> io.VecloadRegIn
-  vlflowqueue.io.loadFlow2UopOut <> vluopqueue.io.loadFlow2UopOut
+  //vlflowqueue.io.loadRegIn <> io.VecloadRegIn
+  vlflowqueue.io.loadRegIn <> vlExcSignal.io.vecloadRegIn
+  //vluopqueue.io.loadRegIn <> io.VecloadRegIn
+  vluopqueue.io.loadRegIn <> vlExcSignal.io.vecloadRegIn
+  //vlflowqueue.io.loadFlow2UopOut <> vluopqueue.io.loadFlow2UopOut
   vluopqueue.io.loadPipeIn <> VecInit(loadUnits.map(_.io.VecloadOut))
-  vluopqueue.io.loadWriteback <> io.Vecwriteback
+  //vluopqueue.io.vecLoadWriteback <> io.Vecwriteback
+  vluopqueue.io.vecLoadWriteback <> vlExcSignal.io.vecwriteback
+  //io.vecFeedback := vluopqueue.io.vecFeedback
+  vlExcSignal.io.vecFeedback := vluopqueue.io.vecFeedback
 
   // AtomicsUnit: AtomicsUnit will override other control signials,
   // as atomics insts (LR/SC/AMO) will block the pipeline

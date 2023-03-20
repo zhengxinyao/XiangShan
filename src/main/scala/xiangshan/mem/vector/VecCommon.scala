@@ -33,7 +33,7 @@ class VecOperand(implicit p: Parameters) extends XSBundleWithMicroOp {
   val sew = UInt(2.W)
   val vma = Bool()
   val vta = Bool()
-  val inner_idx = UInt(3.W) // the number index among 8 lsu_flow
+  val inner_idx = UInt(3.W) // the number index among 8 uop
   val vl = UInt(8.W)
   // TODO: How will OOO calculatr vector register numbers?
   //  (EEW / SEW) * LMUL or (vl * EEW) / VLEN ?
@@ -64,42 +64,47 @@ class VecDecode(implicit p: Parameters) extends XSBundle {
 }
 
 class VecExuOutput(implicit p: Parameters) extends ExuOutput {
-  val flow_index = UInt(5.W)
+  val vecdata = UInt(VLEN.W)
+  val mask = UInt((VLEN/8).W)
+  val rob_idx_valid = Vec(2,Bool())
+  val rob_idx = Vec(2,UInt(log2Up(RobSize).W))
+  val offset = Vec(2,UInt(4.W))
+  val reg_offset = Vec(2,UInt(4.W))
+}
+
+class VecWriteback(implicit p: Parameters) extends ExuOutput {
+  val vecdata = UInt(VLEN.W)
 }
 
 object VecGenMask {
-  def apply(idx: UInt): UInt = {
-    LookupTree(idx, List(
-      "b000".U -> Cat(0.U(56.W), Fill(8, true.B)),
-      "b001".U -> Cat(0.U(48.W), Fill(8, true.B), 0.U(8.W)),
-      "b010".U -> Cat(0.U(40.W), Fill(8, true.B), 0.U(16.W)),
-      "b011".U -> Cat(0.U(32.W), Fill(8, true.B), 0.U(24.W)),
-      "b100".U -> Cat(0.U(24.W), Fill(8, true.B), 0.U(32.W)),
-      "b101".U -> Cat(0.U(16.W), Fill(8, true.B), 0.U(40.W)),
-      "b110".U -> Cat(0.U(8.W), Fill(8, true.B), 0.U(48.W)),
-      "b111".U -> Cat(Fill(8, true.B), 0.U(56.W))
-    ))
+  def apply(rob_idx_valid: Vec[Bool], reg_offset: Vec[UInt], offset: Vec[UInt], mask: UInt):Vec[UInt] = {
+    val vMask = VecInit(Seq.fill(2)(0.U(16.W)))
+    for (i <- 0 until 2){
+      when (rob_idx_valid(i)) {
+        when (offset(i) <= reg_offset(i)) {
+          vMask(i) := mask << (reg_offset(i) - offset(i))
+        }.otherwise {
+          vMask(i) := mask >> (offset(i) - reg_offset(i))
+        }
+      }
+    }
+    vMask
   }
 }
 
-// TODO: How to merge discrete data together in the future?
-object VecGenData{
-  def apply(mask: UInt, data: UInt): UInt = {
-    val result = WireInit(VecInit(Seq.fill(512)(false.B)))
-    var j = 0
-    for (i <- 0 until 64) {
-      when (mask(i)) {
-        result(j) := data(8 * i)
-        result(j + 1) := data(8 * i + 1)
-        result(j + 2) := data(8 * i + 2)
-        result(j + 3) := data(8 * i + 3)
-        result(j + 4) := data(8 * i + 4)
-        result(j + 5) := data(8 * i + 5)
-        result(j + 6) := data(8 * i + 6)
-        result(j + 7) := data(8 * i + 7)
-        j = j + 8
+
+object VecGenData {
+  def apply (rob_idx_valid: Vec[Bool], reg_offset: Vec[UInt], offset: Vec[UInt], data:UInt):Vec[UInt] = {
+    val vData = VecInit(Seq.fill(2)(0.U(128.W)))
+    for (i <- 0 until 2){
+      when (rob_idx_valid(i)) {
+        when (offset(i) <= reg_offset(i)) {
+          vData(i) := data << ((reg_offset(i) - offset(i)) << 3.U)
+        }.otherwise {
+          vData(i) := data >> ((offset(i) - reg_offset(i)) << 3.U)
+        }
       }
     }
-    result.asUInt(127, 0)
+    vData
   }
 }
