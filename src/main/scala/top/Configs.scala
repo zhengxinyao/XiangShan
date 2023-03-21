@@ -290,7 +290,7 @@ class WithNKBL2
   ways: Int = 8,
   inclusive: Boolean = true,
   banks: Int = 1,
-  releaseData: Int = 1
+  releaseData: Int = 3
 ) extends Config((site, here, up) => {
   case XSTileKey =>
     val upParams = up(XSTileKey)
