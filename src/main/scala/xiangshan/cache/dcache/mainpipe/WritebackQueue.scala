@@ -22,7 +22,7 @@ import chisel3.util._
 import freechips.rocketchip.tilelink.TLPermissions._
 import freechips.rocketchip.tilelink.{TLArbiter, TLBundleC, TLBundleD, TLEdgeOut}
 import huancun.DirtyKey
-import utils.{HasPerfEvents, HasTLDump, XSDebug, XSPerfAccumulate}
+import utils._
 
 class WritebackReqCtrl(implicit p: Parameters) extends DCacheBundle {
   val param  = UInt(cWidth.W)
@@ -537,6 +537,13 @@ class WritebackEntry(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModu
   XSPerfAccumulate("wb_probe_ttob_fix", io.probe_ttob_check_resp.valid && io.probe_ttob_check_resp.bits.toN)
   XSPerfAccumulate("penalty_blocked_by_channel_C", io.mem_release.valid && !io.mem_release.ready)
   XSPerfAccumulate("penalty_waiting_for_channel_D", io.mem_grant.ready && !io.mem_grant.valid && state_dup_1 === s_release_resp)
+
+  val (c_to_d_penalty_sample, c_to_d_penalty) = TransactionLatencyCounter(
+    state === s_release_req && release_done && req.voluntary,
+    io.mem_grant.fire()
+  )
+  XSPerfHistogram("c_to_d_penalty", c_to_d_penalty, c_to_d_penalty_sample, 0, 20, 1, true, true)
+  XSPerfHistogram("c_to_d_penalty", c_to_d_penalty, c_to_d_penalty_sample, 20, 100, 10, true, false)
 }
 
 class WritebackQueue(edge: TLEdgeOut)(implicit p: Parameters) extends DCacheModule with HasTLDump with HasPerfEvents {
