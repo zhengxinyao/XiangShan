@@ -32,6 +32,7 @@ import top.BusPerfMonitor
 import xiangshan.backend.fu.PMAConst
 import huancun._
 import huancun.debug.TLLogger
+import _root_.utils.AXI4Shaper
 
 case object SoCParamsKey extends Field[SoCParameters]
 
@@ -164,10 +165,11 @@ trait HaveAXI4MemPort {
     AXI4Buffer() :=
     AXI4Buffer() :=
     AXI4IdIndexer(idBits = 14) :=
+    AXI4Shaper() :=
     AXI4UserYanker() :=
     AXI4Deinterleaver(L3BlockSize) :=
     TLToAXI4() :=
-    TLSourceShrinker(64) :=
+    TLSourceShrinker(1) :=
     TLWidthWidget(L3OuterBusWidth / 8) :=
     TLBuffer.chainNode(2) :=
     mem_xbar
