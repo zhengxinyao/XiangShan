@@ -28,7 +28,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   val io = IO(new DCacheBundle {
     // incoming requests
     val lsu = Flipped(new DCacheLoadIO)
-    val load128Req = Input(Bool())////TODO:when have load128Req
+    //val load128Req = Input(Bool())////TODO:when have load128Req
     // req got nacked in stage 0?
     val nack      = Input(Bool())
 
@@ -113,7 +113,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   val s0_fire = s0_valid && s1_ready
   val s0_vaddr = s0_req.addr
   val s0_replayCarry = s0_req.replayCarry
-  val s0_load128Req = io.load128Req//TODO:when have load128Req
+  val s0_load128Req = io.lsu.req.bits.vec128bit//TODO:when have load128Req
   val s0_bank_oh_64 = UIntToOH(addr_to_dcache_bank(s0_vaddr)) //TODO:when have load128Req
   val s0_bank_oh_128 = (s0_bank_oh_64 << 1.U).asUInt | s0_bank_oh_64.asUInt
   val s0_bank_oh = Mux(s0_load128Req,s0_bank_oh_128,s0_bank_oh_64)
@@ -315,7 +315,7 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
   io.miss_req.bits := DontCare
   io.miss_req.bits.source := s2_instrtype
   io.miss_req.bits.cmd := s2_req.cmd
-  io.miss_req.bits.addr := get_block_addr(s2_paddr)//TODO:when have load128Req
+  io.miss_req.bits.addr := get_block_addr(s2_paddr)//TODO:when have load128Req*************
   io.miss_req.bits.vaddr := s2_vaddr
   io.miss_req.bits.way_en := s2_way_en
   io.miss_req.bits.req_coh := s2_hit_coh
