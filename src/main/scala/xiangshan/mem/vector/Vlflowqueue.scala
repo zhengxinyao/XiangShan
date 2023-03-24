@@ -76,7 +76,7 @@ object genDataSizeMask {
 object genVecMask {
   def apply (instType: UInt, dataSize: UInt, offset: UInt, lmul: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000001".U ->lmulDataSize(lmul), //unit-stride
+      "b000001".U -> (UIntToOH(lmulDataSize(lmul)) - 1.U), //unit-stride
       "b000010".U -> 16.U,//strided
       "b000100".U -> 16.U,//index
       "b001000".U -> 16.U,//segment unit-stride
@@ -130,8 +130,9 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   val io = IO(new VlflowQueueIOBundle())
   println("LoadFlowQueue: size:" + VlFlowSize)
 
+  dontTouch(io.loadRegIn)
   // TODO: merge these to an FlowQueue Entry?
-  val flow_entry       = Reg(Vec(2, Vec(VlFlowSize, new VlflowBundle)))
+  val flow_entry       = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(VlFlowSize)(0.U.asTypeOf(new VlflowBundle))))))
   val flow_entry_valid = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(VlFlowSize)(false.B)))))
   val LoadInstDec      = Wire(Vec(2, new VecDecode()))
 
@@ -146,79 +147,82 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   val realFlowNum     = Wire(Vec(2, UInt(4.W)))
 
   val loadInstDec = Wire(Vec(2,new VecDecode()))
-  val index       = Wire(Vec(2, UInt(5.W)))
   val cross128    = Wire(Vec(2, Bool()))
   val startRobIdx = Wire(Vec(2,UInt(log2Ceil(RobSize).W)))
-  val vaddr       = Wire(Vec(2, UInt(VAddrBits.W)))
 
   val validCount = Wire(Vec(2, UInt(4.W)))
   val allowEnqueue = Wire(Vec(2, Bool()))
 
 
-    for(i <- 0 until exuParameters.LduCnt){
-    // TODO: Why ===, Should be =/= ?
-    //  Should be confirmed
-    needAlloc(i)    := !flow_entry.map(_.map(_.uop.robIdx.value === io.loadRegIn(i).bits.uop.robIdx.value).reduce(_ || _)).reduce(_ || _) && io.loadRegIn(i).valid
+  for (i <- 0 until 2) {
+    needAlloc(i)  := !(0 until 2).map(j => (0 until VlFlowSize).map(entry =>
+        flow_entry(j)(entry).rob_idx(0) === io.loadRegIn(i).bits.uop.robIdx.value && flow_entry(j)(entry).rob_idx_valid(0)).reduce(_||_)).reduce(_||_) && io.loadRegIn(i).valid
     loadInstDec(i)  := LoadInstDec(i).apply(io.loadRegIn(i).bits.uop.cf.instr)
-    dataWidth(i)    := io.loadRegIn(i).bits.vl << loadInstDec(i).uop_eew(1,0)
-    vend_0(i)       := baseAddr(i)(3,0) + dataWidth(i)(3,0)
-    vend_1(i)       := baseAddr(i)(4,0) + dataWidth(i)(4,0)
-    vend_2(i)       := baseAddr(i)(5,0) + dataWidth(i)(5,0)
-    vend_3(i)       := baseAddr(i)(6,0) + dataWidth(i)(6,0)
+    dataWidth(i)    := io.loadRegIn(i).bits.vl << loadInstDec(i).uop_eew(1,0)//TODO: for index inst need modify
+    vend_0(i)       := baseAddr(i)(3,0) + dataWidth(i)(6,0) - 1.U
+    vend_1(i)       := baseAddr(i)(4,0) + dataWidth(i)(6,0) - 1.U
+    vend_2(i)       := baseAddr(i)(5,0) + dataWidth(i)(6,0) - 1.U
+    vend_3(i)       := baseAddr(i)(6,0) + dataWidth(i)(6,0) - 1.U
     flowWriteNumber(i) := Mux(vend_3(i)(7) === 1.U, vend_3(i)(7,4), Mux(vend_2(i)(6) === 1.U, vend_2(i)(6,4), Mux(vend_1(i)(5) === 1.U, vend_1(i)(5,4), vend_0(i)(4))))
   }
 
   val enqPtr = RegInit(VecInit(Seq.fill(2)(0.U.asTypeOf(new VlflowPtr))))
   val deqPtr = RegInit(VecInit(Seq.fill(2)(0.U.asTypeOf(new VlflowPtr))))
 
-  for(i <- 0 until LoadPipelineWidth) {
+  for(i <- 0 until 2) {
     baseAddr(i)     := io.loadRegIn(i).bits.baseaddr
     cross128(i)     := baseAddr(i)(3, 0) =/= 0.U(4.W)
-    realFlowNum(i)  := flowWriteNumber(i).asUInt + cross128(i)
-    enqPtr(i).value := enqPtr(i).value + realFlowNum(i)
+    realFlowNum(i)  := flowWriteNumber(i).asUInt + 1.U
+    when (needAlloc(i)) {
+      enqPtr(i).value := enqPtr(i).value + realFlowNum(i)
+    }
   }
 
-  for(i <- 0 until exuParameters.LduCnt) {
-    validCount(i) := distanceBetween(enqPtr(i), deqPtr(i))
-    allowEnqueue(i) := validCount(i) >= 16.U
+  for(i <- 0 until 2) {
+    validCount(i) := PopCount(flow_entry_valid(i))
+    allowEnqueue(i) := validCount(i) <= 16.U
     io.loadRegIn(i).ready := allowEnqueue(i)
   }
 
   for (i <- 0 until LoadPipelineWidth) {
     startRobIdx(i) := DontCare
-    vaddr(i) := DontCare
-    index(i) := DontCare
     when (needAlloc(i)) {
       startRobIdx(i) := io.loadRegIn(i).bits.uop.robIdx.value - io.loadRegIn(i).bits.inner_idx
       for (j <- 0 until 9) {
         when (j.U < realFlowNum(i)) {
-          index(i) := enqPtr(i).value + j.U
-          flow_entry(i)(index(i)) := DontCare
-          flow_entry_valid(i)(index(i))           := true.B
-          flow_entry(i)(index(i)).uop             := io.loadRegIn(i).bits.uop
-          flow_entry(i)(index(i)).unit_stride_fof := LoadInstDec(i).uop_unit_stride_fof
-          //flow_entry(i)(index(i)).dataSize        := genDataSize("b000001".U,io.loadRegIn(i).bits.lmul)
-          vaddr(i)                                := genVecAddr(baseAddr(i),"b000001".U,j.U)
-          flow_entry(i)(index(i)).mask            := genVecMask(instType = "b000001".U, dataSize = 0.U, offset = 0.U, lmul = io.loadRegIn(i).bits.lmul)
-          flow_entry(i)(index(i)).vaddr           := vaddr(i)
+          val index = Wire(UInt(5.W))
+          val vaddr = Wire(UInt(VAddrBits.W))
+          index := enqPtr(i).value + j.U
+          flow_entry(i)(index) := DontCare
+          flow_entry_valid(i)(index)           := true.B
+          flow_entry(i)(index).uop             := io.loadRegIn(i).bits.uop
+          flow_entry(i)(index).unit_stride_fof := LoadInstDec(i).uop_unit_stride_fof
+          //flow_entry(i)(index).dataSize        := genDataSize("b000001".U,io.loadRegIn(i).bits.lmul)
+          vaddr                                := genVecAddr(baseAddr(i),"b000001".U,j.U)
+          flow_entry(i)(index).mask            := genVecMask(instType = "b000001".U, dataSize = 0.U, offset = 0.U, lmul = io.loadRegIn(i).bits.lmul)
+          flow_entry(i)(index).vaddr           := vaddr
 
           when (j.U =/= realFlowNum(i) - 1.U) {
-            flow_entry(i)(index(i)).rob_idx_valid(0)     := true.B
-            flow_entry(i)(index(i)).rob_idx(0)           := startRobIdx(i) + j.U
-            flow_entry(i)(index(i)).offset(0)            := vaddr(i)(3,0)
-            flow_entry(i)(index(i)).reg_offset(0)        := 0.U
-          }.otherwise {
-            flow_entry(i)(index(i)).rob_idx_valid(0)     := cross128(i)
-            flow_entry(i)(index(i)).rob_idx(0)           := startRobIdx(i) + j.U - cross128(i).asUInt
-            flow_entry(i)(index(i)).offset(0)            := 0.U
-            flow_entry(i)(index(i)).reg_offset(0)        := 16.U - genVecAddr(baseAddr(i),"b000001".U,(j.U-1.U))(3,0)
+            flow_entry(i)(index).rob_idx_valid(0)     := true.B
+            flow_entry(i)(index).rob_idx(0)           := startRobIdx(i) + j.U
+            flow_entry(i)(index).offset(0)            := vaddr(3,0)
+            flow_entry(i)(index).reg_offset(0)        := 0.U
+          }.elsewhen(j.U === realFlowNum(i) - 1.U && !cross128(i)) {
+            flow_entry(i)(index).rob_idx_valid(0)     := true.B
+            flow_entry(i)(index).rob_idx(0)           := startRobIdx(i) + j.U
+            flow_entry(i)(index).offset(0)            := vaddr(3,0)
+            flow_entry(i)(index).reg_offset(0)        := 0.U
+          }.elsewhen(j.U === realFlowNum(i) - 1.U && cross128(i)) {
+            flow_entry(i)(index).rob_idx_valid(0)     := false.B
           }
 
           when (j.U =/= 0.U) {
-            flow_entry(i)(index(i)).rob_idx_valid(1)     := cross128(i)
-            flow_entry(i)(index(i)).rob_idx(1)           := startRobIdx(i) + j.U - cross128(i).asUInt
-            flow_entry(i)(index(i)).offset(1)            := 0.U
-            flow_entry(i)(index(i)).reg_offset(1)        := 16.U - genVecAddr(baseAddr(i),"b000001".U,(j.U-1.U))(3,0)
+            flow_entry(i)(index).rob_idx_valid(1)     := cross128(i)
+            flow_entry(i)(index).rob_idx(1)           := startRobIdx(i) + j.U - cross128(i).asUInt
+            flow_entry(i)(index).offset(1)            := 0.U
+            flow_entry(i)(index).reg_offset(1)        := 16.U - genVecAddr(baseAddr(i),"b000001".U,(j.U-1.U))(3,0)
+          }.elsewhen(j.U === 0.U) {
+            flow_entry(i)(index).rob_idx_valid(1)     := false.B
           }
         }
       }
@@ -243,12 +247,15 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
       io.loadPipeOut(i).bits.rob_idx             := flow_entry(i)(deqPtr(i).value).rob_idx
       io.loadPipeOut(i).bits.offset              := flow_entry(i)(deqPtr(i).value).offset
       io.loadPipeOut(i).bits.reg_offset          := flow_entry(i)(deqPtr(i).value).reg_offset
+      io.loadPipeOut(i).bits.uop.lqIdx           := flow_entry(i)(deqPtr(i).value).uop.lqIdx
     }
   }
 
   for (i <- 0 until LoadPipelineWidth) {
     when (io.loadPipeOut(i).fire) {
       flow_entry_valid(i)(deqPtr(i).value) := false.B
+      flow_entry(i)(deqPtr(i).value).mask := 0.U
+      flow_entry(i)(deqPtr(i).value).rob_idx_valid := VecInit(Seq.fill(2)(false.B))
       deqPtr(i) := deqPtr(i) + 1.U
     }
   }
