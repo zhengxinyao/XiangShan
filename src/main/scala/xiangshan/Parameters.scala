@@ -139,6 +139,8 @@ case class XSCoreParameters
   StoreQueueNWriteBanks: Int = 8,
   VlFlowSize: Int = 32,
   VlUopSize: Int = 32,
+  VsFlowSize: Int = 32,
+  VsUopSize: Int = 32,
   RobSize: Int = 256,
   dpParams: DispatchParameters = DispatchParameters(
     IntDqSize = 16,
@@ -162,6 +164,8 @@ case class XSCoreParameters
   prefetcher: Option[PrefetcherParams] = Some(SMSParams()),
   LoadPipelineWidth: Int = 2,
   StorePipelineWidth: Int = 2,
+  VecLoadPipelineWidth: Int = 2,
+  VecStorePipelineWidth: Int = 2,
   VecMemSrcInWidth: Int = 2,
   VecMemInstWbWidth: Int = 1,
   VecMemDispatchWidth: Int = 1,
@@ -406,6 +410,8 @@ trait HasXSParameter {
   val StoreQueueNWriteBanks = coreParams.StoreQueueNWriteBanks
   val VlFlowSize = coreParams.VlFlowSize
   val VlUopSize = coreParams.VlUopSize
+  val VsFlowSize = coreParams.VsFlowSize
+  val VsUopSize = coreParams.VsUopSize
   val dpParams = coreParams.dpParams
   val exuParameters = coreParams.exuParameters
   val NRMemReadPorts = exuParameters.LduCnt + 2 * exuParameters.StuCnt
@@ -415,6 +421,8 @@ trait HasXSParameter {
   val NRFpWritePorts = exuParameters.FpExuCnt + exuParameters.LduCnt
   val LoadPipelineWidth = coreParams.LoadPipelineWidth
   val StorePipelineWidth = coreParams.StorePipelineWidth
+  val VecLoadPipelineWidth = coreParams.VecLoadPipelineWidth
+  val VecStorePipelineWidth = coreParams.VecStorePipelineWidth
   val VecMemSrcInWidth = coreParams.VecMemSrcInWidth
   val VecMemInstWbWidth = coreParams.VecMemInstWbWidth
   val VecMemDispatchWidth = coreParams.VecMemDispatchWidth

@@ -25,6 +25,7 @@ import xiangshan._
 
 class VecOperand(implicit p: Parameters) extends XSBundleWithMicroOp {
   val vmask = UInt(VLEN.W) // the mask of inst which is readed from reg
+  val vecData = UInt(VLEN.W)
   val baseaddr = UInt(VAddrBits.W) // base address from rs1
   val stride = UInt(XLEN.W) // stride from rs2
   val index = UInt(VLEN.W) // index from vs2
@@ -73,14 +74,14 @@ class VecExuOutput(implicit p: Parameters) extends ExuOutput {
 }
 
 object VecGenMask {
-  def apply(rob_idx_valid: Vec[Bool], reg_offset: Vec[UInt], offset: Vec[UInt], mask: UInt):Vec[UInt] = {
+  def apply(rob_idx_valid: Vec[Bool], reg_offset: Vec[UInt], offset: Vec[UInt], mask: Vec[UInt]):Vec[UInt] = {
     val vMask = VecInit(Seq.fill(2)(0.U(16.W)))
     for (i <- 0 until 2){
       when (rob_idx_valid(i)) {
         when (offset(i) <= reg_offset(i)) {
-          vMask(i) := mask << (reg_offset(i) - offset(i))
+          vMask(i) := mask(i) << (reg_offset(i) - offset(i))
         }.otherwise {
-          vMask(i) := mask >> (offset(i) - reg_offset(i))
+          vMask(i) := mask(i) >> (offset(i) - reg_offset(i))
         }
       }
     }

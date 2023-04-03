@@ -87,7 +87,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   //First-level buffer
   val buffer_valid_s0  = RegInit(VecInit(Seq.fill(exuParameters.LduCnt)(false.B)))
   val data_buffer_s0   = RegInit(VecInit(Seq.fill(exuParameters.LduCnt)(0.U(VLEN.W))))
-  val mask_buffer_s0   = RegInit(VecInit(Seq.fill(exuParameters.LduCnt)(0.U((VLEN/8).W))))
+  val mask_buffer_s0   = RegInit(VecInit(Seq.fill(exuParameters.LduCnt)(VecInit(Seq.fill(2)(0.U((VLEN/8).W))))))
   val rob_idx_s0       = RegInit(VecInit(Seq.fill(exuParameters.LduCnt)(VecInit(Seq.fill(2)(0.U(log2Ceil(RobSize).W))))))
   val rob_idx_valid_s0 = RegInit(VecInit(Seq.fill(exuParameters.LduCnt)(VecInit(Seq.fill(2)(false.B)))))
   val reg_offset_s0    = RegInit(VecInit(Seq.fill(exuParameters.LduCnt)(VecInit(Seq.fill(2)(0.U(4.W))))))
@@ -261,11 +261,14 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     when (io.loadPipeIn(i).fire) {
       buffer_valid_s0(i)  := true.B
       data_buffer_s0(i)   := io.loadPipeIn(i).bits.vecdata
-      mask_buffer_s0(i)   := io.loadPipeIn(i).bits.mask
+      //mask_buffer_s0(i)   := io.loadPipeIn(i).bits.mask
       rob_idx_s0(i)       := io.loadPipeIn(i).bits.rob_idx
       rob_idx_valid_s0(i) := io.loadPipeIn(i).bits.rob_idx_valid
       reg_offset_s0(i)    := io.loadPipeIn(i).bits.reg_offset
       offset_s0(i)        := io.loadPipeIn(i).bits.offset
+      for (j<- 0 until 2){
+        mask_buffer_s0(i)(j) := io.loadPipeIn(i).bits.mask << io.loadPipeIn(i).bits.offset(j)
+      }
       //printf{p"buffer_valid_s0 = ${data_buffer_s0(i)}"}
     }.otherwise {
       buffer_valid_s0(i)  := false.B

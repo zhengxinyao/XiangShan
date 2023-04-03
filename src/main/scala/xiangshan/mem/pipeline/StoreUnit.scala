@@ -277,7 +277,7 @@ class StoreUnit(implicit p: Parameters) extends XSModule {
 
   store_s2.io.pmpResp <> io.pmp
   store_s2.io.static_pm := RegNext(io.tlb.resp.bits.static_pm)
-  io.lsq_replenish := store_s2.io.out.bits // mmio and exception
+  io. lsq_replenish := store_s2.io.out.bits // mmio and exception
   PipelineConnect(store_s2.io.out, store_s3.io.in, true.B, store_s2.io.out.bits.uop.robIdx.needFlush(io.redirect))
 
   store_s3.io.stout <> io.stout
