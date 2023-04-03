@@ -88,14 +88,14 @@ object EewDataSize {
 object dataSize {
   def apply (instType: UInt, emul: UInt, eew: UInt, sew: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000".U ->  EmulDataSize(emul),// unit-stride, do not use
-      "b010".U ->  EewDataSize(eew),// strided
-      "b001".U ->  SewDataSize(sew),// indexed-unordered
-      "b011".U ->  SewDataSize(sew),// indexed-ordered
-      "b100".U ->  0.U,             // segment unit-stride
-      "b110".U ->  0.U,             // segment strided
-      "b101".U ->  0.U,             // segment indexed-unordered
-      "b111".U ->  0.U              // segment indexed-ordered
+      "b000".U ->  EmulDataSize(emul), // unit-stride, do not use
+      "b010".U ->  EewDataSize(eew)  , // strided
+      "b001".U ->  SewDataSize(sew)  , // indexed-unordered
+      "b011".U ->  SewDataSize(sew)  , // indexed-ordered
+      "b100".U ->  EewDataSize(eew)  , // segment unit-stride
+      "b110".U ->  EewDataSize(eew)  , // segment strided
+      "b101".U ->  SewDataSize(sew)  , // segment indexed-unordered
+      "b111".U ->  SewDataSize(sew)    // segment indexed-ordered
     )))}
 }
 
@@ -192,8 +192,8 @@ object GenRealFlowNum {
 }
 
 object Log2Num {
-  def apply (nmu: UInt): UInt = {
-    (LookupTree(nmu,List(
+  def apply (num: UInt): UInt = {
+    (LookupTree(num,List(
       16.U -> 4.U,
       8.U  -> 3.U,
       4.U  -> 2.U,
@@ -202,17 +202,43 @@ object Log2Num {
     )))}
 }
 
+object GenSegNfIdx {
+  def apply (emul: UInt, inner_Idx: UInt):UInt = {
+    (LookupTree(emul,List(
+      "b101".U -> inner_Idx     , // robIdx / emul
+      "b110".U -> inner_Idx     , // robIdx / emul
+      "b111".U -> inner_Idx     , // robIdx / emul
+      "b000".U -> inner_Idx     , // robIdx / emul
+      "b001".U -> inner_Idx(2,1), // robIdx / emul
+      "b010".U -> inner_Idx(2)  , // robIdx / emul
+      "b011".U -> 0.U             // robIdx / emul
+    )))}
+}
+
+object GenSegEmulIdx {
+  def apply (emul: UInt, inner_Idx: UInt): UInt = {
+    (LookupTree(emul,List(
+      "b101".U -> 0.U           , // 1
+      "b110".U -> 0.U           , // 1
+      "b111".U -> 0.U           , // 1
+      "b000".U -> 0.U           , // 1
+      "b001".U -> inner_Idx(0)  , // 2
+      "b010".U -> inner_Idx(1,0), // 4
+      "b011".U -> inner_Idx(2,0)  // 8
+    )))}
+}
+
 object GenVecAddr {
-  def apply (instType: UInt, baseaddr: UInt, emul:UInt, inner_Idx:UInt, flow_inner_idx: UInt, stride: UInt, index: UInt, eew: UInt, sew: UInt): UInt = {
+  def apply (instType: UInt, baseaddr: UInt, emul:UInt, inner_Idx:UInt, flow_inner_idx: UInt, stride: UInt, index: UInt, eew: UInt, sew: UInt, segNfIdx: UInt, segEmulIdx: UInt): UInt = {
     (LookupTree(instType,List(
       "b000".U -> (baseaddr + flow_inner_idx << 4.U).asUInt,// unit-stride
       "b010".U -> (baseaddr + stride * (flow_inner_idx + inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))),// strided
       "b001".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew)), // indexed-unordered
       "b011".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew)), // indexed-ordered
-      "b100".U -> (baseaddr),// segment unit-stride
-      "b110".U -> (baseaddr), // segment strided
-      "b101".U -> (baseaddr), // segment indexed-unordered
-      "b111".U -> (baseaddr)  // segment indexed-ordered
+      "b100".U -> (baseaddr + (flow_inner_idx + segEmulIdx << (Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt << eew).asUInt + (segNfIdx << eew).asUInt ),// segment unit-stride
+      "b110".U -> (baseaddr + (flow_inner_idx + segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt * stride + (segNfIdx << eew).asUInt), // segment strided
+      "b101".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew) + (segNfIdx << sew).asUInt), // segment indexed-unordered
+      "b111".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew) + (segNfIdx << sew).asUInt)  // segment indexed-ordered
     )))}
 }
 
@@ -220,27 +246,27 @@ object GenRobIdx {
   def apply (instType: UInt, robIdx:UInt, startRobIdx: UInt, flow_inner_idx: UInt): UInt = {
     (LookupTree(instType,List(
       "b000".U ->  (startRobIdx + flow_inner_idx),// unit-stride, do not use
-      "b010".U ->  (robIdx),// strided
-      "b001".U ->  (robIdx),// indexed-unordered
-      "b011".U ->  (robIdx),// indexed-ordered
-      "b100".U ->  0.U,             // segment unit-stride
-      "b110".U ->  0.U,             // segment strided
-      "b101".U ->  0.U,             // segment indexed-unordered
-      "b111".U ->  0.U              // segment indexed-ordered
+      "b010".U ->  (robIdx), // strided
+      "b001".U ->  (robIdx), // indexed-unordered
+      "b011".U ->  (robIdx), // indexed-ordered
+      "b100".U ->  (robIdx), // segment unit-stride
+      "b110".U ->  (robIdx), // segment strided
+      "b101".U ->  (robIdx), // segment indexed-unordered
+      "b111".U ->  (robIdx)  // segment indexed-ordered
     )))}
 }
 
 object GenRegOffset0 {
   def apply (instType: UInt, flow_inner_idx: UInt, eew: UInt, sew: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000".U ->  0.U             ,// unit-stride
-      "b010".U ->  (flow_inner_idx << eew).asUInt,// strided
-      "b001".U ->  (flow_inner_idx << sew).asUInt,// indexed-unordered
-      "b011".U ->  (flow_inner_idx << sew).asUInt,// indexed-ordered
-      "b100".U ->  0.U,             // segment unit-stride
-      "b110".U ->  0.U,             // segment strided
-      "b101".U ->  0.U,             // segment indexed-unordered
-      "b111".U ->  0.U              // segment indexed-ordered
+      "b000".U ->  0.U                           , // unit-stride
+      "b010".U ->  (flow_inner_idx << eew).asUInt, // strided
+      "b001".U ->  (flow_inner_idx << sew).asUInt, // indexed-unordered
+      "b011".U ->  (flow_inner_idx << sew).asUInt, // indexed-ordered
+      "b100".U ->  (flow_inner_idx << eew).asUInt, // segment unit-stride
+      "b110".U ->  (flow_inner_idx << eew).asUInt, // segment strided
+      "b101".U ->  (flow_inner_idx << sew).asUInt, // segment indexed-unordered
+      "b111".U ->  (flow_inner_idx << sew).asUInt  // segment indexed-ordered
     )))}
 }
 
@@ -297,6 +323,9 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   val sew         = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val lmul        = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val emul        = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val segEmulIdx  = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val segNfIdx    = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+
 
   val validCount   = Wire(Vec(VecLoadPipelineWidth, UInt(4.W)))
   val allowEnqueue = Wire(Vec(VecLoadPipelineWidth, Bool()))
@@ -350,18 +379,14 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     baseAddr(i)        := io.loadRegIn(i).bits.baseaddr
     dataWidth(i)       := io.loadRegIn(i).bits.vl << eew(i)(1,0)// only unit-stride use
     vend(i)            := baseAddr(i)(3,0) + dataWidth(i)
+    segEmulIdx(i)      := GenSegEmulIdx(emul = emul(i), inner_Idx = io.loadRegIn(i).bits.inner_idx)
+    segNfIdx(i)        := GenSegNfIdx(emul = emul(i),inner_Idx = io.loadRegIn(i).bits.inner_idx)
   }
 
   for (i <- 0 until VecLoadPipelineWidth) {
     when (instType(i) === "b000".U) { // unit-stride Inst
       realFlowNum(i)  := vend(i)(7,4) + (vend(i)(3,0) =/= 0.U).asUInt//TODO:************
       cross128(i)     := baseAddr(i)(3, 0) =/= 0.U(4.W)
-    }.elsewhen (instType(i) === "b010".U) { //stirde Inst
-      realFlowNum(i)  := GenRealFlowNum(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
-      cross128(i)     := false.B
-    }.elsewhen (instType(i) === "b001".U) { //indexed-unordered Inst
-      realFlowNum(i)  := GenRealFlowNum(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
-      cross128(i)     := false.B
     }.otherwise {
       realFlowNum(i)  := GenRealFlowNum(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
       cross128(i)     := false.B
@@ -382,7 +407,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
           flow_entry(i)(queueIdx).uop := io.loadRegIn(i).bits.uop
           flow_entry(i)(queueIdx).unit_stride_fof := loadInstDec(i).uop_unit_stride_fof
           vaddr := GenVecAddr(instType = instType(i), baseaddr = baseAddr(i), emul = emul(i), inner_Idx = io.loadRegIn(i).bits.inner_idx,
-            flow_inner_idx = j.U, stride = stride(i), index = index(i), eew = eew(i), sew = sew(i))
+            flow_inner_idx = j.U, stride = stride(i), index = index(i), eew = eew(i), sew = sew(i),segNfIdx = segNfIdx(i), segEmulIdx = segEmulIdx(i))
           flow_entry(i)(queueIdx).mask := GenVecMask(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
           flow_entry(i)(queueIdx).vaddr := vaddr
 
