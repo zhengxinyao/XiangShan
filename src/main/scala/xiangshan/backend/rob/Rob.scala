@@ -1078,6 +1078,16 @@ class RobImp(outer: Rob)(implicit p: Parameters) extends LazyModuleImp(outer)
       XSPerfAccumulate(s"${fuName}_latency_execute_fma", ifCommit(latencySum(commitIsFma, executeLatency)))
     }
   }
+  {
+    val robAllPtr = Seq.tabulate((new RobPtr).entries)(deqPtr + _.U)
+    val validArray = robAllPtr.map(_ <= enqPtr)
+    val wroteArray = robAllPtr.map(ptr => writebacked(ptr.value) && store_data_writebacked(ptr.value))
+    val vwArray = validArray.zip(wroteArray).map(x => x._1 && x._2)
+    val successiveVW = PopCount(Seq.tabulate((new RobPtr).entries)(i => vwArray.take(i + 1).reduce(_ && _)))
+    val blocked = intrEnable || deqHasException || deqHasReplayInst || blockCommit
+    XSPerfHistogram("successiveCommittable", successiveVW, !blocked, 0, (new RobPtr).entries, 1)
+    XSPerfAccumulate("successiveCommittable_blocked", blocked)
+  }
 
   if (env.EnableTopDown) {
     ExcitingUtils.addSource(commit_v(0) && !commit_w(0) && state =/= s_walk && io.commits.info(0).commitType === CommitType.LOAD,
