@@ -159,7 +159,8 @@ case class XSCoreParameters
     FmiscCnt = 2,
     FmiscDivSqrtCnt = 0,
     LduCnt = 2,
-    StuCnt = 2
+    StuCnt = 2,
+    VlCnt = 2
   ),
   prefetcher: Option[PrefetcherParams] = Some(SMSParams()),
   LoadPipelineWidth: Int = 2,

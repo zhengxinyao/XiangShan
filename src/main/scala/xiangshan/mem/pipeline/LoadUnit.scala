@@ -885,6 +885,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
     val forward_mshr = Flipped(new LduToMissqueueForwardIO)
     val refill = Flipped(ValidIO(new Refill))
     val fastUop = ValidIO(new MicroOp) // early wakeup signal generated in load_s1, send to RS in load_s2
+    val vecFastUop = ValidIO(new MicroOp) // now, don't use
     val trigger = Vec(3, new LoadUnitTriggerIO)
 
     val tlb = new TlbRequestIO(2)
@@ -1099,6 +1100,9 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   // never fast wakeup
   io.fastUop.valid := false.B
   io.fastUop.bits := RegNext(load_s1.io.out.bits.uop)
+
+  io.vecFastUop.valid := false.B
+  io.vecFastUop.bits := RegNext(load_s1.io.out.bits.uop)
 
   XSDebug(load_s0.io.out.valid,
     p"S0: pc ${Hexadecimal(load_s0.io.out.bits.uop.cf.pc)}, lId ${Hexadecimal(load_s0.io.out.bits.uop.lqIdx.asUInt)}, " +

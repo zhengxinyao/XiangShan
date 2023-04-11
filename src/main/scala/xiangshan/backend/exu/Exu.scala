@@ -35,7 +35,8 @@ case class ExuParameters
   FmiscCnt: Int,
   FmiscDivSqrtCnt: Int,
   LduCnt: Int,
-  StuCnt: Int
+  StuCnt: Int,
+  VlCnt : Int
 ) {
   assert(JmpCnt == 1, "Only support 1 JmpUnit now!")
 
