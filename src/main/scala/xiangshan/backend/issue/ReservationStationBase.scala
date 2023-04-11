@@ -63,6 +63,7 @@ case class RSParams
   var isJump: Boolean = false,
   var isMul: Boolean = false,
   var isLoad: Boolean = false,
+  var isVecLoad: Boolean = false,
   var isSta: Boolean = false,
   var isStd: Boolean = false,
   var isMemAddr: Boolean = false,
@@ -101,11 +102,12 @@ class BaseReservationStationWrapper(modGen: RSMod)(implicit p: Parameters) exten
       case JumpCSRExeUnitCfg => params.isJump = true
       case MulDivExeUnitCfg => params.isMul = true
       case LdExeUnitCfg => params.isLoad = true
+      case VldExeUnitCfg => params.isVecLoad = true
       case StdExeUnitCfg => params.isStd = true
       case FmacExeUnitCfg => params.isFMA = true
       case _ =>
     }
-    if (cfg == StaExeUnitCfg || cfg == LdExeUnitCfg) {
+    if (cfg == StaExeUnitCfg || cfg == LdExeUnitCfg || cfg == VldExeUnitCfg) {
       params.lsqFeedback = true
       params.checkWaitBit = false
     }

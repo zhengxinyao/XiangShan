@@ -154,9 +154,11 @@ case class XSCoreParameters
     IntDqSize = 16,
     FpDqSize = 16,
     LsDqSize = 16,
+    VlsDqSize = 16,
     IntDqDeqWidth = 4,
     FpDqDeqWidth = 4,
-    LsDqDeqWidth = 4
+    LsDqDeqWidth = 4,
+    VlsDqDeqWidth = 4,
   ),
   exuParameters: ExuParameters = ExuParameters(
     JmpCnt = 1,
@@ -292,7 +294,9 @@ case class XSCoreParameters
     Seq.fill(exuParameters.FmacCnt)(FmacExeUnitCfg) ++
       Seq.fill(exuParameters.FmiscCnt)(FmiscExeUnitCfg)
 
-  val exuConfigs: Seq[ExuConfig] = intExuConfigs ++ fpExuConfigs ++ loadExuConfigs ++ storeExuConfigs
+  val vecLoadExuConfigs = Seq.fill(exuParameters.VlCnt)(VldExeUnitCfg)
+
+  val exuConfigs: Seq[ExuConfig] = intExuConfigs ++ fpExuConfigs ++ loadExuConfigs ++ storeExuConfigs ++ vecLoadExuConfigs
 }
 
 case object DebugOptionsKey extends Field[DebugOptions]
@@ -437,7 +441,7 @@ trait HasXSParameter {
   val NRIntReadPorts = 2 * exuParameters.AluCnt + NRMemReadPorts
   val NRIntWritePorts = exuParameters.AluCnt + exuParameters.MduCnt + exuParameters.LduCnt
   val NRFpReadPorts = 3 * exuParameters.FmacCnt + exuParameters.StuCnt
-  val NRFpWritePorts = exuParameters.FpExuCnt + exuParameters.LduCnt
+  val NRFpWritePorts = exuParameters.FpExuCnt + exuParameters.LduCnt + exuParameters.VlCnt
   val LoadPipelineWidth = coreParams.LoadPipelineWidth
   val StorePipelineWidth = coreParams.StorePipelineWidth
   val VecLoadPipelineWidth = coreParams.VecLoadPipelineWidth
@@ -471,7 +475,7 @@ trait HasXSParameter {
   val NumRs = (exuParameters.JmpCnt+1)/2 + (exuParameters.AluCnt+1)/2 + (exuParameters.MulCnt+1)/2 +
               (exuParameters.MduCnt+1)/2 + (exuParameters.FmacCnt+1)/2 +  + (exuParameters.FmiscCnt+1)/2 +
               (exuParameters.FmiscDivSqrtCnt+1)/2 + (exuParameters.LduCnt+1)/2 +
-              (exuParameters.StuCnt+1)/2 + (exuParameters.StuCnt+1)/2
+              (exuParameters.StuCnt+1)/2 + (exuParameters.StuCnt+1)/2 + (exuParameters.VlCnt+1)/2
 
   val instBytes = if (HasCExtension) 2 else 4
   val instOffsetBits = log2Ceil(instBytes)
@@ -510,6 +514,7 @@ trait HasXSParameter {
   val fpExuConfigs = coreParams.fpExuConfigs
 
   val exuConfigs = coreParams.exuConfigs
+  val vecLoadExuConfigs = coreParams.vecLoadExuConfigs
 
   val PCntIncrStep: Int = 6
   val numPCntHc: Int = 25

@@ -83,7 +83,7 @@ case class VSET(vli: Boolean, vtypei: Boolean, fuOp: BitPat, flushPipe: Boolean,
 }
 
 case class VLD(src2: BitPat, fuOp: BitPat, strided: Boolean = false, indexed: Boolean = false, ff: Boolean = false,
-  mask: Boolean = false, whole: Boolean = false, ordered: Boolean = false, uopDivType: BitPat = UopDivType.dummy) extends XSDecodeBase {
+  mask: Boolean = false, whole: Boolean = false, ordered: Boolean = false, uopDivType: BitPat = UopDivType.VEC_VLD) extends XSDecodeBase {
   def generate() : List[BitPat] = {
     val fu = FuType.vldu
     val src1 = SrcType.xp

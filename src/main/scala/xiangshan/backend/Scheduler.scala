@@ -210,7 +210,7 @@ abstract class Scheduler(
     require(memRsEntries.isEmpty || memRsEntries.max == memRsEntries.min, "different indexes not supported")
     require(memRsNum.isEmpty || memRsNum.max == memRsNum.min, "different num not supported")
     require(memRsNum.isEmpty || memRsNum.min != 0, "at least 1 memRs required")
-    if (memRsEntries.isEmpty) 0 else (memRsEntries.max / memRsNum.max)
+    if (memRsNum.isEmpty) memRsEntries.max else if (memRsEntries.isEmpty) 0 else (memRsEntries.max / memRsNum.max)
   }
   val numSTDPorts: Int = reservationStations.filter(_.params.exuCfg.get == StdExeUnitCfg).map(_.params.numDeq).sum
 
@@ -656,12 +656,25 @@ class VecScheduler(
   outFastPortVec, outIntRfReadPortVec, outFpRfReadPortVec,
   false, true
 ) {
-  val dispatch2 = Seq(LazyModule(new Dispatch2Rs(dpExuConfigs)))
+  val dispatch2 = Seq(LazyModule(new Dispatch2Rs(dpExuConfigs.take(exuParameters.FmacCnt))),
+                      LazyModule(new Dispatch2Rs(dpExuConfigs.drop(exuParameters.FmacCnt))))
 
   override lazy val module = new VecSchedulerImp(this)
 }
 
 class VecSchedulerImp(outer: Scheduler)(implicit p: Parameters) extends SchedulerImp(outer) with VecSchedulerImpMethod {
+  // dirty code for ls dp
+  dispatch2.foreach(dp => if (dp.io.enqLsq.isDefined) {
+    val lsqCtrl = Module(new LsqEnqCtrl)
+    lsqCtrl.io.redirect <> redirect
+    lsqCtrl.io.enq <> dp.io.enqLsq.get
+    lsqCtrl.io.lcommit := io.extra.lcommit
+    lsqCtrl.io.scommit := io.extra.scommit
+    lsqCtrl.io.lqCancelCnt := io.extra.lqCancelCnt
+    lsqCtrl.io.sqCancelCnt := io.extra.sqCancelCnt
+    io.extra.enqLsq.get <> lsqCtrl.io.enqLsq
+  })
+
   /** Read Regfile Cross Domain
     * The IntRfReadIn/Out is not used for now. But the dummp implementation of
     * Vector may need.
@@ -678,6 +691,12 @@ class VecSchedulerImp(outer: Scheduler)(implicit p: Parameters) extends Schedule
     val extraFpReadData = fpRfReadData_asyn.dropRight(64).takeRight(outer.outFpRfReadPorts)
     io.extra.fpRfReadOut.get.map(_.data).zip(extraFpReadData).foreach{ case (a, b) => a := b }
     require(io.extra.fpRfReadOut.get.length == extraFpReadData.length)
+  }
+
+  if (io.extra.loadFastMatch.isDefined) {
+    val allVecLoadRS = outer.reservationStations.filter(_.params.isVecLoad).map(_.module.extra.load)
+    io.extra.loadFastMatch.get := allVecLoadRS.map(_.map(_.fastMatch)).fold(Seq())(_ ++ _)
+    io.extra.loadFastImm.get := allVecLoadRS.map(_.map(_.fastImm)).fold(Seq())(_ ++ _)
   }
 
   if ((env.AlwaysBasicDiff || env.EnableDifftest) && fpRfConfig._1) {

@@ -63,7 +63,7 @@ class VluopQueueIOBundle(implicit p: Parameters) extends XSBundle {
   val loadRegIn   = Vec(2, Flipped(Decoupled(new VecOperand())))
   val loadPipeIn  = Vec(exuParameters.LduCnt, Flipped(Decoupled(new VecExuOutput)))
   val vecFeedback = Vec(2,Output(Bool()))
-  val vecLoadWriteback = Vec(2,DecoupledIO(new ExuOutput(true.B)))
+  val vecLoadWriteback = Vec(2,DecoupledIO(new ExuOutput(true)))
   //val vecData = Vec(2,DecoupledIO(UInt(VLEN.W)))
 }
 

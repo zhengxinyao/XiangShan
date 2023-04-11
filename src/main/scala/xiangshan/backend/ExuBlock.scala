@@ -294,13 +294,13 @@ class VecExuBlockImp(out: ExuBlock, fu: VecFUBlock)(implicit p: Parameters) exte
   // NOTE: re-claime FUBlock to access extraio
   val fuModule = fu.module
 
-  require(numOutFu == 0, "Memory Uops are handled by LS-rs now")
+  //require(numOutFu == 0, "Memory Uops are handled by LS-rs now")
   val extraio = IO(new Bundle {
-  //   val issue = if (numOutFu > 0) Some(Vec(numOutFu, DecoupledIO(new ExuInput(true)))) else None
+    val issue = if (numOutFu > 0) Some(Vec(numOutFu, DecoupledIO(new ExuInput(true)))) else None
     val fuExtra = fuModule.extraio.cloneType
   })
 
   // // the scheduler issues instructions to function units
-  scheduler.io.issue <> fuModule.io.issue // ++ io.issueio.getOrElse(Seq())
+  scheduler.io.issue <> fuModule.io.issue  ++ extraio.issue.getOrElse(Seq())
   extraio.fuExtra <> fuModule.extraio
 }

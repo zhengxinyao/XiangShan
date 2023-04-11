@@ -116,6 +116,7 @@ class DecodeUnitComp(maxNumOfUop : Int)(implicit p : Parameters) extends XSModul
     UopDivType.VEC_ISLIDEUP    -> numOfUopVslide,
     UopDivType.VEC_SLIDEDOWN   -> (numOfUopVslide + 1.U),
     UopDivType.VEC_ISLIDEDOWN  -> numOfUopVslide,
+    UopDivType.VEC_VLD         -> (lmul +& 1.U),
   ))
 
   val src1 = Cat(0.U(1.W), ctrl_flow.instr(19, 15))
@@ -731,6 +732,37 @@ class DecodeUnitComp(maxNumOfUop : Int)(implicit p : Parameters) extends XSModul
             csBundle(numOfUop-(i*(i+1)/2+i-j+1).U).ctrl.uopIdx := numOfUop-(i*(i+1)/2+i-j+1).U
           }
         }
+    }
+
+    is(UopDivType.VEC_VLD) {
+      /*
+      FMV.D.X
+       */
+      csBundle(0).ctrl.srcType(0) := SrcType.reg
+      csBundle(0).ctrl.srcType(1) := SrcType.imm
+      csBundle(0).ctrl.lsrc(1) := 0.U
+      csBundle(0).ctrl.ldest := FP_TMP_REG_MV.U
+      csBundle(0).ctrl.fuType := FuType.i2f
+      csBundle(0).ctrl.rfWen := false.B
+      csBundle(0).ctrl.fpWen := true.B
+      csBundle(0).ctrl.vecWen := false.B
+      csBundle(0).ctrl.fpu.isAddSub := false.B
+      csBundle(0).ctrl.fpu.typeTagIn := FPU.D
+      csBundle(0).ctrl.fpu.typeTagOut := FPU.D
+      csBundle(0).ctrl.fpu.fromInt := true.B
+      csBundle(0).ctrl.fpu.wflags := false.B
+      csBundle(0).ctrl.fpu.fpWen := true.B
+      csBundle(0).ctrl.fpu.div := false.B
+      csBundle(0).ctrl.fpu.sqrt := false.B
+      csBundle(0).ctrl.fpu.fcvt := false.B
+      //LMUL
+      for (i <- 0 until MAX_VLMUL) {
+        csBundle(i + 1).ctrl.srcType(0) := SrcType.fp
+        csBundle(i + 1).ctrl.lsrc(0) := FP_TMP_REG_MV.U
+        csBundle(i + 1).ctrl.ldest := dest + i.U
+        csBundle(i + 1).ctrl.uopIdx := i.U
+        csBundle(i + 1).ctrl.total_num := lmul
+      }
     }
   }
 

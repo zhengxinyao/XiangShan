@@ -276,7 +276,7 @@ class ExceptionGen(implicit p: Parameters) extends XSModule with HasCircularQueu
     val redirect = Input(Valid(new Redirect))
     val flush = Input(Bool())
     val enq = Vec(RenameWidth, Flipped(ValidIO(new RobExceptionInfo)))
-    val wb = Vec(1 + LoadPipelineWidth + StorePipelineWidth, Flipped(ValidIO(new RobExceptionInfo)))
+    val wb = Vec(1 + LoadPipelineWidth + StorePipelineWidth + LoadPipelineWidth, Flipped(ValidIO(new RobExceptionInfo)))
     val out = ValidIO(new RobExceptionInfo)
     val state = ValidIO(new RobExceptionInfo)
   })
@@ -314,14 +314,17 @@ class ExceptionGen(implicit p: Parameters) extends XSModule with HasCircularQueu
   val csr_wb_bits = io.wb(0).bits
   val load_wb_bits = getOldest(in_wb_valid.slice(1, 1 + LoadPipelineWidth), io.wb.map(_.bits).slice(1, 1 + LoadPipelineWidth))._2(0)
   val store_wb_bits = getOldest(in_wb_valid.slice(1 + LoadPipelineWidth, 1 + LoadPipelineWidth + StorePipelineWidth), io.wb.map(_.bits).slice(1 + LoadPipelineWidth, 1 + LoadPipelineWidth + StorePipelineWidth))._2(0)
-  val s0_out_valid = RegNext(VecInit(Seq(wb_valid(0), wb_valid.slice(1, 1 + LoadPipelineWidth).reduce(_ || _), wb_valid.slice(1 + LoadPipelineWidth, 1 + LoadPipelineWidth + StorePipelineWidth).reduce(_ || _))))
-  val s0_out_bits = RegNext(VecInit(Seq(csr_wb_bits, load_wb_bits, store_wb_bits)))
+  val load_wb_vec_bits = getOldest(in_wb_valid.slice(1 + LoadPipelineWidth + StorePipelineWidth, 1 + LoadPipelineWidth + StorePipelineWidth + LoadPipelineWidth), io.wb.map(_.bits).slice(1 + LoadPipelineWidth + StorePipelineWidth, 1 + LoadPipelineWidth + StorePipelineWidth + LoadPipelineWidth))._2(0)
+  val s0_out_valid = RegNext(VecInit(Seq(wb_valid(0), wb_valid.slice(1, 1 + LoadPipelineWidth).reduce(_ || _), wb_valid.slice(1 + LoadPipelineWidth, 1 + LoadPipelineWidth + StorePipelineWidth).reduce(_ || _), wb_valid.slice(1 + LoadPipelineWidth + StorePipelineWidth, 1 + LoadPipelineWidth + StorePipelineWidth + LoadPipelineWidth).reduce(_ || _))))
+  val s0_out_bits = RegNext(VecInit(Seq(csr_wb_bits, load_wb_bits, store_wb_bits, load_wb_vec_bits)))
 
   // s1: compare last four and current flush
   val s1_valid = VecInit(s0_out_valid.zip(s0_out_bits).map{ case (v, b) => v && !(b.robIdx.needFlush(io.redirect) || io.flush) })
   val compare_01_valid = s0_out_valid(0) || s0_out_valid(1)
   val compare_01_bits = Mux(!s0_out_valid(0) || s0_out_valid(1) && isAfter(s0_out_bits(0).robIdx, s0_out_bits(1).robIdx), s0_out_bits(1), s0_out_bits(0))
-  val compare_bits = Mux(!s0_out_valid(2) || compare_01_valid && isAfter(s0_out_bits(2).robIdx, compare_01_bits.robIdx), compare_01_bits, s0_out_bits(2))
+  val compare_02_valid = s0_out_valid(0) || s0_out_valid(1) || s0_out_valid(2)
+  val compare_02_bits = Mux(!s0_out_valid(2) || compare_01_valid && isAfter(s0_out_bits(2).robIdx, compare_01_bits.robIdx), compare_01_bits, s0_out_bits(2))
+  val compare_bits = Mux(!s0_out_valid(3) || compare_02_valid && isAfter(s0_out_bits(3).robIdx, compare_02_bits.robIdx), compare_02_bits, s0_out_bits(3))
   val s1_out_bits = RegNext(compare_bits)
   val s1_out_valid = RegNext(s1_valid.asUInt.orR)
 

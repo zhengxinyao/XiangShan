@@ -740,6 +740,7 @@ class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstan
       x._1 -> minBits
     }
   ))
+  cs.total_num := 1.U
 
   cs.vconfig := 0.U.asTypeOf(new VConfig)
   when(FuType.isVecExu(cs.fuType)){

@@ -98,6 +98,7 @@ package object xiangshan {
     def isFpExu(fuType: UInt) = !isVecExu(fuType) && (fuType(3, 2) === "b10".U)
     def isMemExu(fuType: UInt) = !isVecExu(fuType) && (fuType(3, 2) === "b11".U)
     def isLoadStore(fuType: UInt) = isMemExu(fuType) && !fuType(1)
+    def isVecLoadStore(fuType: UInt) = fuType === vldu || fuType === vstu
     def isStoreExu(fuType: UInt) = isMemExu(fuType) && fuType(0)
     def isAMO(fuType: UInt) = fuType(1)
     def isFence(fuType: UInt) = fuType === fence
@@ -583,6 +584,7 @@ package object xiangshan {
     def VEC_ISLIDEUP     = "b100110".U // VEC_ISLIDEUP
     def VEC_SLIDEDOWN    = "b100111".U // VEC_SLIDEDOWN
     def VEC_ISLIDEDOWN   = "b101000".U // VEC_ISLIDEDOWN
+    def VEC_VLD          = "b110000".U
     def VEC_MMM          = "b000000".U // VEC_MMM
     def dummy     = "b111111".U
 
@@ -905,6 +907,20 @@ package object xiangshan {
     // latency = CertainLatency(2)
   )
 
+  val vlduCfg = FuConfig(
+    name = "vldu",
+    fuGen = null, // DontCare
+    fuSel = (uop: MicroOp) => FuType.vldu === uop.ctrl.fuType,
+    fuType = FuType.vldu,
+    numIntSrc = 0, numFpSrc = 0, writeIntRf = false, writeFpRf = false, writeFflags = false,
+    numVecSrc = 4, writeVecRf = true,
+    latency = UncertainLatency(),
+    //exceptionOut = Seq(loadAddrMisaligned, loadAccessFault, loadPageFault), //TODO
+    flushPipe = true, //TODO
+    replayInst = true, //TODO
+    hasLoadError = true //TODO
+  )
+
   val JumpExeUnitCfg = ExuConfig("JmpExeUnit", "Int", Seq(jmpCfg, i2fCfg), 2, Int.MaxValue)
   val AluExeUnitCfg = ExuConfig("AluExeUnit", "Int", Seq(aluCfg), 0, Int.MaxValue)
   val JumpCSRExeUnitCfg = ExuConfig("JmpCSRExeUnit", "Int", Seq(jmpCfg, csrCfg, fenceCfg, i2fCfg), 2, Int.MaxValue)
@@ -919,6 +935,7 @@ package object xiangshan {
   val LdExeUnitCfg = ExuConfig("LoadExu", "Mem", Seq(lduCfg), wbIntPriority = 0, wbFpPriority = 0, extendsExu = false)
   val StaExeUnitCfg = ExuConfig("StaExu", "Mem", Seq(staCfg, mouCfg), wbIntPriority = Int.MaxValue, wbFpPriority = Int.MaxValue, extendsExu = false)
   val StdExeUnitCfg = ExuConfig("StdExu", "Mem", Seq(stdCfg, mouDataCfg), wbIntPriority = Int.MaxValue, wbFpPriority = Int.MaxValue, extendsExu = false)
+  val VldExeUnitCfg = ExuConfig("VecLoadExu", "Mem", Seq(vlduCfg), wbIntPriority = Int.MaxValue, wbFpPriority = 0, extendsExu = false)
 
   // def jumpRSWrapperGen(p: Parameters) = new JumpRSWrapper()(p)
   // def mulRSWrapperGen(p: Parameters) = new MulRSWrapper()(p)
@@ -963,5 +980,9 @@ package object xiangshan {
   val stdRSMod = new RSMod(
     rsWrapperGen = (modGen: RSMod, p: Parameters) => new StdRSWrapper(modGen)(p),
     rsGen = (a: RSParams, b: Parameters) => new StdRS(a)(b),
+  )
+  val vldRSMod = new RSMod(
+    rsWrapperGen = (modGen: RSMod, p: Parameters) => new VldRSWrapper(modGen)(p),
+    rsGen = (a: RSParams, b: Parameters) => new VldRS(a)(b),
   )
 }

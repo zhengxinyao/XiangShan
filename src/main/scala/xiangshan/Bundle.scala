@@ -184,6 +184,7 @@ class CtrlSignals(implicit p: Parameters) extends XSBundle {
   val commitType = CommitType()
   val fpu = new FPUCtrlSignals
   val uopIdx = UInt(log2Up(MaxUopSize).W)
+  val total_num = UInt(log2Up(MaxUopSize).W)
   val firstUop = Bool()
   val lastUop = Bool()
   val vconfig = new VConfig
@@ -287,7 +288,7 @@ class MicroOp(implicit p: Parameters) extends CfCtrl {
       // For state: no need to check whether src is x0/imm/pc because they are always ready.
       val rfStateMatch = if (exuCfg.readIntRf) ctrl.rfWen else false.B
       // FIXME: divide fpMatch and vecMatch then
-      val fpMatch = if (exuCfg.readFpRf) ctrl.fpWen else false.B
+      val fpMatch = if (exuCfg.readFpRf || exuCfg.readVecRf) ctrl.fpWen else false.B
       val vecMatch = if (exuCfg.readVecRf) ctrl.vecWen else false.B
       val allIntFpVec = exuCfg.readIntRf && exuCfg.readFpVecRf
       val allStateMatch = Mux(SrcType.isVp(srcType), vecMatch, Mux(SrcType.isFp(srcType), fpMatch, rfStateMatch))
