@@ -40,7 +40,7 @@ class VecOperand(implicit p: Parameters) extends XSBundleWithMicroOp {
   //  (EEW / SEW) * LMUL or (vl * EEW) / VLEN ?
   //  So OOO will always use eew ?
   // val eew = UInt(3.W)
-  val total_num = UInt(4.W) // An inst to how many uops
+  val total_num = UInt(3.W) // An inst to how many uops
 }
 
 class VecDecode(implicit p: Parameters) extends XSBundle {
@@ -68,10 +68,14 @@ class VecExuOutput(implicit p: Parameters) extends ExuOutput {
   val vecdata = UInt(VLEN.W)
   val mask = UInt((VLEN/8).W)
   val rob_idx_valid = Vec(2,Bool())
+  val inner_idx = Vec(2,UInt(3.W))
   val rob_idx = Vec(2,UInt(log2Up(RobSize).W))
   val offset = Vec(2,UInt(4.W))
   val reg_offset = Vec(2,UInt(4.W))
 }
+
+
+
 
 object VecGenMask {
   def apply(rob_idx_valid: Vec[Bool], reg_offset: Vec[UInt], offset: Vec[UInt], mask: Vec[UInt]):Vec[UInt] = {

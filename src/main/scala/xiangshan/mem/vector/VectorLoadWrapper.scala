@@ -1,0 +1,66 @@
+package xiangshan.mem
+
+import chipsalliance.rocketchip.config.Parameters
+import chisel3._
+import chisel3.util._
+import utils._
+import utility._
+import xiangshan._
+
+class VectorLoadWrapperIOBundle (implicit p: Parameters) extends XSBundle {
+  val loadRegIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecOperand())))
+  val laodPipleIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecExuOutput())))
+  val loadPipeOut = Vec(VecLoadPipelineWidth,Decoupled(new VecLoadPipelineBundle()))
+  val vecFeedback = Vec(2,Output(Bool()))
+  val vecLoadWriteback = Vec(VecLoadPipelineWidth, Decoupled(new ExuOutput(true.B)))
+}
+
+class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
+  val io = IO(new VectorLoadWrapperIOBundle())
+
+  val loadInstDec = Wire(Vec(VecLoadPipelineWidth,new VecDecode()))
+  val eew         = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val sew         = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val lmul        = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val emul        = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val isSegment   = Wire(Vec(VecLoadPipelineWidth, Bool()))
+  val instType    = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val uop_unit_stride_fof = Wire(Vec(VecLoadPipelineWidth, Bool()))
+  val uop_segment_num = Wire(Vec(VecLoadPipelineWidth, Bool()))
+
+  for (i <- 0 until VecLoadPipelineWidth) {
+    loadInstDec(i).apply(io.loadRegIn(i).bits.uop.cf.instr)
+    eew(i)                 := loadInstDec(i).uop_eew
+    sew(i)                 := io.loadRegIn(i).bits.sew
+    lmul(i)                := io.loadRegIn(i).bits.lmul
+    emul(i)                := eew(i) + sew(i) + lmul(i)
+    isSegment(i)           := loadInstDec(i).uop_segment_num =/= "b000".U && !loadInstDec(i).uop_unit_stride_whole_reg
+    instType(i)            := Cat(isSegment(i), loadInstDec(i).uop_type)
+    uop_unit_stride_fof(i) := loadInstDec(i).uop_unit_stride_fof
+    uop_segment_num(i)     := loadInstDec(i).uop_segment_num
+  }
+
+  val vlflowQueue = Module(new VlflowQueue())
+  val vluopQueue = Module(new VluopQueue())
+
+  for (i <- 0 until VecLoadPipelineWidth) {
+    io.loadRegIn(i).ready := vluopQueue.io.loadRegIn(i).ready && vlflowQueue.io.loadRegIn(i).ready
+  }
+
+  vluopQueue.io.loadRegIn := io.loadRegIn
+  vluopQueue.io.instType  := instType
+  vluopQueue.io.emul      := emul
+  vluopQueue.io.loadPipeIn <> io.laodPipleIn
+  vluopQueue.io.vecLoadWriteback <> io.vecLoadWriteback
+  vluopQueue.io.vecFeedback <> io.vecFeedback
+
+  vlflowQueue.io.loadRegIn           := io.loadRegIn
+  vlflowQueue.io.eew                 := eew
+  vlflowQueue.io.sew                 := sew
+  vlflowQueue.io.emul                := emul
+  vlflowQueue.io.instType            := instType
+  vlflowQueue.io.uop_unit_stride_fof := uop_unit_stride_fof
+  vlflowQueue.io.uop_segment_num     := uop_segment_num
+  vlflowQueue.io.loadPipeOut          <> io.loadPipeOut
+
+}

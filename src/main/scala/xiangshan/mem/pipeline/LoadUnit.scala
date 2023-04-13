@@ -1297,6 +1297,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   io.VecloadOut.bits.vecdata        := s3_rdataDcache
   io.VecloadOut.bits.mask           := s3_loadOutBits.mask
   io.VecloadOut.bits.rob_idx_valid  := s3_loadOutBits.rob_idx_valid
+  io.VecloadOut.bits.inner_idx      := s3_loadOutBits.inner_idx
   io.VecloadOut.bits.rob_idx        := s3_loadOutBits.rob_idx
   io.VecloadOut.bits.offset         := s3_loadOutBits.offset
   io.VecloadOut.bits.reg_offset     := s3_loadOutBits.reg_offset

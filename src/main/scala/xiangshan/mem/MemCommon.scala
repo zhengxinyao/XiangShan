@@ -104,6 +104,7 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp with 
   //val dataSize            = UInt(4.W)   //the memory access width of flow entry
   val uop_unit_stride_fof = Bool()
   val rob_idx_valid       = Vec(2,Bool())
+  val inner_idx           = Vec(2,UInt(3.W))
   val rob_idx             = Vec(2,UInt(log2Up(RobSize).W))
   val reg_offset          = Vec(2,UInt(4.W))
   val offset              = Vec(2,UInt(4.W))
@@ -154,6 +155,7 @@ class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
     uop_unit_stride_fof := input.uop_unit_stride_fof
     rob_idx_valid       := input.rob_idx_valid
     rob_idx             := input.rob_idx
+    inner_idx           := input.inner_idx
     reg_offset          := input.reg_offset
     offset              := input.offset
     //Vecvlflowidx := input.Vecvlflowidx
