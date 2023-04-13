@@ -32,23 +32,23 @@ class Dispatch2Rs(val configs: Seq[Seq[ExuConfig]])(implicit p: Parameters) exte
 
   val numOut = configs.length
   val numIntSrc = configs.map(_.map(_.intSrcCnt).max)
-  val numFpSrc = configs.map(_.map(_.fpSrcCnt).max)
+  val numFpSrc = configs.map(_.map(_.fpVecSrcCnt).max)
 
   val exuConfigCases = configs.distinct.sortBy(_.length).zipWithIndex
   val exuConfigTypes = configs.map(cfg => exuConfigCases.find(_._1 == cfg).get._2)
 
   // Different mode of dispatch
   // (1) isDistinct: no overlap
-  val isDistinct = exuConfigCases.flatMap(_._1).distinct.length == exuConfigCases.flatMap(_._1).length && exuConfigCases.length > 1
+  val isDistinct = exuConfigCases.flatMap(_._1).distinct.length == exuConfigCases.flatMap(_._1).length && exuConfigCases.length > 1 || exuConfigCases.flatMap(_._1).contains(VldExeUnitCfg)   //TODO: dirty code fro Vld
   // (2) isLessExu: exu becomes less and less
-  val isLessExu = configs.dropRight(1).zip(configs.tail).forall(x => x._2.toSet.subsetOf(x._1.toSet))
+  val isLessExu = configs.dropRight(1).zip(configs.tail).forall(x => x._2.toSet.subsetOf(x._1.toSet)) && !exuConfigCases.flatMap(_._1).contains(VldExeUnitCfg)   //TODO: dirty code for Vld
   val supportedDpMode = Seq(isDistinct, isLessExu)
   require(supportedDpMode.count(x => x) == 1, s"dispatch mode valid iff one mode is found in $supportedDpMode")
 
   val numIntStateRead = if (isLessExu) numIntSrc.max * numIn else numIntSrc.sum
   val numFpStateRead = if (isLessExu) numFpSrc.max * numIn else numFpSrc.sum
 
-  val hasLoadStore = configs.exists(cfgs => cfgs.contains(LdExeUnitCfg) || cfgs.contains(StaExeUnitCfg))
+  val hasLoadStore = configs.exists(cfgs => cfgs.contains(LdExeUnitCfg) || cfgs.contains(StaExeUnitCfg) || cfgs.contains(VldExeUnitCfg))
 
   lazy val module = Dispatch2RsImp(this, supportedDpMode.zipWithIndex.filter(_._1).head._2)
 }
@@ -189,6 +189,7 @@ class Dispatch2RsDistinctImp(outer: Dispatch2Rs)(implicit p: Parameters) extends
     val enqLsq = io.enqLsq.get
     val fuType = io.in.map(_.bits.ctrl.fuType)
     val isLs = fuType.map(f => FuType.isLoadStore(f))
+    val isVls = fuType.map(f => FuType.isVecLoadStore(f))
     val isStore = fuType.map(f => FuType.isStoreExu(f))
     val isAMO = fuType.map(f => FuType.isAMO(f))
 
@@ -206,7 +207,7 @@ class Dispatch2RsDistinctImp(outer: Dispatch2Rs)(implicit p: Parameters) extends
       io.in(i).ready := in(i).ready && !is_blocked(i)
 
       if (i < enqLsq.req.length) {
-        enqLsq.needAlloc(i) := Mux(io.in(i).valid && isLs(i), Mux(isStore(i) && !isAMO(i), 2.U, 1.U), 0.U)
+        enqLsq.needAlloc(i) := Mux(io.in(i).valid && (isLs(i) || isVls(i)), Mux(isStore(i) && !isAMO(i), 2.U, 1.U), 0.U)
         enqLsq.req(i).bits := io.in(i).bits
         in(i).bits.lqIdx := enqLsq.resp(i).lqIdx
         in(i).bits.sqIdx := enqLsq.resp(i).sqIdx
@@ -281,7 +282,7 @@ class Dispatch2RsDistinctImp(outer: Dispatch2Rs)(implicit p: Parameters) extends
     // When both int and fp are needed, need Mux
     io.readFpState.get.map(_.resp).zip(stateReadResp).zip(srcTypeOut).foreach{
       case ((resp, state), srcType) =>
-        when (!io.readIntState.isDefined.B || SrcType.isFp(srcType)) {
+        when (!io.readIntState.isDefined.B || SrcType.isFp(srcType) || SrcType.isVp(srcType)) {
           state := resp
         }
     }

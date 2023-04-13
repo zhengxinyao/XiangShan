@@ -187,7 +187,6 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   loadQueueReplay.io.lqFull <> io.lqReplayFull
   loadQueueReplay.io.tlbReplayDelayCycleCtrl <> io.tlbReplayDelayCycleCtrl
 
-  // perf cnt
   val perfEvents = Seq(loadQueueFlag, loadQueueRAR, loadQueueRAW, loadQueueReplay).flatMap(_.getPerfEvents)
   generatePerfEvent()
   // end

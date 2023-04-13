@@ -54,7 +54,7 @@ class MemBlock()(implicit p: Parameters) extends LazyModule
 
   override val writebackSourceParams: Seq[WritebackSourceParams] = {
     val params = new WritebackSourceParams
-    params.exuConfigs = (loadExuConfigs ++ storeExuConfigs).map(cfg => Seq(cfg))
+    params.exuConfigs = (loadExuConfigs ++ storeExuConfigs ++ vecLoadExuConfigs).map(cfg => Seq(cfg))
     Seq(params)
   }
   override lazy val writebackSourceImp: HasWritebackSourceImp = module
@@ -80,11 +80,11 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val VecloadRegIn = Vec(2, Flipped(Decoupled(new VecOperand())))
     // out
     val writeback = Vec(exuParameters.LsExuCnt + exuParameters.StuCnt, DecoupledIO(new ExuOutput))
-    val vecWriteback = Vec(exuParameters.VlCnt,DecoupledIO(new ExuOutput(true.B)))
+    val vecWriteback = Vec(exuParameters.VlCnt,DecoupledIO(new ExuOutput(true)))
     //val vecData = Vec(2,ValidIO(UInt(VLEN.W)))
     val vecFeedback = Vec(2,Output(Bool()))
     val s3_delayed_load_error = Vec(exuParameters.LduCnt, Output(Bool()))
-    val otherFastWakeup = Vec(exuParameters.LduCnt + 2 * exuParameters.StuCnt, ValidIO(new MicroOp))
+    val otherFastWakeup = Vec(exuParameters.LduCnt + 2 * exuParameters.StuCnt + 2, ValidIO(new MicroOp))
     // prefetch to l1 req
     val prefetch_req = Flipped(DecoupledIO(new L1PrefetchReq))
     // misc
@@ -118,7 +118,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val debug_ls = new DebugLSIO
   })
 
-  override def writebackSource1: Option[Seq[Seq[DecoupledIO[ExuOutput]]]] = Some(Seq(io.writeback))
+  override def writebackSource1: Option[Seq[Seq[DecoupledIO[ExuOutput]]]] = Some(Seq(io.writeback ++ io.vecWriteback))
 
   val redirect = RegNextWithEnable(io.redirect)
 
@@ -289,7 +289,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
       else if (i < exuParameters.LduCnt) Cat(ptw_resp_next.vector.take(exuParameters.LduCnt)).orR
       else Cat(ptw_resp_next.vector.drop(exuParameters.LduCnt)).orR
     io.ptw.req(i).valid := tlb.valid && !(ptw_resp_v && vector_hit &&
-      ptw_resp_next.data.entry.hit(tlb.bits.vpn, tlbcsr.satp.asid, allType = true, ignoreAsid = true))
+      ptw_resp_next.data.hit(tlb.bits.vpn, tlbcsr.satp.asid, allType = true, ignoreAsid = true))
   }
   dtlb.foreach(_.ptw.resp.bits := ptw_resp_next.data)
   if (refillBothTlb) {
@@ -316,10 +316,12 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     p.apply(tlbcsr.priv.dmode, pmp.io.pmp, pmp.io.pma, d)
     require(p.req.bits.size.getWidth == d.bits.size.getWidth)
   }
-  val pmp_check_ptw = Module(new PMPCheckerv2(lgMaxSize = 3, sameCycle = false, leaveHitMux = true))
-  pmp_check_ptw.io.apply(tlbcsr.priv.dmode, pmp.io.pmp, pmp.io.pma, io.ptw.resp.valid,
-    Cat(io.ptw.resp.bits.data.entry.ppn, 0.U(12.W)).asUInt)
-  dtlb.map(_.ptw_replenish := pmp_check_ptw.io.resp)
+  for (i <- 0 until 8) {
+    val pmp_check_ptw = Module(new PMPCheckerv2(lgMaxSize = 3, sameCycle = false, leaveHitMux = true))
+    pmp_check_ptw.io.apply(tlbcsr.priv.dmode, pmp.io.pmp, pmp.io.pma, io.ptw.resp.valid,
+      Cat(io.ptw.resp.bits.data.entry.ppn, io.ptw.resp.bits.data.ppn_low(i), 0.U(12.W)).asUInt)
+    dtlb.map(_.ptw_replenish(i) := pmp_check_ptw.io.resp)
+  }
 
   val tdata = RegInit(VecInit(Seq.fill(6)(0.U.asTypeOf(new MatchTriggerIO))))
   val tEnable = RegInit(VecInit(Seq.fill(6)(false.B)))
@@ -575,9 +577,12 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   //Vector Load/Store Queue
   vlflowqueue.io.loadRegIn <> io.VecloadRegIn
   vluopqueue.io.loadRegIn <> io.VecloadRegIn
-  io.vecWriteback := vluopqueue.io.vecLoadWriteback
-  io.vecFeedback := vluopqueue.io.vecFeedback
+  io.vecWriteback <> vluopqueue.io.vecLoadWriteback
+  io.vecFeedback <> vluopqueue.io.vecFeedback
   vlExcSignal.io.vecloadRegIn.map(_.ready := false.B)
+  vlExcSignal.io.vecloadRegIn.map(_.bits := DontCare)
+  vlExcSignal.io.vecloadRegIn.map(_.valid := DontCare)
+  vlExcSignal.io.vecData := DontCare
   vlExcSignal.io.vecwriteback := DontCare
   vlExcSignal.io.vecFeedback := DontCare
 
