@@ -9,10 +9,10 @@ import xiangshan._
 
 class VectorLoadWrapperIOBundle (implicit p: Parameters) extends XSBundle {
   val loadRegIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecOperand())))
-  val laodPipleIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecExuOutput())))
+  val loadPipleIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecExuOutput())))
   val loadPipeOut = Vec(VecLoadPipelineWidth,Decoupled(new VecLoadPipelineBundle()))
   val vecFeedback = Vec(2,Output(Bool()))
-  val vecLoadWriteback = Vec(VecLoadPipelineWidth, Decoupled(new ExuOutput(true.B)))
+  val vecLoadWriteback = Vec(VecLoadPipelineWidth, Decoupled(new ExuOutput(isVpu = true)))
 }
 
 class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
@@ -45,16 +45,19 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
 
   for (i <- 0 until VecLoadPipelineWidth) {
     io.loadRegIn(i).ready := vluopQueue.io.loadRegIn(i).ready && vlflowQueue.io.loadRegIn(i).ready
+    vluopQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && vlflowQueue.io.loadRegIn(i).ready
+    vluopQueue.io.loadRegIn(i).bits := io.loadRegIn(i).bits
+
+    vlflowQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && vluopQueue.io.loadRegIn(i).ready
+    vlflowQueue.io.loadRegIn(i).bits  := io.loadRegIn(i).bits
   }
 
-  vluopQueue.io.loadRegIn := io.loadRegIn
   vluopQueue.io.instType  := instType
   vluopQueue.io.emul      := emul
-  vluopQueue.io.loadPipeIn <> io.laodPipleIn
+  vluopQueue.io.loadPipeIn <> io.loadPipleIn
   vluopQueue.io.vecLoadWriteback <> io.vecLoadWriteback
   vluopQueue.io.vecFeedback <> io.vecFeedback
 
-  vlflowQueue.io.loadRegIn           := io.loadRegIn
   vlflowQueue.io.eew                 := eew
   vlflowQueue.io.sew                 := sew
   vlflowQueue.io.emul                := emul

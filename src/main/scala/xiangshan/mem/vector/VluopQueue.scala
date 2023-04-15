@@ -64,12 +64,12 @@ class VluopBundle(implicit p: Parameters) extends XSBundle {
 }
 
 class VluopQueueIOBundle(implicit p: Parameters) extends XSBundle {
-  val loadRegIn   = Vec(VecLoadPipelineWidth, Flipped(Decoupled(new VecOperand())))
+  val loadRegIn   = Vec(VecLoadPipelineWidth, Flipped(DecoupledIO(new VecOperand())))
   val instType    = Vec(VecLoadPipelineWidth, Input(UInt(3.W)))
   val emul        = Vec(VecLoadPipelineWidth, Input(UInt(3.W)))
-  val loadPipeIn  = Vec(VecLoadPipelineWidth, Flipped(Decoupled(new VecExuOutput)))
+  val loadPipeIn  = Vec(VecLoadPipelineWidth, Flipped(DecoupledIO(new VecExuOutput)))
   val vecFeedback = Vec(2,Output(Bool()))
-  val vecLoadWriteback = Vec(2,DecoupledIO(new ExuOutput(true)))
+  val vecLoadWriteback = Vec(2,DecoupledIO(new ExuOutput(isVpu = true)))
   //val vecData = Vec(2,DecoupledIO(UInt(VLEN.W)))
 }
 
@@ -93,6 +93,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val enqPtr = RegInit(0.U.asTypeOf(new VluopPtr))
   val deqPtr = RegInit(0.U.asTypeOf(new VluopPtr))
   val already_in = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
+  val already_in_vec = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(VlUopSize)(false.B)))))
   val enq_valid = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
   val instType = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
 
@@ -101,7 +102,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val data_buffer_s0   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(0.U(VLEN.W))))
   val mask_buffer_s0   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U((VLEN/8).W))))))
   val rob_idx_valid_s0 = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(false.B)))))
-  val inner_idx_s0     = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(UInt(3.W))))))
+  val inner_idx_s0     = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(3.W))))))
   val rob_idx_s0       = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(log2Ceil(RobSize).W))))))
   val reg_offset_s0    = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(4.W))))))
   val offset_s0        = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(4.W))))))
@@ -111,7 +112,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val data_buffer_s1   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(VLEN.W))))))
   val mask_buffer_s1   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U((VLEN/8).W))))))
   val rob_idx_valid_s1 = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(false.B)))))
-  val inner_idx_s1     = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(UInt(3.W))))))
+  val inner_idx_s1     = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(3.W))))))
   val rob_idx_s1       = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(log2Ceil(RobSize).W))))))
   val uop_s1           = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(0.U.asTypeOf(new MicroOp))))
 /**
@@ -125,9 +126,20 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   }
 
   for (i <- 0 until VecLoadPipelineWidth) {
-    already_in(i) := Cat((0 until VlUopSize).map(j => VluopEntry(j).rob_idx === io.loadRegIn(i).bits.uop.robIdx.value &&
-                                                      VluopEntry(j).inner_idx === io.loadRegIn(i).bits.inner_idx &&
-                                                      io.loadRegIn(i).valid && pre_allocated(j))).orR
+    for (entry <- 0 until VlUopSize) {
+      already_in_vec(i)(entry) := VluopEntry(entry).rob_idx === io.loadRegIn(i).bits.uop.robIdx.value &&
+                                  VluopEntry(entry).inner_idx === io.loadRegIn(i).bits.inner_idx &&
+                                  io.loadRegIn(i).fire && pre_allocated(entry)
+      val debug_hit = WireInit(VecInit(Seq.fill(VlUopSize)(false.B))) // for debug
+      when (already_in_vec(i)(entry)) {
+        VluopEntry(entry).apply(uop = io.loadRegIn(i).bits, emul = io.emul(i), is_allo = true.B)
+        allocated(entry)     := true.B
+        debug_hit(entry)     := true.B
+      }
+      assert(PopCount(debug_hit) <= 1.U, "VluopQueue Multi-Hit!")
+    }
+
+    already_in(i) := already_in_vec(i).asUInt.orR
     enq_valid(i)  := io.loadRegIn(i).fire && !already_in(i)
     instType(i)   := io.instType(i)
   }
@@ -294,6 +306,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     enqPtr.value := enqPtr.value
   }
 
+/*
   for (i <- 0 until VecLoadPipelineWidth) {
     when (already_in(i)) {
       val debug_hit = WireInit(VecInit(Seq.fill(VlUopSize)(false.B))) // for debug
@@ -308,7 +321,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
         assert(PopCount(debug_hit) <= 1.U, "VluopQueue Multi-Hit!")
       }
     }
-  }
+  }*/
 
   for (entry <- 0 until VlUopSize) {
     when (VluopEntry(entry).emul(2) === 0.U ) {
@@ -382,11 +395,12 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   for (i <- 0 until 2) {
     io.vecLoadWriteback(i).bits := DontCare
     val deq_index = deqPtr.value + i.U
+    io.vecLoadWriteback(i).bits                  := Vluop2robEntry(deq_index)
+    io.vecLoadWriteback(i).bits.uop.robIdx.value := VluopEntry(deq_index).rob_idx
+    io.vecLoadWriteback(i).bits.data             := VluopEntry(deq_index).data.asUInt
+    io.vecLoadWriteback(i).bits.uop.pdest        := VluopEntry(deq_index).wb_dest
     when (io.vecLoadWriteback(i).fire) {//TODO:need optimization?
-      io.vecLoadWriteback(i).bits                  := Vluop2robEntry(deq_index)
-      io.vecLoadWriteback(i).bits.uop.robIdx.value := VluopEntry(deq_index).rob_idx
-      io.vecLoadWriteback(i).bits.data             := VluopEntry(deq_index).data.asUInt
-      io.vecLoadWriteback(i).bits.uop.pdest        := VluopEntry(deq_index).wb_dest
+
       valid(deq_index)                             := false.B
       allocated(deq_index)                         := false.B
       pre_allocated(deq_index)                     := false.B

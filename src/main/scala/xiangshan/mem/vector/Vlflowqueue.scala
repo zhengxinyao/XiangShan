@@ -346,13 +346,13 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   //val loadInstDec = Wire(Vec(VecLoadPipelineWidth,new VecDecode()))
   val cross128    = Wire(Vec(VecLoadPipelineWidth, Bool()))
   //val startRobIdx = Wire(Vec(VecLoadPipelineWidth,UInt(log2Ceil(RobSize).W)))
-  val isSegment   = Wire(Vec(VecLoadPipelineWidth, Bool()))
+  //val isSegment   = Wire(Vec(VecLoadPipelineWidth, Bool()))
   val instType    = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val stride      = Wire(Vec(VecLoadPipelineWidth, UInt(XLEN.W)))
   val index       = Wire(Vec(VecLoadPipelineWidth, UInt(VLEN.W)))
   val eew         = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val sew         = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
-  val lmul        = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  //val lmul        = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val emul        = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val segEmulIdx  = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val segNfIdx    = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
@@ -376,7 +376,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     io.loadRegIn(i).ready := allowEnqueue(i)
   }
 
-  val sameInst = io.loadRegIn(0).valid && io.loadRegIn(1).valid && instType(0) === "b000".U && instType(1) === "b000".U
+  val sameInst = io.loadRegIn(0).fire && io.loadRegIn(1).fire && instType(0) === "b000".U && instType(1) === "b000".U
                   (io.loadRegIn(0).bits.uop.robIdx.value === io.loadRegIn(1).bits.uop.robIdx.value)
 
   for (i <- 0 until VecLoadPipelineWidth) {
@@ -384,16 +384,20 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
       when (sameInst) {
         when (i.U === 0.U) {
           needAlloc(i)  := !(0 until 2).map(j => (0 until VlFlowSize).map(entry =>
-            flow_entry(j)(entry).rob_idx(0) === io.loadRegIn(i).bits.uop.robIdx.value && flow_entry(j)(entry).rob_idx_valid(0)).reduce(_||_)).reduce(_||_) && io.loadRegIn(i).valid
+            flow_entry(j)(entry).rob_idx(0) === io.loadRegIn(i).bits.uop.robIdx.value &&
+            flow_entry(j)(entry).inner_idx(0) === io.loadRegIn(i).bits.inner_idx  &&
+            flow_entry(j)(entry).rob_idx_valid(0)).reduce(_||_)).reduce(_||_) && io.loadRegIn(i).fire
         }.otherwise {
           needAlloc(i) := false.B
         }
       }.otherwise {
-        needAlloc(i) := !(0 until 2).map(j => (0 until VlFlowSize).map(entry =>
-          flow_entry(j)(entry).rob_idx(0) === io.loadRegIn(i).bits.uop.robIdx.value && flow_entry(j)(entry).rob_idx_valid(0)).reduce(_||_)).reduce(_||_) && io.loadRegIn(i).valid
+        needAlloc(i)  := !(0 until 2).map(j => (0 until VlFlowSize).map(entry =>
+          flow_entry(j)(entry).rob_idx(0) === io.loadRegIn(i).bits.uop.robIdx.value &&
+            flow_entry(j)(entry).inner_idx(0) === io.loadRegIn(i).bits.inner_idx  &&
+            flow_entry(j)(entry).rob_idx_valid(0)).reduce(_||_)).reduce(_||_) && io.loadRegIn(i).fire
       }
     }.otherwise {
-      needAlloc(i)  := io.loadRegIn(i).valid
+      needAlloc(i)  := io.loadRegIn(i).fire
     }
   }
 
@@ -442,7 +446,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
           flow_entry(i)(queueIdx).unit_stride_fof := io.uop_unit_stride_fof(i)
           vaddr := GenVecAddr(instType = instType(i), baseaddr = baseAddr(i), emul = emul(i), inner_Idx = io.loadRegIn(i).bits.inner_idx,
                               flow_inner_idx = j.U, stride = stride(i), index = index(i), eew = eew(i), sew = sew(i),
-                              nf = io.uop_segment_num(i) + 1, segNfIdx = segNfIdx(i), segEmulIdx = segEmulIdx(i))
+                              nf = io.uop_segment_num(i) + 1.U, segNfIdx = segNfIdx(i), segEmulIdx = segEmulIdx(i))
           flow_entry(i)(queueIdx).mask := GenVecMask(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
           flow_entry(i)(queueIdx).vaddr := vaddr
 

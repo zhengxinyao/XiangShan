@@ -397,6 +397,8 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   // return load pc at load s2
   memBlock.io.loadPc <> VecInit(ctrlBlock.io.ld_pc_read.map(_.data))
   memBlock.io.issue <> intExuBlock.extraio.issue.get
+  //vector signal issue
+  //memBlock.io.vecissue <> vecExuBlock.extraio.issue.get
   // By default, instructions do not have exceptions when they enter the function units.
   memBlock.io.issue.map(_.bits.uop.clearExceptions())
   intExuBlock.io.scheExtra.loadFastMatch.get <> memBlock.io.loadFastMatch
@@ -510,7 +512,6 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
     memBlock.io.VecloadRegIn(i).valid := vecExuBlock.extraio.issue.get(i).valid
     vecExuBlock.extraio.issue.get(i).ready := memBlock.io.VecloadRegIn(i).ready
     //memBlock.io.vecFeedback
-    //memBlock.io.vecData.bits
   }
   //memBlock.io.VecloadRegIn <> vecExuBlock.extraio.issue.get
   //memBlock.io.vecFeedback <> vecExuBlock.io.scheExtra.feedback.get

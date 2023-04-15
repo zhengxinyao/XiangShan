@@ -72,6 +72,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val redirect = Flipped(ValidIO(new Redirect))
     // in
     val issue = Vec(exuParameters.LsExuCnt + exuParameters.StuCnt, Flipped(DecoupledIO(new ExuInput)))
+    //val vecissue = Vec(exuParameters.VlCnt,Flipped(DecoupledIO(new ExuInput(isVpu = true))))
     val loadFastMatch = Vec(exuParameters.LduCnt, Input(UInt(exuParameters.LduCnt.W)))
     val loadFastImm = Vec(exuParameters.LduCnt, Input(UInt(12.W)))
     val rsfeedback = Vec(exuParameters.StuCnt, new MemRSFeedbackIO)
@@ -80,7 +81,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val VecloadRegIn = Vec(2, Flipped(Decoupled(new VecOperand())))
     // out
     val writeback = Vec(exuParameters.LsExuCnt + exuParameters.StuCnt, DecoupledIO(new ExuOutput))
-    val vecWriteback = Vec(exuParameters.VlCnt,DecoupledIO(new ExuOutput(true)))
+    val vecWriteback = Vec(exuParameters.VlCnt,DecoupledIO(new ExuOutput(isVpu = true)))
     //val vecData = Vec(2,ValidIO(UInt(VLEN.W)))
     val vecFeedback = Vec(2,Output(Bool()))
     val s3_delayed_load_error = Vec(exuParameters.LduCnt, Output(Bool()))
@@ -173,8 +174,9 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   storeUnits.zipWithIndex.map(x => x._1.suggestName("StoreUnit_"+x._2))
   correctTable.io.csrCtrl := csrCtrl
   val atomicsUnit = Module(new AtomicsUnit)
-  val vlflowqueue = Module(new VlflowQueue)
-  val vluopqueue = Module(new VluopQueue)
+  val vectorLoadWrapperModule = Module(new VectorLoadWrapper)
+  //val vlflowqueue = Module(new VlflowQueue)
+  //val vluopqueue = Module(new VluopQueue)
   val vlExcSignal = Module(new VlExcSignal)
 
   // Atom inst comes from sta / std, then its result
@@ -344,8 +346,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     loadUnits(i).io.isFirstIssue := true.B
     // get input from dispatch
     loadUnits(i).io.loadIn <> io.issue(i)
-    // vector input from VlFlowQueue
-    loadUnits(i).io.VecloadIn <> vlflowqueue.io.loadPipeOut(i)
+    // vector input from vectorLoadWrapperModule
+    loadUnits(i).io.VecloadIn <> vectorLoadWrapperModule.io.loadPipeOut(i)
     // dcache access
     loadUnits(i).io.dcache <> dcache.io.lsu.load(i)
     // forward
@@ -575,10 +577,10 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   uncache.io.flush.valid := sbuffer.io.flush.valid
 
   //Vector Load/Store Queue
-  vlflowqueue.io.loadRegIn <> io.VecloadRegIn
-  vluopqueue.io.loadRegIn <> io.VecloadRegIn
-  io.vecWriteback <> vluopqueue.io.vecLoadWriteback
-  io.vecFeedback <> vluopqueue.io.vecFeedback
+  vectorLoadWrapperModule.io.loadRegIn <> io.VecloadRegIn
+  vectorLoadWrapperModule.io.vecLoadWriteback <> io.vecWriteback
+  vectorLoadWrapperModule.io.vecFeedback <> io.vecFeedback
+
   vlExcSignal.io.vecloadRegIn.map(_.ready := false.B)
   vlExcSignal.io.vecloadRegIn.map(_.bits := DontCare)
   vlExcSignal.io.vecloadRegIn.map(_.valid := DontCare)
@@ -597,8 +599,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
   //vluopqueue.io.loadPipeIn <> VecInit(loadUnits.map(_.io.VecloadOut))
   for (i <- 0 until 2) {
-    dontTouch(vluopqueue.io.loadPipeIn(i))
-    vluopqueue.io.loadPipeIn(i) <> loadUnits(i).io.VecloadOut
+    dontTouch(vectorLoadWrapperModule.io.loadPipleIn(i))
+    vectorLoadWrapperModule.io.loadPipleIn(i) <> loadUnits(i).io.VecloadOut
   }
 
   // AtomicsUnit: AtomicsUnit will override other control signials,
