@@ -540,6 +540,9 @@ class CtrlBlockImp(outer: CtrlBlock)(implicit p: Parameters) extends LazyModuleI
   val dpqOut = intDq.io.deq ++ lsDq.io.deq ++ fpDq.io.deq ++ vlsDq.io.deq
   io.dispatch <> dpqOut
 
+  val arbiter = Module(new Arbiter(Bool(), 2))
+  val lsqCtrl = Seq.fill(2)(Module(new LsqEnqCtrl))
+
   for (dp2 <- outer.dispatch2.map(_.module.io)) {
     dp2.redirect := redirectForExu
     if (dp2.readFpState.isDefined) {
@@ -548,17 +551,29 @@ class CtrlBlockImp(outer: CtrlBlock)(implicit p: Parameters) extends LazyModuleI
     if (dp2.readIntState.isDefined) {
       dp2.readIntState.get := DontCare
     }
+  }
+  for((dp2, i) <- outer.dispatch2.map(_.module.io).filter(_.enqLsq.isDefined).zipWithIndex){
     if (dp2.enqLsq.isDefined) {
-      val lsqCtrl = Module(new LsqEnqCtrl)
-      lsqCtrl.io.redirect <> redirectForExu
-      lsqCtrl.io.enq <> dp2.enqLsq.get
-      lsqCtrl.io.lcommit := io.lqDeq
-      lsqCtrl.io.scommit := io.sqDeq
-      lsqCtrl.io.lqCancelCnt := io.lqCancelCnt
-      lsqCtrl.io.sqCancelCnt := io.sqCancelCnt
-      io.enqLsq <> lsqCtrl.io.enqLsq
+      lsqCtrl(i).io.redirect <> redirectForExu
+      lsqCtrl(i).io.enq <> dp2.enqLsq.get
+      lsqCtrl(i).io.lcommit := io.lqDeq
+      lsqCtrl(i).io.scommit := io.sqDeq
+      lsqCtrl(i).io.lqCancelCnt := io.lqCancelCnt
+      lsqCtrl(i).io.sqCancelCnt := io.sqCancelCnt
+      lsqCtrl(i).io.enqLsq.canAccept := false.B
+      lsqCtrl(i).io.enqLsq.resp := 0.U.asTypeOf(lsqCtrl(i).io.enqLsq.resp)
+      arbiter.io.in(i).bits := true.B
+      arbiter.io.in(i).valid := Cat(dp2.in.map(_.valid)).orR
+      arbiter.io.out.ready := true.B
     }
   }
+
+  when(arbiter.io.chosen === 0.U) {
+    io.enqLsq <> lsqCtrl(0).io.enqLsq
+  } .otherwise {
+    io.enqLsq <> lsqCtrl(1).io.enqLsq
+  }
+
   for ((dp2In, i) <- outer.dispatch2.flatMap(_.module.io.in).zipWithIndex) {
     dp2In.valid := dpqOut(i).valid
     dp2In.bits := dpqOut(i).bits
