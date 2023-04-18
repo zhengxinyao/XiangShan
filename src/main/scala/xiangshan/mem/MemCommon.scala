@@ -26,6 +26,7 @@ import utility._
 import xiangshan.backend.rob.RobPtr
 import xiangshan.cache._
 import xiangshan.backend.fu.FenceToSbuffer
+import xiangshan.cache.dcache.ReplayCarry
 
 object genWmask {
   def apply(addr: UInt, sizeEncode: UInt): UInt = {
@@ -67,19 +68,53 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp with 
   val forwardMask = Vec(8, Bool())
   val forwardData = Vec(8, UInt(8.W))
 
-  //softprefetch
-  val isSoftPrefetch = Bool() 
+  // prefetch
+  val isPrefetch = Bool()
+  val isHWPrefetch = Bool()
+  def isSWPrefetch = isPrefetch && !isHWPrefetch
 
   // For debug usage
   val isFirstIssue = Bool()
 
   // For load replay
   val isLoadReplay = Bool()
+  val replayCarry = new ReplayCarry
 
   // For dcache miss load
   val mshrid = UInt(log2Up(cfg.nMissEntries).W)
 
   val forward_tlDchannel = Bool()
+}
+
+class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
+  val meta_prefetch = Bool()
+  val meta_access = Bool()
+
+  def fromLsPipelineBundle(input: LsPipelineBundle) = {
+    vaddr := input.vaddr
+    paddr := input.paddr
+    mask := input.mask
+    data := input.data
+    uop := input.uop
+    wlineflag := input.wlineflag
+    miss := input.miss
+    tlbMiss := input.tlbMiss
+    ptwBack := input.ptwBack
+    mmio := input.mmio
+    rsIdx := input.rsIdx
+    forwardMask := input.forwardMask
+    forwardData := input.forwardData
+    isPrefetch := input.isPrefetch
+    isHWPrefetch := input.isHWPrefetch
+    isFirstIssue := input.isFirstIssue
+    meta_prefetch := DontCare
+    meta_access := DontCare
+    forward_tlDchannel := DontCare
+    mshrid := DontCare
+    replayCarry := DontCare
+    atomic := DontCare
+    isLoadReplay := DontCare
+  }
 }
 
 class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
@@ -102,11 +137,13 @@ class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
     rsIdx := input.rsIdx
     forwardMask := input.forwardMask
     forwardData := input.forwardData
-    isSoftPrefetch := input.isSoftPrefetch
+    isPrefetch := input.isPrefetch
+    isHWPrefetch := input.isHWPrefetch
     isFirstIssue := input.isFirstIssue
     isLoadReplay := input.isLoadReplay
     mshrid := input.mshrid
     forward_tlDchannel := input.forward_tlDchannel
+    replayCarry := input.replayCarry
 
     lq_data_wen_dup := DontCare
   }
@@ -194,13 +231,17 @@ class StoreMaskBundle(implicit p: Parameters) extends XSBundle {
 }
 
 class LoadDataFromDcacheBundle(implicit p: Parameters) extends DCacheBundle {
-  val bankedDcacheData = Vec(DCacheBanks, UInt(64.W))
-  val bank_oh = UInt(DCacheBanks.W)
+  // old dcache: optimize data sram read fanout
+  // val bankedDcacheData = Vec(DCacheBanks, UInt(64.W))
+  // val bank_oh = UInt(DCacheBanks.W)  
+  
+  // new dcache
+  val respDcacheData = UInt(XLEN.W)
   val forwardMask = Vec(8, Bool())
   val forwardData = Vec(8, UInt(8.W))
   val uop = new MicroOp // for data selection, only fwen and fuOpType are used
   val addrOffset = UInt(3.W) // for data selection
-
+  
   // forward tilelink D channel
   val forward_D = Input(Bool())
   val forwardData_D = Input(Vec(8, UInt(8.W)))
@@ -211,7 +252,10 @@ class LoadDataFromDcacheBundle(implicit p: Parameters) extends DCacheBundle {
 
   // val dcacheData = UInt(64.W)
   def dcacheData(): UInt = {
-    val dcache_data = Mux1H(bank_oh, bankedDcacheData)
+    // old dcache
+    // val dcache_data = Mux1H(bank_oh, bankedDcacheData)
+    // new dcache
+    val dcache_data = respDcacheData
     val use_D = forward_D
     val use_refillBuffer = forward_refillBuffer
     Mux(use_D, forwardData_D.asUInt, Mux(use_refillBuffer, forwardData_refillBuffer.asUInt, dcache_data))
