@@ -262,6 +262,9 @@ class IntExuBlockImp(out: ExuBlock, fu: IntFUBlock)(implicit p: Parameters) exte
   // the scheduler issues instructions to function units
   scheduler.io.issue <> fuBlock.io.issue ++ extraio.issue.getOrElse(Seq())
   extraio.fuExtra <> fuModule.extraio
+  if (scheduler.io.extra.enqLsq.nonEmpty) {
+    dontTouch(scheduler.io.extra.enqLsq.get)
+  }
 }
 
 class VecExuBlock(

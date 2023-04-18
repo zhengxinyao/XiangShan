@@ -129,6 +129,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   val s0_vec128bit           = WireInit(false.B)
   val s0_uop_unit_stride_fof = WireInit(false.B)
   val s0_rob_idx_valid       = WireInit(VecInit(Seq.fill(2)(false.B)))
+  val s0_inner_idx           = WireInit(VecInit(Seq.fill(2)(0.U(3.W))))
   val s0_rob_idx             = WireInit(VecInit(Seq.fill(2)(0.U(log2Up(RobSize).W))))
   val s0_reg_offset          = WireInit(VecInit(Seq.fill(2)(0.U(4.W))))
   val s0_offset              = WireInit(VecInit(Seq.fill(2)(0.U(4.W))))
@@ -306,6 +307,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
     //s0_dataSize            := io.vec_in.bits.dataSize
     s0_uop_unit_stride_fof := io.vec_in.bits.uop_unit_stride_fof
     s0_rob_idx_valid       := io.vec_in.bits.rob_idx_valid
+    s0_inner_idx           := io.vec_in.bits.inner_idx
     s0_rob_idx             := io.vec_in.bits.rob_idx
     s0_reg_offset          := io.vec_in.bits.reg_offset
     s0_offset              := io.vec_in.bits.offset
@@ -352,6 +354,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   //io.out.bits.dataSize            := s0_dataSize
   io.out.bits.uop_unit_stride_fof := s0_uop_unit_stride_fof
   io.out.bits.rob_idx_valid       := s0_rob_idx_valid
+  io.out.bits.inner_idx           := s0_inner_idx
   io.out.bits.rob_idx             := s0_rob_idx
   io.out.bits.reg_offset          := s0_reg_offset
   io.out.bits.offset              := s0_offset

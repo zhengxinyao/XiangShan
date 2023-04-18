@@ -544,6 +544,8 @@ class IntSchedulerImp(outer: Scheduler)(implicit p: Parameters) extends Schedule
     lsqCtrl.io.lqCancelCnt := io.extra.lqCancelCnt
     lsqCtrl.io.sqCancelCnt := io.extra.sqCancelCnt
     io.extra.enqLsq.get <> lsqCtrl.io.enqLsq
+    dontTouch(dp.io.enqLsq.get)
+    dontTouch(lsqCtrl.io)
   })
 
   /** Read Regfile Cross Domain

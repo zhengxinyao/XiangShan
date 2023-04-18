@@ -9,8 +9,8 @@ import xiangshan._
 
 class vlExcSignalBundle(implicit p: Parameters) extends XSBundle{
   val vecloadRegIn = Vec(2,Decoupled(new VecOperand()))
-  val vecwriteback = Vec(2,Flipped(Decoupled(new ExuOutput)))
-  val vecData = Vec(2,Flipped(Valid(UInt(VLEN.W))))
+  val vecwriteback = Vec(2,Flipped(Decoupled(new ExuOutput(isVpu = true))))
+  //val vecData = Vec(2,Flipped(Valid(UInt(VLEN.W))))
   val vecFeedback = Vec(2,Input(Bool()))
 }
 
@@ -18,10 +18,10 @@ class vlExcSignalBundle(implicit p: Parameters) extends XSBundle{
 class VlExcSignal(implicit p: Parameters) extends XSModule{
   val io = IO(new vlExcSignalBundle)
 
-  dontTouch(io.vecData)
-  val data_0 = io.vecData(0).bits
-  val data_1 = io.vecData(1).bits
-  val loadRegIn = Reg(Vec(2,new VecOperand()))
+  //dontTouch(io.vecData)
+  //val data_0 = io.vecData(0).bits
+  //val data_1 = io.vecData(1).bits
+  val loadRegIn = Wire(Vec(2,new VecOperand()))
   val loadRegIn_valid = Wire(Vec(2,Bool()))
 
   val s_idle::s_1::s_2::s_3::s_4::s_5::s_6::s_7::s_8::s_9::s_10::s_11::s_12::s_13::s_14::s_15::s_16::s_17::s_18::Nil = Enum(19)
@@ -40,7 +40,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   //unit-stride
   // 1   1 =
   val robIdx_0 = 4.U
-  val baseaddr_0 = 0x80000000L.U + 0x0008.U
+  val baseaddr_0 = 0x80000000L.U + 0x8.U
   val lqIdx_0 = 0.U
   val stride_0 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_0 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
@@ -48,10 +48,10 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_0 = "b001".U // 2
   val inner_idx_0 = 0.U
   val vl_0 = (16 * 2).U
-  val total_num_0 = 2.U
+  val total_num_0 = 1.U
   val instr_0 = 0x00000000.U // eew=1
-  val robIdx_1 = 5.U
-  val baseaddr_1 = 0x80000000L.U + 0x1008.U
+  val robIdx_1 = 4.U
+  val baseaddr_1 = 0x80000000L.U + 0x0008.U
   val lqIdx_1 = 1.U
   val stride_1 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_1 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
@@ -59,7 +59,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_1 = "b001".U // 2
   val inner_idx_1 = 1.U
   val vl_1 = (16 * 2).U
-  val total_num_1 = 2.U
+  val total_num_1 = 1.U
   val instr_1 = 0x00000000.U // eew=1
   // 1   1 != (1/4   1/2)
   val robIdx_2 = 8.U
@@ -71,7 +71,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_2 = "b001".U   //2
   val inner_idx_2 = 0.U
   val vl_2 = 4.U
-  val total_num_2 = 1.U
+  val total_num_2 = 0.U
   val instr_2 = 0x00000000.U //eew = 1
   val robIdx_3 = 9.U
   val baseaddr_3 = 0x80000000L.U + 0x1007.U
@@ -81,8 +81,8 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_3 = "b000".U // 1
   val sew_3 = "b010".U  // 4
   val inner_idx_3 = 0.U
-  val vl_3 = 8.U
-  val total_num_3 = 1.U
+  val vl_3 = 4.U
+  val total_num_3 = 0.U
   val instr_3 = 0x00005000.U //eew = 2
   // 1   0
   val robIdx_4 = 16.U
@@ -93,8 +93,8 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_4 = "b111".U // 1/2
   val sew_4 = "b000".U //1
   val inner_idx_4 = 0.U
-  val vl_4 = 16.U
-  val total_num_4 = 1.U
+  val vl_4 = 8.U
+  val total_num_4 = 0.U
   val instr_4 = 0x00005000.U //eew = 2
   val robIdx_5 = 16.U
   val baseaddr_5 = 0x80000000L.U + 0x1005.U
@@ -105,7 +105,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_5 = "b001".U
   val inner_idx_5 = 1.U
   val vl_5 = (16 * 2).U
-  val total_num_5 = 2.U
+  val total_num_5 = 1.U
   val instr_5 = 0x00000000.U
   // 0   1
   val robIdx_6 = 16.U
@@ -117,7 +117,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_6 = "b001".U
   val inner_idx_6 = 1.U
   val vl_6 = (16 * 2).U
-  val total_num_6 = 2.U
+  val total_num_6 = 1.U
   val instr_6 = 0x00000000.U
   val robIdx_7 = 17.U
   val baseaddr_7 = 0x80000000L.U + 0x1080.U
@@ -127,8 +127,8 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_7 = "b001".U // 2
   val sew_7 = "b011".U // 8
   val inner_idx_7 = 0.U
-  val vl_7 = 16.U
-  val total_num_7 = 1.U
+  val vl_7 = 4.U
+  val total_num_7 = 0.U
   val instr_7 = 0x00006000.U  // eew = 4
 
   //stride
@@ -141,10 +141,10 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_8 = "b011".U //8
   val sew_8 = "b011".U //8
   val inner_idx_8 = 0.U
-  val vl_8 = (16 * 2).U
-  val total_num_8 = 2.U
+  val vl_8 = 16.U
+  val total_num_8 = 1.U
   val instr_8 = 0x08005000.U // eew = 2
-  val robIdx_9 = 4.U
+  val robIdx_9 = 3.U
   val baseaddr_9 = 0x80000000L.U + 0x1000.U
   val lqIdx_9 = 9.U
   val stride_9 = 8.U
@@ -152,8 +152,8 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_9 = "b011".U //8
   val sew_9 = "b011".U //8
   val inner_idx_9 = 1.U
-  val vl_9 = (16 * 2).U
-  val total_num_9 = 2.U
+  val vl_9 = 16.U
+  val total_num_9 = 1.U
   val instr_9 = 0x08005000.U // eew = 2
   // 1   1 != (10 and 12 are a group)
   val robIdx_10 = 7.U
@@ -165,7 +165,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_10 = "b010".U //4
   val inner_idx_10 = 0.U
   val vl_10 = (16 * 2).U
-  val total_num_10 = 2.U
+  val total_num_10 = 1.U
   val instr_10 = 0x08000000.U // eew = 1
   val robIdx_11 = 20.U
   val baseaddr_11 = 0x80000000L.U + 0x1020.U
@@ -175,11 +175,11 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_11 = "b000".U //1
   val sew_11 = "b011".U //8
   val inner_idx_11 = 0.U
-  val vl_11 = 8.U
-  val total_num_11 = 1.U
+  val vl_11 = 2.U
+  val total_num_11 = 0.U
   val instr_11 = 0x08006000.U  //eew = 4
   // 1   0
-  val robIdx_12 = 8.U
+  val robIdx_12 = 7.U
   val baseaddr_12 = 0x80000000L.U + 0x1003.U
   val lqIdx_12 = 12.U
   val stride_12 = 10.U
@@ -188,7 +188,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_12 = "b010".U //4
   val inner_idx_12 = 1.U
   val vl_12 = (16 * 2).U
-  val total_num_12 = 2.U
+  val total_num_12 = 1.U
   val instr_12 = 0x08000000.U // eew = 1
   val robIdx_13 = 16.U
   val baseaddr_13 = 0x80000000L.U + 0x1005.U
@@ -199,7 +199,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_13 = "b001".U
   val inner_idx_13 = 1.U
   val vl_13 = (16 * 2).U
-  val total_num_13 = 2.U
+  val total_num_13 = 1.U
   val instr_13 = 0x08000000.U
 
   // index
@@ -213,9 +213,9 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_14 = "b001".U //2
   val inner_idx_14 = 0.U
   val vl_14 = (16 * 2).U
-  val total_num_14 = 2.U
+  val total_num_14 = 1.U
   val instr_14 = 0x0c000000.U //eew = 1
-  val robIdx_15 = 14.U
+  val robIdx_15 = 13.U
   val baseaddr_15 = 0x80000000L.U
   val lqIdx_15 = 15.U
   val stride_15 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -224,7 +224,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_15 = "b001".U //2
   val inner_idx_15 = 1.U
   val vl_15 = (16 * 2).U
-  val total_num_15 = 2.U
+  val total_num_15 = 1.U
   val instr_15 = 0x0c000000.U //eew = 1
   // 1   1 !=      (16 and 18)
   val robIdx_16 = 23.U
@@ -236,7 +236,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_16 = "b001".U  // 2
   val inner_idx_16 = 0.U
   val vl_16 = (16 * 2).U
-  val total_num_16 = 2.U
+  val total_num_16 = 1.U
   val instr_16 = 0x0c000000.U //eew = 1
   val robIdx_17 = 27.U
   val baseaddr_17 = 0x80000000L.U
@@ -246,11 +246,11 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_17 = "b111".U // 1/2
   val sew_17 = "b001".U //2
   val inner_idx_17 = 0.U
-  val vl_17 = (16 * 2).U
-  val total_num_17 = 2.U
+  val vl_17 = 4.U
+  val total_num_17 = 0.U
   val instr_17 = 0x0c005000.U // eew = 2
   // 1   0
-  val robIdx_18 = 24.U
+  val robIdx_18 = 23.U
   val baseaddr_18 = 0x80000000L.U
   val lqIdx_18 = 18.U
   val stride_18 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -259,7 +259,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_18 = "b001".U  // 2
   val inner_idx_18 = 1.U
   val vl_18 = (16 * 2).U
-  val total_num_18 = 2.U
+  val total_num_18 = 1.U
   val instr_18 = 0x0c000000.U //eew = 1
   val robIdx_19 = 16.U
   val baseaddr_19 = 0x80000000L.U
@@ -270,7 +270,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_19 = "b001".U
   val inner_idx_19 = 1.U
   val vl_19 = (16 * 2).U
-  val total_num_19 = 2.U
+  val total_num_19 = 1.U
   val instr_19 = 0x0c000000.U
 
   //segment unit-stride
@@ -284,9 +284,9 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_20 = "b010".U //4
   val inner_idx_20 = 0.U
   val vl_20 = (16 * 4).U
-  val total_num_20 = 4.U
+  val total_num_20 = 3.U
   val instr_20 = 0x20000000.U // nf = 2; eew = 1
-  val robIdx_21 = 8.U
+  val robIdx_21 = 7.U
   val baseaddr_21 = 0x80000000L.U + 0x1011.U
   val lqIdx_21 = 21.U
   val stride_21 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -295,10 +295,10 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_21 = "b010".U //4
   val inner_idx_21 = 1.U
   val vl_21 = (16 * 4).U
-  val total_num_21 = 4.U
+  val total_num_21 = 3.U
   val instr_21 = 0x20000000.U // nf = 2; eew = 1
   // 1  1 =
-  val robIdx_22 = 9.U
+  val robIdx_22 = 7.U
   val baseaddr_22 = 0x80000000L.U + 0x1011.U
   val lqIdx_22 = 22.U
   val stride_22 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -307,9 +307,9 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_22 = "b010".U //4
   val inner_idx_22 = 2.U
   val vl_22 = (16 * 4).U
-  val total_num_22 = 4.U
+  val total_num_22 = 3.U
   val instr_22 = 0x20000000.U // nf = 2; eew = 1
-  val robIdx_23 = 10.U
+  val robIdx_23 = 7.U
   val baseaddr_23 = 0x80000000L.U + 0x1011.U
   val lqIdx_23 = 23.U
   val stride_23 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -318,7 +318,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_23 = "b010".U //4
   val inner_idx_23 = 3.U
   val vl_23 = (16 * 4).U
-  val total_num_23 = 4.U
+  val total_num_23 = 3.U
   val instr_23 = 0x20000000.U // nf = 2; eew = 1
   // 1  1 =
   val robIdx_24 = 16.U
@@ -330,9 +330,9 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_24 = "b010".U //4
   val inner_idx_24 = 0.U
   val vl_24 = (8 * 2).U
-  val total_num_24 = 2.U
+  val total_num_24 = 1.U
   val instr_24 = 0x20000000.U // nf = 2, eew = 1;
-  val robIdx_25 = 17.U
+  val robIdx_25 = 16.U
   val baseaddr_25 = 0x80000000L.U + 0x1005.U
   val lqIdx_25 = 25.U
   val stride_25 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -341,7 +341,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_25 = "b010".U //4
   val inner_idx_25 = 1.U
   val vl_25 = (8 * 2).U
-  val total_num_25 = 2.U
+  val total_num_25 = 1.U
   val instr_25 = 0x20000000.U // nf = 2, eew = 1;
 
   //segment strided
@@ -354,10 +354,10 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_26 = "b000".U //1
   val sew_26 = "b001".U //2
   val inner_idx_26 = 0.U
-  val vl_26 = (16 * 3).U
-  val total_num_26 = 3.U
+  val vl_26 = 24.U
+  val total_num_26 = 2.U
   val instr_26 = 0x48005000.U //nf= 3; eew = 2
-  val robIdx_27 = 30.U
+  val robIdx_27 = 29.U
   val baseaddr_27 = 0x80000000L.U + 0x1000.U
   val lqIdx_27 = 27.U
   val stride_27 = 2.U
@@ -365,11 +365,11 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_27 = "b000".U //1
   val sew_27 = "b001".U //2
   val inner_idx_27 = 1.U
-  val vl_27 = (16 * 3).U
-  val total_num_27 = 3.U
+  val vl_27 = 24.U
+  val total_num_27 = 2.U
   val instr_27 = 0x48005000.U //nf= 3; eew = 2
   // 1  1 !=
-  val robIdx_28 = 31.U
+  val robIdx_28 = 29.U
   val baseaddr_28 = 0x80000000L.U + 0x1000.U
   val lqIdx_28 = 28.U
   val stride_28 = 2.U
@@ -377,8 +377,8 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_28 = "b000".U //1
   val sew_28 = "b001".U //2
   val inner_idx_28 = 2.U
-  val vl_28 = (16 * 3).U
-  val total_num_28 = 3.U
+  val vl_28 = 24.U
+  val total_num_28 = 2.U
   val instr_28 = 0x48005000.U //nf= 3; eew = 2
   //(29-30)
   val robIdx_29 = 16.U
@@ -389,11 +389,11 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_29 = "b111".U // 1/2
   val sew_29 = "b001".U //2
   val inner_idx_29 = 0.U
-  val vl_29 = (16 * 2).U
-  val total_num_29 = 2.U
+  val vl_29 = 8.U
+  val total_num_29 = 1.U
   val instr_29 = 0x28006000.U // nf=2; eew = 4
   // 1  0
-  val robIdx_30 = 17.U
+  val robIdx_30 = 16.U
   val baseaddr_30 = 0x80000000L.U + 0x1009.U
   val lqIdx_30 = 30.U
   val stride_30 = 4.U
@@ -401,8 +401,8 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_30 = "b111".U // 1/2
   val sew_30 = "b001".U //2
   val inner_idx_30 = 1.U
-  val vl_30 = (16 * 2).U
-  val total_num_30 = 2.U
+  val vl_30 = 8.U
+  val total_num_30 = 1.U
   val instr_30 = 0x28006000.U // nf=2; eew = 4
   val robIdx_31 = 16.U
   val baseaddr_31 = 0x80000000L.U + 0x1005.U
@@ -413,7 +413,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_31 = "b001".U
   val inner_idx_31 = 1.U
   val vl_31 = (16 * 2).U
-  val total_num_31 = 2.U
+  val total_num_31 = 1.U
   val instr_31 = 0x00000000.U
 
   //segment index
@@ -427,9 +427,9 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_32 = "b010".U //4
   val inner_idx_32 = 0.U
   val vl_32 = (8 * 4).U
-  val total_num_32 = 4.U
+  val total_num_32 = 3.U
   val instr_32 = 0x6c000000.U // nf = 4; eew = 1
-  val robIdx_33 = 11.U
+  val robIdx_33 = 10.U
   val baseaddr_33 = 0x80000000L.U + 0x1070.U
   val lqIdx_33 = 33.U
   val stride_33 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -438,10 +438,10 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_33 = "b010".U //4
   val inner_idx_33 = 1.U
   val vl_33 = (8 * 4).U
-  val total_num_33 = 4.U
+  val total_num_33 = 3.U
   val instr_33 = 0x6c000000.U // nf = 4; eew = 1
   // 1  1 =
-  val robIdx_34 = 12.U
+  val robIdx_34 = 10.U
   val baseaddr_34 = 0x80000000L.U + 0x1070.U
   val lqIdx_34 = 34.U
   val stride_34 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -450,9 +450,9 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_34 = "b010".U //4
   val inner_idx_34 = 2.U
   val vl_34 = (8 * 4).U
-  val total_num_34 = 4.U
+  val total_num_34 = 3.U
   val instr_34 = 0x6c000000.U // nf = 4; eew = 1
-  val robIdx_35 = 13.U
+  val robIdx_35 = 10.U
   val baseaddr_35 = 0x80000000L.U + 0x1070.U
   val lqIdx_35 = 35.U
   val stride_35 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -461,7 +461,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val sew_35 = "b010".U //4
   val inner_idx_35 = 3.U
   val vl_35 = (8 * 4).U
-  val total_num_35 = 4.U
+  val total_num_35 = 3.U
   val instr_35 = 0x6c000000.U // nf = 4; eew = 1
   // 1  1
   val robIdx_36 = 5.U
@@ -472,10 +472,10 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_36 = "b111".U // 1/2
   val sew_36 = "b010".U //4
   val inner_idx_36 = 0.U
-  val vl_36 = (8 * 2).U
-  val total_num_36 = 2.U
+  val vl_36 = 4.U
+  val total_num_36 = 1.U
   val instr_36 = 0x2c006000.U // nf =2; eew= 4
-  val robIdx_37 = 6.U
+  val robIdx_37 = 5.U
   val baseaddr_37 = 0x80000000L.U + 0x1000.U
   val lqIdx_37 = 37.U
   val stride_37 = LFSR64(seed = Some(3L))(XLEN-1,0)
@@ -483,8 +483,8 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lmul_37 = "b111".U // 1/2
   val sew_37 = "b010".U //4
   val inner_idx_37 = 1.U
-  val vl_37 = (8 * 2).U
-  val total_num_37 = 2.U
+  val vl_37 = 4.U
+  val total_num_37 = 1.U
   val instr_37 = 0x2c006000.U // nf =2; eew= 4
 
 
@@ -707,7 +707,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
       loadRegIn(0).uop.robIdx.value := robIdx_18
       loadRegIn(0).uop.lqIdx.value  := lqIdx_18
       loadRegIn(0).uop.cf.instr     := instr_18
-      state_0 := s_idle
+      state_0 := s_10
     }
     is (s_10) {
       when (counter === 600.U) {

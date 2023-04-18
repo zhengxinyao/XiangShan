@@ -203,6 +203,12 @@ class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
     isPrefetch := input.isPrefetch
     isHWPrefetch := input.isHWPrefetch
     vec128bit := input.vec128bit
+    uop_unit_stride_fof := input.uop_unit_stride_fof
+    rob_idx_valid       := input.rob_idx_valid
+    rob_idx             := input.rob_idx
+    inner_idx           := input.inner_idx
+    reg_offset          := input.reg_offset
+    offset              := input.offset
     isFirstIssue := input.isFirstIssue
     isLoadReplay := input.isLoadReplay
     mshrid := input.mshrid

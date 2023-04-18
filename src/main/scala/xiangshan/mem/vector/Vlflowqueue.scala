@@ -244,23 +244,23 @@ object GenVecAddr {
   def apply (instType: UInt, baseaddr: UInt, emul:UInt, inner_Idx:UInt, flow_inner_idx: UInt, stride: UInt,
              index: UInt, eew: UInt, sew: UInt, nf:UInt, segNfIdx: UInt, segEmulIdx: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000".U -> (baseaddr + flow_inner_idx << 4.U).asUInt,// unit-stride
-      "b010".U -> (baseaddr + stride * (flow_inner_idx + inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))),// strided
+      "b000".U -> (baseaddr + (flow_inner_idx << 4.U)).asUInt,// unit-stride
+      "b010".U -> (baseaddr + stride * (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))))),// strided
       "b001".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew)), // indexed-unordered
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew)), // indexed-unordered
       "b011".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew)), // indexed-ordered
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew)), // indexed-ordered
       "b100".U -> (baseaddr +
-                    (((flow_inner_idx + segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt * nf) << eew(1,0)).asUInt +
+                    (((flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt * nf) << eew(1,0)).asUInt +
                     (segNfIdx << eew(1,0)).asUInt),// segment unit-stride
       "b110".U -> (baseaddr +
-                    (flow_inner_idx + segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt * stride +
+                    (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt * stride +
                     (segNfIdx << eew(1,0)).asUInt), // segment strided
       "b101".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew) +
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew) +
                     (segNfIdx << sew(1,0)).asUInt), // segment indexed-unordered
       "b111".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt, eew = eew) +
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew) +
                     (segNfIdx << sew(1,0)).asUInt)  // segment indexed-ordered
     )))}
 }

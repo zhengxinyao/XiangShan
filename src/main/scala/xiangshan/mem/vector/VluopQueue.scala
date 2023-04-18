@@ -400,7 +400,6 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     io.vecLoadWriteback(i).bits.data             := VluopEntry(deq_index).data.asUInt
     io.vecLoadWriteback(i).bits.uop.pdest        := VluopEntry(deq_index).wb_dest
     when (io.vecLoadWriteback(i).fire) {//TODO:need optimization?
-
       valid(deq_index)                             := false.B
       allocated(deq_index)                         := false.B
       pre_allocated(deq_index)                     := false.B
