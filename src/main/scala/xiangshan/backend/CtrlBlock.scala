@@ -563,12 +563,12 @@ class CtrlBlockImp(outer: CtrlBlock)(implicit p: Parameters) extends LazyModuleI
       lsqCtrl(i).io.enqLsq.canAccept := false.B
       lsqCtrl(i).io.enqLsq.resp := 0.U.asTypeOf(lsqCtrl(i).io.enqLsq.resp)
       arbiter.io.in(i).bits := true.B
-      arbiter.io.in(i).valid := Cat(dp2.in.map(_.valid)).orR
+      arbiter.io.in(i).valid := Cat(dp2.enqLsq.get.req.map(_.valid)).orR
       arbiter.io.out.ready := true.B
     }
   }
 
-  when(arbiter.io.chosen === 0.U) {
+  when(RegNext(arbiter.io.chosen) === 0.U) {
     io.enqLsq <> lsqCtrl(0).io.enqLsq
   } .otherwise {
     io.enqLsq <> lsqCtrl(1).io.enqLsq
