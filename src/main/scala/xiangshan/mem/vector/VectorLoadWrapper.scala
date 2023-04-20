@@ -7,6 +7,16 @@ import utils._
 import utility._
 import xiangshan._
 
+object EewLog2 {
+  def apply (eew: UInt): UInt = {
+    (LookupTree(eew,List(
+      "b000".U -> "b000".U , // 1
+      "b101".U -> "b001".U , // 2
+      "b110".U -> "b010".U , // 4
+      "b111".U -> "b011".U   // 8
+    )))}
+}
+
 class VectorLoadWrapperIOBundle (implicit p: Parameters) extends XSBundle {
   val loadRegIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecOperand())))
   val loadPipleIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecExuOutput())))
@@ -28,12 +38,14 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
   val uop_unit_stride_fof = Wire(Vec(VecLoadPipelineWidth, Bool()))
   val uop_segment_num = Wire(Vec(VecLoadPipelineWidth, Bool()))
 
+
+
   for (i <- 0 until VecLoadPipelineWidth) {
     loadInstDec(i).apply(io.loadRegIn(i).bits.uop.cf.instr)
     eew(i)                 := loadInstDec(i).uop_eew
     sew(i)                 := io.loadRegIn(i).bits.sew
     lmul(i)                := io.loadRegIn(i).bits.lmul
-    emul(i)                := eew(i) + sew(i) + lmul(i)
+    emul(i)                := EewLog2(eew(i)) - sew(i) + lmul(i)
     isSegment(i)           := loadInstDec(i).uop_segment_num =/= "b000".U && !loadInstDec(i).uop_unit_stride_whole_reg
     instType(i)            := Cat(isSegment(i), loadInstDec(i).uop_type)
     uop_unit_stride_fof(i) := loadInstDec(i).uop_unit_stride_fof

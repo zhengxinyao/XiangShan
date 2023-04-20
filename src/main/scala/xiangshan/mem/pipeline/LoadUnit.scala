@@ -393,10 +393,10 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   // accept load flow from rs when:
   // 1) there is no lsq-replayed load
   // 2) there is no high confidence prefetch request
-  io.in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_intloadFirstIssue_select)
+  //io.in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_intloadFirstIssue_select)
 
   // TODO: Fix me!
-  io.vec_in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_vecloadFirstIssue_select && !io.lqReplayFull)
+  io.vec_in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_vecloadFirstIssue_select)
 
   // for hw prefetch load flow feedback, to be added later
   // io.prefetch_in.ready := lfsrc_hwprefetch_select

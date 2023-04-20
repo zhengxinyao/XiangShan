@@ -353,6 +353,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       //printf{p"buffer_valid_s0 = ${data_buffer_s0(i)}"}
     }.otherwise {
       buffer_valid_s0(i)  := false.B
+      rob_idx_valid_s0(i) := VecInit(Seq.fill(2)(false.B))
     }
   }
   // write data from first_level buffer to second_level buffer
@@ -367,6 +368,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       uop_s1(i)           := uop_s0(i)
     }.otherwise {
       buffer_valid_s1(i)  := VecInit(Seq.fill(2)(false.B))
+      rob_idx_valid_s1(i) := VecInit(Seq.fill(2)(false.B))
     }
   }
 

@@ -244,23 +244,23 @@ object GenVecAddr {
   def apply (instType: UInt, baseaddr: UInt, emul:UInt, inner_Idx:UInt, flow_inner_idx: UInt, stride: UInt,
              index: UInt, eew: UInt, sew: UInt, nf:UInt, segNfIdx: UInt, segEmulIdx: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000".U -> (baseaddr + (flow_inner_idx << 4.U)).asUInt,// unit-stride
-      "b010".U -> (baseaddr + stride * (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))))),// strided
+      "b000".U -> (baseaddr + (flow_inner_idx << 4.U).asUInt).asUInt,// unit-stride
+      "b010".U -> (baseaddr + stride * (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt)),// strided
       "b001".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew)), // indexed-unordered
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt).asUInt, eew = eew)), // indexed-unordered
       "b011".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew)), // indexed-ordered
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (inner_Idx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt).asUInt, eew = eew)), // indexed-ordered
       "b100".U -> (baseaddr +
-                    (((flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt * nf) << eew(1,0)).asUInt +
+                    (((flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt).asUInt * nf) << eew(1,0)).asUInt +
                     (segNfIdx << eew(1,0)).asUInt),// segment unit-stride
       "b110".U -> (baseaddr +
-                    (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt * stride +
+                    (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt).asUInt * stride +
                     (segNfIdx << eew(1,0)).asUInt), // segment strided
       "b101".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew) +
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt).asUInt, eew = eew) +
                     (segNfIdx << sew(1,0)).asUInt), // segment indexed-unordered
       "b111".U -> (baseaddr +
-                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew)))).asUInt, eew = eew) +
+                    IndexAddr(index= index, flow_inner_idx = (flow_inner_idx + (segEmulIdx << Log2Num(GenRealFlowNum(instType,emul,eew,sew))).asUInt).asUInt, eew = eew) +
                     (segNfIdx << sew(1,0)).asUInt)  // segment indexed-ordered
     )))}
 }
@@ -283,13 +283,13 @@ object GenRegOffset0 {
   def apply (instType: UInt, flow_inner_idx: UInt, eew: UInt, sew: UInt): UInt = {
     (LookupTree(instType,List(
       "b000".U ->  0.U                           , // unit-stride
-      "b010".U ->  (flow_inner_idx << eew).asUInt, // strided
-      "b001".U ->  (flow_inner_idx << sew).asUInt, // indexed-unordered
-      "b011".U ->  (flow_inner_idx << sew).asUInt, // indexed-ordered
-      "b100".U ->  (flow_inner_idx << eew).asUInt, // segment unit-stride
-      "b110".U ->  (flow_inner_idx << eew).asUInt, // segment strided
-      "b101".U ->  (flow_inner_idx << sew).asUInt, // segment indexed-unordered
-      "b111".U ->  (flow_inner_idx << sew).asUInt  // segment indexed-ordered
+      "b010".U ->  (flow_inner_idx << eew(1,0)).asUInt, // strided
+      "b001".U ->  (flow_inner_idx << sew(1,0)).asUInt, // indexed-unordered
+      "b011".U ->  (flow_inner_idx << sew(1,0)).asUInt, // indexed-ordered
+      "b100".U ->  (flow_inner_idx << eew(1,0)).asUInt, // segment unit-stride
+      "b110".U ->  (flow_inner_idx << eew(1,0)).asUInt, // segment strided
+      "b101".U ->  (flow_inner_idx << sew(1,0)).asUInt, // segment indexed-unordered
+      "b111".U ->  (flow_inner_idx << sew(1,0)).asUInt  // segment indexed-ordered
     )))}
 }
 
@@ -366,7 +366,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
 
   for(i <- 0 until VecLoadPipelineWidth) {
     when (needAlloc(i)) {
-      enqPtr(i).value := enqPtr(i).value + realFlowNum(i)
+      enqPtr(i).value := enqPtr(i).value + realFlowNum(i) + 1.U
     }
   }
 
@@ -376,7 +376,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     io.loadRegIn(i).ready := allowEnqueue(i)
   }
 
-  val sameInst = io.loadRegIn(0).fire && io.loadRegIn(1).fire && instType(0) === "b000".U && instType(1) === "b000".U
+  val sameInst = io.loadRegIn(0).fire && io.loadRegIn(1).fire && instType(0) === "b000".U && instType(1) === "b000".U &&
                   (io.loadRegIn(0).bits.uop.robIdx.value === io.loadRegIn(1).bits.uop.robIdx.value)
 
   for (i <- 0 until VecLoadPipelineWidth) {
@@ -420,10 +420,10 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
 
   for (i <- 0 until VecLoadPipelineWidth) {
     when (instType(i) === "b000".U) { // unit-stride Inst
-      realFlowNum(i)  := vend(i)(7,4) + (vend(i)(3,0) =/= 0.U).asUInt//TODO:************
+      realFlowNum(i)  := vend(i)(7,4) + (vend(i)(3,0) =/= 0.U).asUInt - 1.U//TODO:************
       cross128(i)     := baseAddr(i)(3, 0) =/= 0.U(4.W)
     }.otherwise {
-      realFlowNum(i)  := GenRealFlowNum(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
+      realFlowNum(i)  := GenRealFlowNum(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i)) - 1.U
       cross128(i)     := false.B
     }
   }
@@ -436,13 +436,14 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     when(needAlloc(i)) {
       //startRobIdx(i) := io.loadRegIn(i).bits.uop.robIdx.value - io.loadRegIn(i).bits.inner_idx
       for (j <- 0 until 16) {
-        when(j.U < realFlowNum(i)) {
+        when(j.U <= realFlowNum(i)) {
           val queueIdx = Wire(UInt(5.W))
           val vaddr = Wire(UInt(VAddrBits.W))
+          val uop = Wire(new MicroOp)
           queueIdx := enqPtr(i).value + j.U
           flow_entry(i)(queueIdx) := DontCare
+          uop := DontCare
           flow_entry_valid(i)(queueIdx) := true.B
-          flow_entry(i)(queueIdx).uop := io.loadRegIn(i).bits.uop
           flow_entry(i)(queueIdx).unit_stride_fof := io.uop_unit_stride_fof(i)
           vaddr := GenVecAddr(instType = instType(i), baseaddr = baseAddr(i), emul = emul(i), inner_Idx = io.loadRegIn(i).bits.inner_idx,
                               flow_inner_idx = j.U, stride = stride(i), index = index(i), eew = eew(i), sew = sew(i),
@@ -450,32 +451,33 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
           flow_entry(i)(queueIdx).mask := GenVecMask(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
           flow_entry(i)(queueIdx).vaddr := vaddr
 
-          when(realFlowNum(i) === 1.U && instType(i) === "b000".U) {
+          when(realFlowNum(i) === 0.U && instType(i) === "b000".U) {
+            flow_entry(i)(queueIdx).uop := io.loadRegIn(i).bits.uop
             flow_entry(i)(queueIdx).rob_idx_valid(0) := true.B
-            //flow_entry(i)(queueIdx).rob_idx(0) := GenRobIdx(instType = instType(i), robIdx = io.loadRegIn(i).bits.uop.robIdx.value,
-            //  startRobIdx = startRobIdx(i), flow_inner_idx = j.U)
             flow_entry(i)(queueIdx).rob_idx(0)    := io.loadRegIn(i).bits.uop.robIdx.value
             flow_entry(i)(queueIdx).inner_idx(0)  := Mux(instType(i) === "b000".U,j.U,io.loadRegIn(i).bits.inner_idx)
             flow_entry(i)(queueIdx).offset(0)     := vaddr(3, 0)
             flow_entry(i)(queueIdx).reg_offset(0) := GenRegOffset0(instType = instType(i), flow_inner_idx = j.U, eew = eew(i), sew = sew(i))
           }.otherwise {
-            when(j.U =/= realFlowNum(i) - 1.U) {
+            when(j.U =/= realFlowNum(i)) {
+              uop := io.loadRegIn(i).bits.uop
+              uop.lqIdx := io.loadRegIn(i).bits.uop.lqIdx - io.loadRegIn(i).bits.inner_idx + j.U
+              flow_entry(i)(queueIdx).uop := Mux(instType(i) === "b000".U,uop,io.loadRegIn(i).bits.uop)
               flow_entry(i)(queueIdx).rob_idx_valid(0) := true.B
-              //flow_entry(i)(queueIdx).rob_idx(0) := GenRobIdx(instType = instType(i), robIdx = io.loadRegIn(i).bits.uop.robIdx.value,
-              //  startRobIdx = startRobIdx(i), flow_inner_idx = j.U)
               flow_entry(i)(queueIdx).rob_idx(0) := io.loadRegIn(i).bits.uop.robIdx.value
               flow_entry(i)(queueIdx).inner_idx(0)  := Mux(instType(i) === "b000".U,j.U,io.loadRegIn(i).bits.inner_idx)
               flow_entry(i)(queueIdx).offset(0) := vaddr(3, 0)
               flow_entry(i)(queueIdx).reg_offset(0) := GenRegOffset0(instType = instType(i), flow_inner_idx = j.U, eew = eew(i), sew = sew(i))
-            }.elsewhen(j.U === realFlowNum(i) - 1.U && !cross128(i)) {
+            }.elsewhen(j.U === realFlowNum(i) && !cross128(i)) {
+              uop := io.loadRegIn(i).bits.uop
+              uop.lqIdx := io.loadRegIn(i).bits.uop.lqIdx - io.loadRegIn(i).bits.inner_idx + j.U
+              flow_entry(i)(queueIdx).uop := Mux(instType(i) === "b000".U,uop,io.loadRegIn(i).bits.uop)
               flow_entry(i)(queueIdx).rob_idx_valid(0) := true.B
-              //flow_entry(i)(queueIdx).rob_idx(0) := GenRobIdx(instType = instType(i), robIdx = io.loadRegIn(i).bits.uop.robIdx.value,
-              //  startRobIdx = startRobIdx(i), flow_inner_idx = j.U)
               flow_entry(i)(queueIdx).rob_idx(0) := io.loadRegIn(i).bits.uop.robIdx.value
               flow_entry(i)(queueIdx).inner_idx(0)  := Mux(instType(i) === "b000".U,j.U,io.loadRegIn(i).bits.inner_idx)
               flow_entry(i)(queueIdx).offset(0) := vaddr(3, 0)
               flow_entry(i)(queueIdx).reg_offset(0) := GenRegOffset0(instType = instType(i), flow_inner_idx = j.U, eew = eew(i), sew = sew(i))
-            }.elsewhen(j.U === realFlowNum(i) - 1.U && cross128(i)) {
+            }.elsewhen(j.U === realFlowNum(i) && cross128(i)) {
               flow_entry(i)(queueIdx).rob_idx_valid(0) := false.B
             }
 

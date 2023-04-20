@@ -21,6 +21,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   //dontTouch(io.vecData)
   //val data_0 = io.vecData(0).bits
   //val data_1 = io.vecData(1).bits
+  dontTouch(io.vecwriteback)
   val loadRegIn = Wire(Vec(2,new VecOperand()))
   val loadRegIn_valid = Wire(Vec(2,Bool()))
 
@@ -67,7 +68,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   val lqIdx_2 = 2.U
   val stride_2 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_2 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_2 = "b0111".U  // 1/2
+  val lmul_2 = "b111".U  // 1/2
   val sew_2 = "b001".U   //2
   val inner_idx_2 = 0.U
   val vl_2 = 4.U
