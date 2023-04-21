@@ -396,7 +396,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   //io.in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_intloadFirstIssue_select)
 
   // TODO: Fix me!
-  io.vec_in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_vecloadFirstIssue_select)
+  io.vec_in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_vecloadFirstIssue_select && !io.lqReplayFull)
 
   // for hw prefetch load flow feedback, to be added later
   // io.prefetch_in.ready := lfsrc_hwprefetch_select
