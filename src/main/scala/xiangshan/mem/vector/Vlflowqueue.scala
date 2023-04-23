@@ -302,6 +302,7 @@ class VecLoadPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp{
   val inner_idx           = Vec(2,UInt(3.W))
   val reg_offset          = Vec(2,UInt(4.W))
   val offset              = Vec(2,UInt(4.W))
+  val alignedType         = UInt(2.W)
 }
 
 class VlflowQueueIOBundle(implicit p: Parameters) extends XSBundle {
@@ -325,6 +326,7 @@ class VlflowBundle(implicit p: Parameters) extends XSBundle {
   val inner_idx         = Vec(2,UInt(3.W))
   val reg_offset        = Vec(2,UInt(4.W)) //Which element to write
   val offset            = Vec(2,UInt(4.W))
+  val alignedType       = UInt(2.W)
 }
 
 class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper
@@ -335,7 +337,9 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   dontTouch(io.loadRegIn)
   // TODO: merge these to an FlowQueue Entry?
   val flow_entry       = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(VlFlowSize)(0.U.asTypeOf(new VlflowBundle))))))
+  //val valid            = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(VlFlowSize)(false.B)))))
   val flow_entry_valid = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(VlFlowSize)(false.B)))))
+  //val preValid         = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(VlFlowSize)(false.B)))))
 
   val needAlloc       = Wire(Vec(VecLoadPipelineWidth, Bool()))
   val baseAddr        = Wire(Vec(VecLoadPipelineWidth, UInt(VAddrBits.W)))
@@ -370,7 +374,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     }
   }
 
-  for(i <- 0 until VecLoadPipelineWidth) {
+  for (i <- 0 until VecLoadPipelineWidth) {
     validCount(i) := PopCount(flow_entry_valid(i))
     allowEnqueue(i) := validCount(i) <= 16.U
     io.loadRegIn(i).ready := allowEnqueue(i)
@@ -443,6 +447,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
           queueIdx := enqPtr(i).value + j.U
           flow_entry(i)(queueIdx) := DontCare
           uop := DontCare
+          //valid(i)(queueIdx)            := true.B
           flow_entry_valid(i)(queueIdx) := true.B
           flow_entry(i)(queueIdx).unit_stride_fof := io.uop_unit_stride_fof(i)
           vaddr := GenVecAddr(instType = instType(i), baseaddr = baseAddr(i), emul = emul(i), inner_Idx = io.loadRegIn(i).bits.inner_idx,
@@ -450,6 +455,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
                               nf = io.uop_segment_num(i) + 1.U, segNfIdx = segNfIdx(i), segEmulIdx = segEmulIdx(i))
           flow_entry(i)(queueIdx).mask := GenVecMask(instType = instType(i), emul = emul(i), eew = eew(i), sew = sew(i))
           flow_entry(i)(queueIdx).vaddr := vaddr
+          flow_entry(i)(queueIdx).alignedType := Mux(instType(i)(1,0) === "b00".U || instType(i)(1,0) === "b10".U,eew(i)(1,0),sew(i)(1,0))
 
           when(realFlowNum(i) === 0.U && instType(i) === "b000".U) {
             flow_entry(i)(queueIdx).uop := io.loadRegIn(i).bits.uop
@@ -515,6 +521,7 @@ class VlflowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
       io.loadPipeOut(i).bits.offset              := flow_entry(i)(deqPtr(i).value).offset
       io.loadPipeOut(i).bits.reg_offset          := flow_entry(i)(deqPtr(i).value).reg_offset
       io.loadPipeOut(i).bits.uop.lqIdx           := flow_entry(i)(deqPtr(i).value).uop.lqIdx
+      io.loadPipeOut(i).bits.alignedType         := flow_entry(i)(deqPtr(i).value).alignedType
     }
   }
 

@@ -62,7 +62,6 @@ class LoadToLsqReplayIO(implicit p: Parameters) extends XSBundle with HasDCacheP
   def needReplay()  = cause.asUInt.orR
 }
 
-
 class LoadToLsqIO(implicit p: Parameters) extends XSBundle {
   val loadIn = ValidIO(new LqWriteBundle)
   val loadOut = Flipped(DecoupledIO(new ExuOutput))
@@ -331,13 +330,13 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   }
 
   // address align check
-  val addrAligned = LookupTree(s0_uop.ctrl.fuOpType(1, 0), List(
+  val alignedType = Mux(s0_vec128bit,io.vec_in.bits.alignedType,s0_uop.ctrl.fuOpType(1, 0))
+  val addrAligned = LookupTree(alignedType, List(
     "b00".U   -> true.B,                   //b
     "b01".U   -> (s0_vaddr(0)    === 0.U), //h
     "b10".U   -> (s0_vaddr(1, 0) === 0.U), //w
     "b11".U   -> (s0_vaddr(2, 0) === 0.U)  //d
   ))
-
 
   // accept load flow if dcache ready (dtlb is always ready)
   // TODO: prefetch need writeback to loadQueueFlag

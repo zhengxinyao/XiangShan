@@ -387,7 +387,9 @@ class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPer
 
   //val s3_banked_data_resp_word = io.banked_data_resp.raw_data
   //val s3_banked_data_resp_word = Mux(s3_paddr(3),io.banked_data_resp.raw_data<<64,io.banked_data_resp.raw_data)
-  val data128bit = Cat(io.banked_data_resp(1).raw_data,io.banked_data_resp(0).raw_data) //TODO:when have load128Req
+  //val data128bit = Cat(io.banked_data_resp(1).raw_data,io.banked_data_resp(0).raw_data) //TODO:when have load128Req
+  val data128bit = Mux(s3_paddr(3),Cat(io.banked_data_resp(0).raw_data,io.banked_data_resp(1).raw_data),
+                                   Cat(io.banked_data_resp(1).raw_data,io.banked_data_resp(0).raw_data))
   val data64bit = Mux(s3_paddr(3),io.banked_data_resp(0).raw_data<<64,io.banked_data_resp(0).raw_data)
   val s3_banked_data_resp_word = Mux(s3_load128Req,data128bit,data64bit)
   //val s3_data_error = io.read_error_delayed // banked_data_resp_word.error && !bank_conflict
