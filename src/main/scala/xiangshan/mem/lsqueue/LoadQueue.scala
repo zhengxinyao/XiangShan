@@ -307,10 +307,16 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   val lastCycleRedirect = RegNext(io.brqRedirect)
   val lastlastCycleRedirect = RegNext(lastCycleRedirect)
 
-  // replay logic
-  // replay is splited into 2 stages
+/** 
+  * replay logic: replay is splited into 3 stages
+  * +-----------------------+            +-----------------------+             +-----------------------+
+  * +          s0           +            +          s1           +             +        ldu s0         +
+  * + lq gen mask and select+  -> reg -> + read lq data using idx+  -> reg ->  +   access tlb dcache   +  -> reg ->
+  * +-----------------------+            +-----------------------+             +-----------------------+
+  *                                               (fire1)                               (fire2)
+  */
 
-  // stage1: select 2 entries and read their vaddr
+  // stage0: select 2 entries and read their vaddr
   val s0_block_load_mask = WireInit(VecInit((0 until LoadQueueSize).map(x=>false.B)))
   val s1_block_load_mask = RegNext(s0_block_load_mask)
   val s2_block_load_mask = RegNext(s1_block_load_mask)
@@ -318,6 +324,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   val loadReplaySel = Wire(Vec(LoadPipelineWidth, UInt(log2Up(LoadQueueSize).W))) // index selected last cycle
   val loadReplaySelV = Wire(Vec(LoadPipelineWidth, Bool())) // index selected in last cycle is valid
 
+  // replay select mask
   val loadReplaySelVec = VecInit((0 until LoadQueueSize).map(i => {
     val blocked = s1_block_load_mask(i) || s2_block_load_mask(i) || sel_blocked(i) || block_by_data_forward_fail(i) || block_by_cache_miss(i)
     allocated(i) && (!tlb_hited(i) || !ld_ld_check_ok(i) || !st_ld_check_ok(i) || !cache_bank_no_conflict(i) || !cache_no_replay(i) || !forward_data_valid(i) || !cache_hited(i)) && !blocked
@@ -325,16 +332,23 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 
   val remReplayDeqMask = Seq.tabulate(LoadPipelineWidth)(getRemBits(deqMask)(_))
 
-  // generate lastCycleSelect mask
+  // generate lastCycleSelect mask (fire1)
   val remReplayFireMask = Seq.tabulate(LoadPipelineWidth)(rem => getRemBits(UIntToOH(loadReplaySel(rem)))(rem))
 
-  val loadReplayRemSelVecFire = Seq.tabulate(LoadPipelineWidth)(rem => getRemBits(loadReplaySelVec)(rem) & ~remReplayFireMask(rem))
-  val loadReplayRemSelVecNotFire = Seq.tabulate(LoadPipelineWidth)(getRemBits(loadReplaySelVec)(_))
+  val loadOutRegValidVec = Wire(Vec(LoadPipelineWidth, Bool()))
+  val loadOutRegMaskVec = Wire(Vec(LoadPipelineWidth, UInt(log2Up(LoadQueueSize).W)))
+  val remLoadOutRegMask = Seq.tabulate(LoadPipelineWidth)(rem => getRemBits(UIntToOH(loadOutRegMaskVec(rem)))(rem) & Cat(Seq.tabulate(LoadQueueSize / LoadPipelineWidth)(i => loadOutRegValidVec(rem))))
 
+  val loadReplayRemSelVecFire = Seq.tabulate(LoadPipelineWidth)(rem => getRemBits(loadReplaySelVec)(rem) & ~remReplayFireMask(rem) & ~remLoadOutRegMask(rem))
+  val loadReplayRemSelVecNotFire = Seq.tabulate(LoadPipelineWidth)(rem => getRemBits(loadReplaySelVec)(rem) & ~remLoadOutRegMask(rem))
+
+  // fire to load pipeline (fire2)
   val replayRemFire = Seq.tabulate(LoadPipelineWidth)(rem => WireInit(false.B))
+  // fire to reg (fire1)
+  val replaySelRemFire = Seq.tabulate(LoadPipelineWidth)(rem => WireInit(false.B))
 
   val loadReplayRemSel = Seq.tabulate(LoadPipelineWidth)(rem => Mux(
-    replayRemFire(rem),
+    replaySelRemFire(rem),
     getFirstOne(toVec(loadReplayRemSelVecFire(rem)), remReplayDeqMask(rem)),
     getFirstOne(toVec(loadReplayRemSelVecNotFire(rem)), remReplayDeqMask(rem))
   ))
@@ -345,6 +359,14 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   val hintWakeVec = VecInit((0 until LoadQueueSize).map(i => {
     allocated(i) && block_by_cache_miss(i) && miss_mshr_id(i) === io.l2_hint.bits.sourceId
   })).asUInt() // use uint instead vec to reduce verilog lines
+
+  XSPerfAccumulate("hint_without_wake", io.l2_hint.valid && !hintWakeVec.orR)
+  XSPerfAccumulate("hint_without_wake_no_mshr_match", io.l2_hint.valid && !VecInit((0 until LoadQueueSize).map(i => {
+    allocated(i) && miss_mshr_id(i) === io.l2_hint.bits.sourceId
+  })).asUInt().orR)
+  XSPerfAccumulate("hint_without_wake_not_block_by_cache_miss", io.l2_hint.valid && !VecInit((0 until LoadQueueSize).map(i => {
+    allocated(i) && block_by_cache_miss(i)
+  })).asUInt().orR)
 
   (0 until LoadQueueSize).foreach(index => {
     when(hintWakeVec(index) && io.l2_hint.valid) {
@@ -373,7 +395,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
       if (LoadPipelineWidth > 1) Cat(loadReplayRemSel(index), index.U(log2Ceil(LoadPipelineWidth).W))
       else loadReplayRemSel(index)
     )
-    loadReplaySelVGen(index) := Mux(replayRemFire(index), loadReplayRemSelVecFire(index).asUInt.orR, loadReplayRemSelVecNotFire(index).asUInt.orR)
+    loadReplaySelVGen(index) := Mux(replaySelRemFire(index), loadReplayRemSelVecFire(index).asUInt.orR, loadReplayRemSelVecNotFire(index).asUInt.orR)
   })
 
   (0 until LoadPipelineWidth).foreach(index => {
@@ -401,10 +423,9 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     loadReplaySelV(i) := RegNext(loadSelVGen(i), init = false.B)
   })
   
-  // stage2: replay to load pipeline (if no load in S0)
   (0 until LoadPipelineWidth).map(i => {
     when(replayRemFire(i)) {
-      s0_block_load_mask(loadReplaySel(i)) := true.B
+      s0_block_load_mask(io.loadOut(i).bits.uop.lqIdx.value) := true.B
     }
   })
   
@@ -416,18 +437,60 @@ class LoadQueue(implicit p: Parameters) extends XSModule
   for(i <- 0 until LoadPipelineWidth) {
     val replayIdx = loadReplaySel(i)
     val notRedirectLastCycle = !uop(replayIdx).robIdx.needFlush(RegNext(io.brqRedirect))
+    val notRedirectThisCycle = !uop(replayIdx).robIdx.needFlush(io.brqRedirect)
 
-    io.loadOut(i).valid := loadReplaySelV(i) && notRedirectLastCycle
+    // stage1: read data from reg using idx
+    val loadOutReg = RegInit(0.U.asTypeOf(Valid(new LsPipelineBundle)))
+    val regReady = !loadOutReg.valid || io.loadOut(i).ready
+
+    dontTouch(loadOutReg)
+    dontTouch(notRedirectThisCycle)
+
+    when(io.loadOut(i).fire) {
+      loadOutReg.valid := false.B
+    }
+    when(loadOutReg.valid && loadOutReg.bits.uop.robIdx.needFlush(io.brqRedirect)) {
+      loadOutReg.valid := false.B
+    }
+    when(loadReplaySelV(i) && notRedirectLastCycle && notRedirectThisCycle && regReady) {
+      loadOutReg.valid := true.B
+      loadOutReg.bits.uop := uop(replayIdx)
+      loadOutReg.bits.vaddr := vaddrModule.io.rdata(LoadPipelineWidth + i)
+      loadOutReg.bits.mask := genWmask(vaddrModule.io.rdata(LoadPipelineWidth + i), uop(replayIdx).ctrl.fuOpType(1,0))
+      loadOutReg.bits.replayCarry := replayCarryReg(replayIdx)
+      loadOutReg.bits.mshrid := miss_mshr_id(replayIdx)
+      loadOutReg.bits.forward_tlDchannel := !cache_hited(replayIdx)
+
+      replaySelRemFire(i) := true.B
+    }
+    loadOutRegValidVec(i) := loadOutReg.valid
+    loadOutRegMaskVec(i) := loadOutReg.bits.uop.lqIdx.value
+
+    // cold mechenism: if replay successively for 20 cycle, then block it in next cycle
+    val cold_counter = RegInit(0.U(5.W))
+
+    when(io.loadOut(i).fire) {
+      cold_counter := cold_counter + 1.U
+    }.otherwise {
+      cold_counter := 0.U
+    }
+
+    val block_by_cold_counter = cold_counter === 20.U
+
+    XSPerfAccumulate(s"block_by_cold_counter_${i}", block_by_cold_counter)
+
+    // stage2: replay the load instruction
+    io.loadOut(i).valid := loadOutReg.valid && !loadOutReg.bits.uop.robIdx.needFlush(io.brqRedirect) && !block_by_cold_counter
 
     io.loadOut(i).bits := DontCare
-    io.loadOut(i).bits.uop := uop(replayIdx)
-    io.loadOut(i).bits.vaddr := vaddrModule.io.rdata(LoadPipelineWidth + i)
-    io.loadOut(i).bits.mask := genWmask(vaddrModule.io.rdata(LoadPipelineWidth + i), uop(replayIdx).ctrl.fuOpType(1,0))
+    io.loadOut(i).bits.uop := loadOutReg.bits.uop
+    io.loadOut(i).bits.vaddr := loadOutReg.bits.vaddr
+    io.loadOut(i).bits.mask := loadOutReg.bits.mask
+    io.loadOut(i).bits.replayCarry := loadOutReg.bits.replayCarry
+    io.loadOut(i).bits.mshrid := loadOutReg.bits.mshrid
+    io.loadOut(i).bits.forward_tlDchannel := loadOutReg.bits.forward_tlDchannel
     io.loadOut(i).bits.isFirstIssue := false.B
     io.loadOut(i).bits.isLoadReplay := true.B
-    io.loadOut(i).bits.replayCarry := replayCarryReg(replayIdx)
-    io.loadOut(i).bits.mshrid := miss_mshr_id(replayIdx)
-    io.loadOut(i).bits.forward_tlDchannel := !cache_hited(replayIdx)
 
     when(io.loadOut(i).fire) {
       replayRemFire(i) := true.B
