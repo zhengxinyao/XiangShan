@@ -647,6 +647,7 @@ class DCacheIO(implicit p: Parameters) extends DCacheBundle {
   val csr = new L1CacheToCsrIO
   val error = new L1CacheErrorInfo
   val mshrFull = Output(Bool())
+  val l2_hint = Input(Valid(new L2ToL1Hint()))
 }
 
 
@@ -1010,6 +1011,11 @@ class DCacheImp(outer: DCache) extends LazyModuleImp(outer) with HasDCacheParame
   } .otherwise {
     assert (!bus.d.fire())
   }
+
+  val hint_reg_reg = RegNext(RegNext(RegNext(io.l2_hint)))
+  val (first, _, _, _) = edge.count(bus.d)
+  XSPerfAccumulate("grant_without_hint", bus.d.fire() && bus.d.bits.opcode === TLMessages.GrantData && first && !hint_reg_reg.valid)
+  XSPerfAccumulate("grant_with_wrong_hint", bus.d.fire() && bus.d.bits.opcode === TLMessages.GrantData && first && hint_reg_reg.valid && hint_reg_reg.bits.sourceId =/= bus.d.bits.source)
 
   //----------------------------------------
   // replacement algorithm

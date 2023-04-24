@@ -402,6 +402,9 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
 
     lsq.io.l2_hint.valid := io.l2_hint.valid
     lsq.io.l2_hint.bits.sourceId := io.l2_hint.bits.sourceId
+
+    // just for perfcounter
+    dcache.io.l2_hint := io.l2_hint
     // alter writeback exception info
     io.s3_delayed_load_error(i) := loadUnits(i).io.lsq.s3_delayed_load_error
 
