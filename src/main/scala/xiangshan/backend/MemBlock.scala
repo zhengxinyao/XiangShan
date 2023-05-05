@@ -72,16 +72,17 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     val redirect = Flipped(ValidIO(new Redirect))
     // in
     val issue = Vec(exuParameters.LsExuCnt + exuParameters.StuCnt, Flipped(DecoupledIO(new ExuInput)))
+    val VecloadRegIn = Vec(exuParameters.VlCnt, Flipped(Decoupled(new VecOperand())))
+    val vecStoreIn = Vec(exuParameters.VsCnt, Flipped(DecoupledIO(new ExuInput(isVpu = true))))
     //val vecissue = Vec(exuParameters.VlCnt,Flipped(DecoupledIO(new ExuInput(isVpu = true))))
     val loadFastMatch = Vec(exuParameters.LduCnt, Input(UInt(exuParameters.LduCnt.W)))
     val loadFastImm = Vec(exuParameters.LduCnt, Input(UInt(12.W)))
     val rsfeedback = Vec(exuParameters.StuCnt, new MemRSFeedbackIO)
     val loadPc = Vec(exuParameters.LduCnt, Input(UInt(VAddrBits.W))) // for hw prefetch
     val stIssuePtr = Output(new SqPtr())
-    val VecloadRegIn = Vec(2, Flipped(Decoupled(new VecOperand())))
     // out
     val writeback = Vec(exuParameters.LsExuCnt + exuParameters.StuCnt, DecoupledIO(new ExuOutput))
-    val vecWriteback = Vec(exuParameters.VlCnt,DecoupledIO(new ExuOutput(isVpu = true)))
+    val vecWriteback = Vec(exuParameters.VlCnt,DecoupledIO(new ExuOutput(isVpu = true))) //TODO: write interface
     //val vecData = Vec(2,ValidIO(UInt(VLEN.W)))
     val vecFeedback = Vec(2,Output(Bool()))
     val s3_delayed_load_error = Vec(exuParameters.LduCnt, Output(Bool()))
@@ -175,8 +176,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   correctTable.io.csrCtrl := csrCtrl
   val atomicsUnit = Module(new AtomicsUnit)
   val vectorLoadWrapperModule = Module(new VectorLoadWrapper)
-  //val vlflowqueue = Module(new VlflowQueue)
-  //val vluopqueue = Module(new VluopQueue)
+  val vsflowqueue = Module(new VsFlowQueue)
+  val vsuopqueue = Module(new VsUopQueue)
   val vlExcSignal = Module(new VlExcSignal)
 
   // Atom inst comes from sta / std, then its result
@@ -459,6 +460,14 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     stu.io.redirect     <> redirect
     stu.io.feedbackSlow <> io.rsfeedback(i).feedbackSlow
     stu.io.rsIdx        <> io.rsfeedback(i).rsIdx
+    //vector store
+    vsuopqueue.io.storeIn(i) := DontCare
+    vsflowqueue.io.uopIn(i) := DontCare
+    stu.io.stVecIn := DontCare
+    vsuopqueue.io.storeIn(i) <> io.vecStoreIn(i)
+    vsuopqueue.io.uop2Flow(i) <> vsflowqueue.io.uopIn(i)
+    stu.io.stVecIn <> vsflowqueue.io.storePipeOut(i) //  TODO: std need do
+
     // NOTE: just for dtlb's perf cnt
     stu.io.isFirstIssue <> io.rsfeedback(i).isFirstIssue
     stu.io.stin         <> io.issue(exuParameters.LduCnt + i)

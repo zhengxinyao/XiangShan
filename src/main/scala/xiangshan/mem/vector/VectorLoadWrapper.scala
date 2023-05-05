@@ -7,21 +7,12 @@ import utils._
 import utility._
 import xiangshan._
 
-object EewLog2 {
-  def apply (eew: UInt): UInt = {
-    (LookupTree(eew,List(
-      "b000".U -> "b000".U , // 1
-      "b101".U -> "b001".U , // 2
-      "b110".U -> "b010".U , // 4
-      "b111".U -> "b011".U   // 8
-    )))}
-}
 
 class VectorLoadWrapperIOBundle (implicit p: Parameters) extends XSBundle {
   val loadRegIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecOperand())))
   val loadPipleIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecExuOutput())))
   val loadPipeOut = Vec(VecLoadPipelineWidth,Decoupled(new VecLoadPipelineBundle()))
-  val vecFeedback = Vec(2,Output(Bool()))
+  val vecFeedback = Vec(VecLoadPipelineWidth,Output(Bool()))
   val vecLoadWriteback = Vec(VecLoadPipelineWidth, Decoupled(new ExuOutput(isVpu = true)))
 }
 
@@ -57,19 +48,20 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
 
   for (i <- 0 until VecLoadPipelineWidth) {
     io.loadRegIn(i).ready := vluopQueue.io.loadRegIn(i).ready && vlflowQueue.io.loadRegIn(i).ready
-    vluopQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && vlflowQueue.io.loadRegIn(i).ready
-    vluopQueue.io.loadRegIn(i).bits := io.loadRegIn(i).bits
+    io.vecFeedback(i) := vluopQueue.io.uopVecFeedback(i) && vlflowQueue.io.flowFeedback(i)
 
-    vlflowQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && vluopQueue.io.loadRegIn(i).ready
+    vluopQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && (vlflowQueue.io.loadRegIn(i).ready || vlflowQueue.io.flowFeedback(i))
+    vluopQueue.io.loadRegIn(i).bits := io.loadRegIn(i).bits
+    vlflowQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && (vluopQueue.io.loadRegIn(i).ready || vluopQueue.io.uopVecFeedback(i))
     vlflowQueue.io.loadRegIn(i).bits  := io.loadRegIn(i).bits
   }
+
+
 
   vluopQueue.io.instType  := instType
   vluopQueue.io.emul      := emul
   vluopQueue.io.loadPipeIn <> io.loadPipleIn
   vluopQueue.io.vecLoadWriteback <> io.vecLoadWriteback
-  vluopQueue.io.vecFeedback <> io.vecFeedback
-
   vlflowQueue.io.eew                 := eew
   vlflowQueue.io.sew                 := sew
   vlflowQueue.io.emul                := emul

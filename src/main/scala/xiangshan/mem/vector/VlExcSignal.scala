@@ -39,98 +39,98 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
   counter := counter + 1.U
 
   //unit-stride
-  // 1   1 =
+  // 1   1 =(0145)
   val robIdx_0 = 4.U
   val baseaddr_0 = 0x80000000L.U + 0x8.U
-  val lqIdx_0 = 0.U
+  val lqIdx_0 = 2.U
   val stride_0 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_0 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_0 = "b010".U // 4
+  val lmul_0 = "b011".U // 8
   val sew_0 = "b001".U // 2
-  val inner_idx_0 = 0.U
-  val vl_0 = (16 * 2).U
-  val total_num_0 = 1.U
+  val inner_idx_0 = 2.U
+  val vl_0 = (16 * 4).U
+  val total_num_0 = 3.U
   val instr_0 = 0x00000000.U // eew=1
   val robIdx_1 = 4.U
   val baseaddr_1 = 0x80000000L.U + 0x0008.U
   val lqIdx_1 = 1.U
   val stride_1 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_1 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_1 = "b010".U // 4
+  val lmul_1 = "b011".U // 8
   val sew_1 = "b001".U // 2
   val inner_idx_1 = 1.U
-  val vl_1 = (16 * 2).U
-  val total_num_1 = 1.U
+  val vl_1 = (16 * 4).U
+  val total_num_1 = 3.U
   val instr_1 = 0x00000000.U // eew=1
-  // 1   1 != (1/4   1/2)
-  val robIdx_2 = 8.U
-  val baseaddr_2 = 0x80000000L.U + 0x1000.U
-  val lqIdx_2 = 2.U
+  // 1   1 !=(26)(37)
+  val robIdx_2 = 5.U
+  val baseaddr_2 = 0x80000000L.U + 0x10.U
+  val lqIdx_2 = 5.U
   val stride_2 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_2 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_2 = "b111".U  // 1/2
+  val lmul_2 = "b000".U // 1
   val sew_2 = "b001".U   //2
-  val inner_idx_2 = 0.U
-  val vl_2 = 4.U
-  val total_num_2 = 0.U
-  val instr_2 = 0x00000000.U //eew = 1
-  val robIdx_3 = 9.U
-  val baseaddr_3 = 0x80000000L.U + 0x1007.U
-  val lqIdx_3 = 3.U
+  val inner_idx_2 = 1.U
+  val vl_2 = (4 * 2).U
+  val total_num_2 = 1.U
+  val instr_2 = 0x00006000.U  // eew = 4
+  val robIdx_3 = 6.U
+  val baseaddr_3 = 0x80000000L.U + 0x4.U
+  val lqIdx_3 = 7.U
   val stride_3 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_3 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_3 = "b000".U // 1
-  val sew_3 = "b010".U  // 4
-  val inner_idx_3 = 0.U
-  val vl_3 = 4.U
-  val total_num_3 = 0.U
-  val instr_3 = 0x00005000.U //eew = 2
-  // 1   0
-  val robIdx_4 = 16.U
-  val baseaddr_4 = 0x80000000L.U + 0x1009.U
-  val lqIdx_4 = 4.U
+  val lmul_3 = "b010".U // 4
+  val sew_3 = "b001".U   //2
+  val inner_idx_3 = 1.U
+  val vl_3 = (16 * 2).U
+  val total_num_3 = 1.U
+  val instr_3 = 0x00000000.U //eew = 1
+  // 1   1 (0145)
+  val robIdx_4 = 4.U
+  val baseaddr_4 = 0x80000000L.U + 0x8.U
+  val lqIdx_4 = 0.U
   val stride_4 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_4 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_4 = "b111".U // 1/2
-  val sew_4 = "b000".U //1
+  val lmul_4 = "b011".U // 8
+  val sew_4 = "b001".U // 2
   val inner_idx_4 = 0.U
-  val vl_4 = 8.U
-  val total_num_4 = 0.U
-  val instr_4 = 0x00005000.U //eew = 2
-  val robIdx_5 = 16.U
-  val baseaddr_5 = 0x80000000L.U + 0x1005.U
-  val lqIdx_5 = 5.U
+  val vl_4 = (16 * 4).U
+  val total_num_4 = 3.U
+  val instr_4 =0x00000000.U //eew = 1
+  val robIdx_5 = 4.U
+  val baseaddr_5 =0x80000000L.U + 0x8.U
+  val lqIdx_5 = 3.U
   val stride_5 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_5 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_5 = "b010".U
-  val sew_5 = "b001".U
-  val inner_idx_5 = 1.U
-  val vl_5 = (16 * 2).U
-  val total_num_5 = 1.U
-  val instr_5 = 0x00000000.U
-  // 0   1
-  val robIdx_6 = 16.U
-  val baseaddr_6 = 0x80000000L.U + 0x1005.U
-  val lqIdx_6 = 6.U
+  val lmul_5 = "b011".U // 8
+  val sew_5 = "b001".U // 2
+  val inner_idx_5 = 3.U
+  val vl_5 = (16 * 4).U
+  val total_num_5 = 3.U
+  val instr_5 = 0x00000000.U //eew = 1
+  // 1   1(26)(37)
+  val robIdx_6 = 5.U
+  val baseaddr_6 = 0x80000000L.U + 0x10.U
+  val lqIdx_6 = 4.U
   val stride_6 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_6 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_6 = "b010".U
-  val sew_6 = "b001".U
-  val inner_idx_6 = 1.U
-  val vl_6 = (16 * 2).U
+  val lmul_6 = "b000".U // 1
+  val sew_6 = "b001".U   //2
+  val inner_idx_6 = 0.U
+  val vl_6 = (4 * 2).U
   val total_num_6 = 1.U
-  val instr_6 = 0x00000000.U
-  val robIdx_7 = 17.U
-  val baseaddr_7 = 0x80000000L.U + 0x1080.U
-  val lqIdx_7 = 7.U
+  val instr_6 = 0x00006000.U  // eew = 4
+  val robIdx_7 = 6.U
+  val baseaddr_7 = 0x80000000L.U + 0x4.U
+  val lqIdx_7 = 6.U
   val stride_7 = LFSR64(seed = Some(3L))(XLEN-1,0)
   val index_7 = Cat(LFSR64(seed = Some(999L)),LFSR64(seed = Some(888L)))(VLEN-1,0)
-  val lmul_7 = "b001".U // 2
-  val sew_7 = "b011".U // 8
+  val lmul_7 = "b010".U // 4
+  val sew_7 = "b001".U   //2
   val inner_idx_7 = 0.U
-  val vl_7 = 4.U
-  val total_num_7 = 0.U
-  val instr_7 = 0x00006000.U  // eew = 4
+  val vl_7 = (16 * 2).U
+  val total_num_7 = 1.U
+  val instr_7 = 0x00000000.U //eew = 1
 
   //stride
   // 1   1 =
@@ -560,7 +560,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
       }
     }
     is (s_3) {
-      loadRegIn_valid(0)     := false.B
+      loadRegIn_valid(0)     := true.B
       //loadRegIn(0).vmask     := LFSR64(seed = Some(23L))(63,0)
       loadRegIn(0).baseaddr  := baseaddr_6
       loadRegIn(0).stride    := stride_6
@@ -962,7 +962,7 @@ class VlExcSignal(implicit p: Parameters) extends XSModule{
     }
     is (s_2) {
       when (counter === 200.U) {
-        loadRegIn_valid(1)     := false.B
+        loadRegIn_valid(1)     := true.B
       }.otherwise {
         loadRegIn_valid(1)     := false.B
       }

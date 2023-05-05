@@ -496,6 +496,7 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   memBlock.io.lsqio.rob <> ctrlBlock.io.robio.lsq
   memBlock.io.lsqio.exceptionAddr.isStore := CommitType.lsInstIsStore(ctrlBlock.io.robio.exception.bits.uop.ctrl.commitType)
   memBlock.io.debug_ls <> ctrlBlock.io.robio.debug_ls
+  memBlock.io.vecStoreIn := DontCare
   for(i <- 0 until 2) {
     memBlock.io.VecloadRegIn(i).bits.uop := vecExuBlock.extraio.issue.get(i).bits.uop
     memBlock.io.VecloadRegIn(i).bits.vmask := vecExuBlock.extraio.issue.get(i).bits.src(3)

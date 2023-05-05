@@ -68,7 +68,7 @@ class VluopQueueIOBundle(implicit p: Parameters) extends XSBundle {
   val instType    = Vec(VecLoadPipelineWidth, Input(UInt(3.W)))
   val emul        = Vec(VecLoadPipelineWidth, Input(UInt(3.W)))
   val loadPipeIn  = Vec(VecLoadPipelineWidth, Flipped(DecoupledIO(new VecExuOutput)))
-  val vecFeedback = Vec(2,Output(Bool()))
+  val uopVecFeedback = Vec(VecLoadPipelineWidth,Output(Bool()))
   val vecLoadWriteback = Vec(2,DecoupledIO(new ExuOutput(isVpu = true)))
   //val vecData = Vec(2,DecoupledIO(UInt(VLEN.W)))
 }
@@ -119,7 +119,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
  * Only unit-stride instructions use vecFeedback;
  * PopCount(valid) >= 24.U, Only pre_allocated uop can enqueue*/
   for (i <- 0 until VecLoadPipelineWidth) {
-    io.vecFeedback(i) := already_in(i)
+    io.uopVecFeedback(i) := already_in(i)
     //io.loadRegIn(i).ready := true.B // TODO: should always ready? or count valid_entry?????
     io.loadRegIn(i).ready := PopCount(valid) < 24.U
     io.loadPipeIn(i).ready := true.B
@@ -129,9 +129,9 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     for (entry <- 0 until VlUopSize) {
       already_in_vec(i)(entry) := VluopEntry(entry).rob_idx === io.loadRegIn(i).bits.uop.robIdx.value &&
                                   VluopEntry(entry).inner_idx === io.loadRegIn(i).bits.inner_idx &&
-                                  io.loadRegIn(i).fire && pre_allocated(entry)
+                                  pre_allocated(entry)
       val debug_hit = WireInit(VecInit(Seq.fill(VlUopSize)(false.B))) // for debug
-      when (already_in_vec(i)(entry)) {
+      when (already_in_vec(i)(entry) && io.loadRegIn(i).valid) {
         VluopEntry(entry).apply(uop = io.loadRegIn(i).bits, emul = io.emul(i), is_allo = true.B)
         allocated(entry)     := true.B
         debug_hit(entry)     := true.B

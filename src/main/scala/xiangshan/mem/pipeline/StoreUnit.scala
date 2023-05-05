@@ -24,7 +24,7 @@ import utility._
 import xiangshan.ExceptionNO._
 import xiangshan._
 import xiangshan.backend.fu.PMPRespBundle
-import xiangshan.backend.rob.DebugLsInfoBundle
+import xiangshan.backend.rob.{DebugLsInfoBundle, RobPtr}
 import xiangshan.cache.mmu.{TlbCmd, TlbReq, TlbRequestIO, TlbResp}
 
 // Store Pipeline Stage 0
@@ -32,11 +32,23 @@ import xiangshan.cache.mmu.{TlbCmd, TlbReq, TlbRequestIO, TlbResp}
 class StoreUnit_S0(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new ExuInput))
+    val vecIn = Flipped(Decoupled(new VecPipeBundle()))
     val rsIdx = Input(UInt(log2Up(IssQueSize).W))
     val isFirstIssue = Input(Bool())
     val out = Decoupled(new LsPipelineBundle)
     val dtlbReq = DecoupledIO(new TlbReq)
   })
+
+  //store flow source valid
+  val sfsrc0_intStoreFirstIssue_valid = io.in.valid
+  val sfsrc1_vecload_valid = io.vecIn.valid
+
+  val sfsrc0_intStoreFirstIssue_ready = WireInit(true.B)
+  val sfsrc1_vecload_ready = !sfsrc0_intStoreFirstIssue_valid
+
+  val sfsrc0_intStoreFirstIssue_select = sfsrc0_intStoreFirstIssue_valid && sfsrc0_intStoreFirstIssue_ready
+  val sfsrc1_vecload_select = sfsrc1_vecload_valid && sfsrc1_vecload_ready
+
 
   // send req to dtlb
   // val saddr = io.in.bits.src(0) + SignExt(io.in.bits.uop.ctrl.imm(11,0), VAddrBits)
@@ -46,20 +58,50 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
     Mux(imm12(11), io.in.bits.src(0)(VAddrBits-1, 12), io.in.bits.src(0)(VAddrBits-1, 12)+1.U),
     Mux(imm12(11), io.in.bits.src(0)(VAddrBits-1, 12)+SignExt(1.U, VAddrBits-12), io.in.bits.src(0)(VAddrBits-1, 12)),
   )
-  val saddr = Cat(saddr_hi, saddr_lo(11,0))
+
+  val saddr        = WireInit(0.U(VAddrBits.W))
+  val s0_size      = WireInit(0.U(2.W))
+  val s0_valid     = WireInit(false.B)
+  val s0_sqIdx     = WireInit(0.U.asTypeOf(new SqPtr))
+  val s0_robIdx    = WireInit(0.U.asTypeOf(new RobPtr))
+  val s0_pc        = WireInit(0.U(VAddrBits.W))
+  val s0_uop       = WireInit(0.U.asTypeOf(new MicroOp))
+  val s0_mask      = WireInit(0.U((VLEN/8).W))
+  val isFirstIssue = WireInit(false.B)
+
+  s0_uop := DontCare
+  s0_valid := io.in.valid || io.vecIn.valid
+  assert(!io.vecIn.valid, "vector store valid!")
+  when (sfsrc0_intStoreFirstIssue_select) {
+    s0_size := io.in.bits.uop.ctrl.fuOpType(1,0)
+    saddr := Cat(saddr_hi, saddr_lo(11,0))
+    s0_sqIdx := io.in.bits.uop.sqIdx
+    s0_robIdx := io.in.bits.uop.robIdx
+    s0_pc := io.in.bits.uop.cf.pc
+    s0_uop := io.in.bits.uop
+    s0_mask := genVWmask(io.out.bits.vaddr, io.in.bits.uop.ctrl.fuOpType(1,0))
+  }.elsewhen (sfsrc1_vecload_select) {
+    s0_size := io.vecIn.bits.alignedType
+    saddr := io.vecIn.bits.src(0)
+    s0_sqIdx := io.vecIn.bits.uop.sqIdx
+    s0_robIdx := io.vecIn.bits.uop.robIdx
+    s0_pc := io.vecIn.bits.uop.cf.pc
+    s0_uop := io.vecIn.bits.uop
+    s0_mask := io.vecIn.bits.mask
+  }
 
   io.dtlbReq.bits.vaddr := saddr
-  io.dtlbReq.valid := io.in.valid
+  io.dtlbReq.valid := s0_valid
   io.dtlbReq.bits.cmd := TlbCmd.write
-  io.dtlbReq.bits.size := LSUOpType.size(io.in.bits.uop.ctrl.fuOpType)
+  io.dtlbReq.bits.size := LSUOpType.size(s0_size)//TODO:
   io.dtlbReq.bits.kill := DontCare
   io.dtlbReq.bits.memidx.is_ld := false.B
   io.dtlbReq.bits.memidx.is_st := true.B
-  io.dtlbReq.bits.memidx.idx := io.in.bits.uop.sqIdx.value
-  io.dtlbReq.bits.debug.robIdx := io.in.bits.uop.robIdx
+  io.dtlbReq.bits.memidx.idx := s0_sqIdx.value
+  io.dtlbReq.bits.debug.robIdx := s0_robIdx
   io.dtlbReq.bits.no_translate := false.B
-  io.dtlbReq.bits.debug.pc := io.in.bits.uop.cf.pc
-  io.dtlbReq.bits.debug.isFirstIssue := io.isFirstIssue
+  io.dtlbReq.bits.debug.pc := s0_pc
+  io.dtlbReq.bits.debug.isFirstIssue := io.isFirstIssue//
 
   io.out.bits := DontCare
   io.out.bits.vaddr := saddr
@@ -67,23 +109,26 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
   // Now data use its own io
   // io.out.bits.data := genWdata(io.in.bits.src(1), io.in.bits.uop.ctrl.fuOpType(1,0))
   io.out.bits.data := io.in.bits.src(1) // FIXME: remove data from pipeline
-  io.out.bits.uop := io.in.bits.uop
+  io.out.bits.uop := s0_uop
   io.out.bits.miss := DontCare
-  io.out.bits.rsIdx := io.rsIdx
+  io.out.bits.rsIdx := io.rsIdx//
 
   //val Wmask = genWmask(io.out.bits.vaddr, io.in.bits.uop.ctrl.fuOpType(1,0))
   //io.out.bits.mask := Mux(io.out.bits.vaddr(3),ZeroExt(Wmask,8)<<8,ZeroExt(Wmask,8))
-  io.out.bits.mask := genVWmask(io.out.bits.vaddr, io.in.bits.uop.ctrl.fuOpType(1,0))
-  io.out.bits.isFirstIssue := io.isFirstIssue
+  io.out.bits.mask := s0_mask
+  io.out.bits.isFirstIssue := io.isFirstIssue//
   io.out.bits.wlineflag := io.in.bits.uop.ctrl.fuOpType === LSUOpType.cbo_zero
-  io.out.valid := io.in.valid
-  io.in.ready := io.out.ready
-  when(io.in.valid && io.isFirstIssue) {
-    io.out.bits.uop.debugInfo.tlbFirstReqTime := GTimer()
+  io.out.valid := s0_valid
+
+  io.in.ready := io.out.ready && sfsrc0_intStoreFirstIssue_select
+  io.vecIn.ready := io.out.ready && sfsrc1_vecload_select
+
+  when (io.in.valid && io.isFirstIssue) {
+    io.out.bits.uop.debugInfo.tlbFirstReqTime := GTimer()//
   }
 
   // exception check
-  val addrAligned = LookupTree(io.in.bits.uop.ctrl.fuOpType(1,0), List(
+  val addrAligned = LookupTree(s0_size, List(
     "b00".U   -> true.B,              //b
     "b01".U   -> (io.out.bits.vaddr(0) === 0.U),   //h
     "b10".U   -> (io.out.bits.vaddr(1,0) === 0.U), //w
@@ -231,6 +276,7 @@ class StoreUnit_S3(implicit p: Parameters) extends XSModule {
 class StoreUnit(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val stin = Flipped(Decoupled(new ExuInput))
+    val stVecIn = Flipped(Decoupled(new VecPipeBundle()))
     val redirect = Flipped(ValidIO(new Redirect))
     val feedbackSlow = ValidIO(new RSFeedback)
     val tlb = new TlbRequestIO()
@@ -252,7 +298,10 @@ class StoreUnit(implicit p: Parameters) extends XSModule {
   val store_s2 = Module(new StoreUnit_S2)
   val store_s3 = Module(new StoreUnit_S3)
 
+
   store_s0.io.in <> io.stin
+  store_s0.io.vecIn := DontCare
+  store_s0.io.vecIn <> io.stVecIn
   store_s0.io.dtlbReq <> io.tlb.req
   io.tlb.req_kill := false.B
   store_s0.io.rsIdx := io.rsIdx

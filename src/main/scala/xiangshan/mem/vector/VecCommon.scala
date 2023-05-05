@@ -74,6 +74,237 @@ class VecExuOutput(implicit p: Parameters) extends ExuOutput {
   val reg_offset = Vec(2,UInt(4.W))
 }
 
+class Uop2Flow(implicit p: Parameters) extends ExuInput(isVpu = true){
+  val mask     = UInt(16.W)
+  val eew      = UInt(3.W)
+  val emul     = UInt(3.W)
+  val instType = UInt(3.W)
+  val uop_unit_stride_fof = Bool()
+  val alignedType = UInt(2.W)
+  val uop_segment_num = UInt(3.W)
+}
+
+/**
+  * when emul is greater than or equal to 1, this means the entire register needs to be written;
+  * otherwise, only write the specified number of bytes */
+object EmulDataSize {
+  def apply (emul: UInt): UInt = {
+    (LookupTree(emul,List(
+      "b101".U -> 2.U  , // 1/8
+      "b110".U -> 4.U  , // 1/4
+      "b111".U -> 8.U  , // 1/2
+      "b000".U -> 16.U , // 1
+      "b001".U -> 16.U , // 2
+      "b010".U -> 16.U , // 4
+      "b011".U -> 16.U   // 8
+    )))}
+}
+
+//index inst read data byte
+object SewDataSize {
+  def apply (sew: UInt): UInt = {
+    (LookupTree(sew,List(
+      "b000".U -> 1.U , // 1
+      "b001".U -> 2.U , // 2
+      "b010".U -> 4.U , // 4
+      "b011".U -> 8.U   // 8
+    )))}
+}
+
+// strided inst read data byte
+object EewDataSize {
+  def apply (eew: UInt): UInt = {
+    (LookupTree(eew,List(
+      "b000".U -> 1.U , // 1
+      "b101".U -> 2.U , // 2
+      "b110".U -> 4.U , // 4
+      "b111".U -> 8.U   // 8
+    )))}
+}
+
+object loadDataSize {
+  def apply (instType: UInt, emul: UInt, eew: UInt, sew: UInt): UInt = {
+    (LookupTree(instType,List(
+      "b000".U ->  EmulDataSize(emul), // unit-stride
+      "b010".U ->  EewDataSize(eew)  , // strided
+      "b001".U ->  SewDataSize(sew)  , // indexed-unordered
+      "b011".U ->  SewDataSize(sew)  , // indexed-ordered
+      "b100".U ->  EewDataSize(eew)  , // segment unit-stride
+      "b110".U ->  EewDataSize(eew)  , // segment strided
+      "b101".U ->  SewDataSize(sew)  , // segment indexed-unordered
+      "b111".U ->  SewDataSize(sew)    // segment indexed-ordered
+    )))}
+}
+
+object GenVecLoadMask {
+  def apply (instType: UInt, emul: UInt, eew: UInt, sew: UInt): UInt = {
+    val mask = Wire(UInt(16.W))
+    mask := UIntToOH(loadDataSize(instType = instType, emul = emul, eew = eew, sew = sew)) - 1.U
+    mask
+  }
+}
+
+object storeDataSize {
+  def apply (instType: UInt, eew: UInt, sew: UInt): UInt = {
+    (LookupTree(instType,List(
+      "b000".U ->  EewDataSize(eew)  , // unit-stride, do not use
+      "b010".U ->  EewDataSize(eew)  , // strided
+      "b001".U ->  SewDataSize(sew)  , // indexed-unordered
+      "b011".U ->  SewDataSize(sew)  , // indexed-ordered
+      "b100".U ->  EewDataSize(eew)  , // segment unit-stride
+      "b110".U ->  EewDataSize(eew)  , // segment strided
+      "b101".U ->  SewDataSize(sew)  , // segment indexed-unordered
+      "b111".U ->  SewDataSize(sew)    // segment indexed-ordered
+    )))}
+}
+
+object GenVecStoreMask {
+  def apply (instType: UInt, eew: UInt, sew: UInt): UInt = {
+    val mask = Wire(UInt(16.W))
+    mask := UIntToOH(storeDataSize(instType = instType, eew = eew, sew = sew)) - 1.U
+    mask
+  }
+}
+
+/**
+  * these are used to obtain immediate addresses for  index instruction */
+object EewEq8 {
+  def apply(index:UInt, flow_inner_idx: UInt): UInt = {
+    (LookupTree(flow_inner_idx,List(
+      0.U  -> index(7 ,0   ),
+      1.U  -> index(15,8   ),
+      2.U  -> index(23,16  ),
+      3.U  -> index(31,24  ),
+      4.U  -> index(39,32  ),
+      5.U  -> index(47,40  ),
+      6.U  -> index(55,48  ),
+      7.U  -> index(63,56  ),
+      8.U  -> index(71,64  ),
+      9.U  -> index(79,72  ),
+      10.U -> index(87,80  ),
+      11.U -> index(95,88  ),
+      12.U -> index(103,96 ),
+      13.U -> index(111,104),
+      14.U -> index(119,112),
+      15.U -> index(127,120)
+    )))}
+}
+
+object EewEq16 {
+  def apply(index: UInt, flow_inner_idx: UInt): UInt = {
+    (LookupTree(flow_inner_idx, List(
+      0.U -> index(15, 0),
+      1.U -> index(31, 16),
+      2.U -> index(47, 32),
+      3.U -> index(63, 48),
+      4.U -> index(79, 64),
+      5.U -> index(95, 80),
+      6.U -> index(111, 96),
+      7.U -> index(127, 112)
+    )))}
+}
+
+object EewEq32 {
+  def apply(index: UInt, flow_inner_idx: UInt): UInt = {
+    (LookupTree(flow_inner_idx, List(
+      0.U -> index(31, 0),
+      1.U -> index(63, 32),
+      2.U -> index(95, 64),
+      3.U -> index(127, 96)
+    )))}
+}
+
+object EewEq64 {
+  def apply (index: UInt, flow_inner_idx: UInt): UInt = {
+    (LookupTree(flow_inner_idx, List(
+      0.U -> index(63, 0),
+      1.U -> index(127, 64)
+    )))}
+}
+
+object IndexAddr {
+  def apply (index: UInt, flow_inner_idx: UInt, eew: UInt): UInt = {
+    (LookupTree(eew,List(
+      "b000".U -> EewEq8 (index = index, flow_inner_idx = flow_inner_idx ), // Imm is 1 Byte // TODO: If need to allocate all at once, need to modify this
+      "b101".U -> EewEq16(index = index, flow_inner_idx = flow_inner_idx ), // Imm is 2 Byte
+      "b110".U -> EewEq32(index = index, flow_inner_idx = flow_inner_idx ), // Imm is 4 Byte
+      "b111".U -> EewEq64(index = index, flow_inner_idx = flow_inner_idx )  // Imm is 8 Byte
+    )))}
+}
+
+object Log2Num {
+  def apply (num: UInt): UInt = {
+    (LookupTree(num,List(
+      16.U -> 4.U,
+      8.U  -> 3.U,
+      4.U  -> 2.U,
+      2.U  -> 1.U,
+      1.U  -> 0.U
+    )))}
+}
+
+/**
+  * when emul is less than or equal to 1, the nf is equal to uop_inner_idx;
+  * when emul is equal to 2, the nf is equal to uop_inner_idx(2,1), and so on*/
+object GenSegNfIdx {
+  def apply (emul: UInt, inner_Idx: UInt):UInt = {
+    (LookupTree(emul,List(
+      "b101".U -> inner_Idx     ,
+      "b110".U -> inner_Idx     ,
+      "b111".U -> inner_Idx     ,
+      "b000".U -> inner_Idx     ,
+      "b001".U -> inner_Idx(2,1),
+      "b010".U -> inner_Idx(2)  ,
+      "b011".U -> 0.U
+    )))}
+}
+
+/**
+  * when emul is less than or equal to 1, only one segEmulIdx, so the segEmulIdx is 0.U;
+  * when emul is equal to 2, the segEmulIdx is equal to inner_Idx(0), and so on*/
+object GenSegEmulIdx {
+  def apply (emul: UInt, inner_Idx: UInt): UInt = {
+    (LookupTree(emul,List(
+      "b101".U -> 0.U           ,
+      "b110".U -> 0.U           ,
+      "b111".U -> 0.U           ,
+      "b000".U -> 0.U           ,
+      "b001".U -> inner_Idx(0)  ,
+      "b010".U -> inner_Idx(1,0),
+      "b011".U -> inner_Idx(2,0)
+    )))}
+}
+
+//eew decode
+object EewLog2 {
+  def apply (eew: UInt): UInt = {
+    (LookupTree(eew,List(
+      "b000".U -> "b000".U , // 1
+      "b101".U -> "b001".U , // 2
+      "b110".U -> "b010".U , // 4
+      "b111".U -> "b011".U   // 8
+    )))}
+}
+
+/**
+  * unit-stride instructions don't use this method;
+  * other instructions generate realFlowNum by EmulDataSize >> eew(1,0),
+  * EmulDataSize means the number of bytes that need to be written to the register,
+  * eew(1,0) means the number of bytes written at once*/
+object GenRealFlowNum {
+  def apply (instType: UInt, emul: UInt, eew: UInt, sew: UInt): UInt = {
+    (LookupTree(instType,List(
+      "b000".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // store use, load do not use
+      "b010".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // strided
+      "b001".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt, // indexed-unordered
+      "b011".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt, // indexed-ordered
+      "b100".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // segment unit-stride
+      "b110".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // segment strided
+      "b101".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt, // segment indexed-unordered
+      "b111".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt  // segment indexed-ordered
+    )))}
+}
+
 
 
 

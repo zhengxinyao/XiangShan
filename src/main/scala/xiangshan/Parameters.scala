@@ -144,6 +144,7 @@ case class XSCoreParameters
   VfPhyRegs: Int = 192,
   StoreQueueSize: Int = 64,
   StoreQueueNWriteBanks: Int = 8,
+  UsQueueSize: Int = 8,
   VlFlowSize: Int = 32,
   VlUopSize: Int = 32,
   VsFlowSize: Int = 32,
@@ -170,7 +171,8 @@ case class XSCoreParameters
     FmiscDivSqrtCnt = 0,
     LduCnt = 2,
     StuCnt = 2,
-    VlCnt = 2
+    VlCnt = 2,
+    VsCnt = 2
   ),
   prefetcher: Option[PrefetcherParams] = Some(SMSParams()),
   LoadPipelineWidth: Int = 2,
@@ -431,6 +433,7 @@ trait HasXSParameter {
   val LoadQueueNWriteBanks = coreParams.LoadQueueNWriteBanks
   val StoreQueueSize = coreParams.StoreQueueSize
   val StoreQueueNWriteBanks = coreParams.StoreQueueNWriteBanks
+  val UsQueueSize = coreParams.UsQueueSize
   val VlFlowSize = coreParams.VlFlowSize
   val VlUopSize = coreParams.VlUopSize
   val VsFlowSize = coreParams.VsFlowSize
