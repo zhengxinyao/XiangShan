@@ -56,8 +56,6 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
     vlflowQueue.io.loadRegIn(i).bits  := io.loadRegIn(i).bits
   }
 
-
-
   vluopQueue.io.instType  := instType
   vluopQueue.io.emul      := emul
   vluopQueue.io.loadPipeIn <> io.loadPipleIn
