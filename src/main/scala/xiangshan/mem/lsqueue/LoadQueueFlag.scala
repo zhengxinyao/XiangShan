@@ -432,7 +432,7 @@ class LoadQueueFlag(implicit p: Parameters) extends XSModule
   io.uncache.req.bits.cmd := MemoryOpConstants.M_XRD
   io.uncache.req.bits.data := DontCare
   io.uncache.req.bits.addr := paddrModule.io.rdata(0)
-  io.uncache.req.bits.mask := Mux(maskModule.io.rdata(0)(3),paddrModule.io.rdata(0)(15,8),paddrModule.io.rdata(0)(7,0))
+  io.uncache.req.bits.mask := Mux(paddrModule.io.rdata(0)(3),maskModule.io.rdata(0)(15,8),maskModule.io.rdata(0)(7,0))
   io.uncache.req.bits.id := RegNext(deqPtrExtNext.value)
   io.uncache.req.bits.instrtype := DontCare
   io.uncache.req.bits.replayCarry := DontCare  

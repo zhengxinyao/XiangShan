@@ -101,12 +101,13 @@ class LsPipelineBundle(implicit p: Parameters) extends XSBundleWithMicroOp with 
 
   // Vector instruction
   val vec128bit = Bool()
-  //val dataSize            = UInt(4.W)   //the memory access width of flow entry
   val uop_unit_stride_fof = Bool()
   val rob_idx_valid       = Vec(2,Bool())
-  val rob_idx             = Vec(2,UInt(log2Up(RobSize).W))
+  val inner_idx           = Vec(2,UInt(3.W))
+  val rob_idx             = Vec(2,new RobPtr)
   val reg_offset          = Vec(2,UInt(4.W))
   val offset              = Vec(2,UInt(4.W))
+  val fqIdx               = UInt(log2Ceil(VsFlowSize).W)
 
   // For debug usage
   val isFirstIssue = Bool()
@@ -154,8 +155,10 @@ class LdPrefetchTrainBundle(implicit p: Parameters) extends LsPipelineBundle {
     uop_unit_stride_fof := input.uop_unit_stride_fof
     rob_idx_valid       := input.rob_idx_valid
     rob_idx             := input.rob_idx
+    inner_idx           := input.inner_idx
     reg_offset          := input.reg_offset
     offset              := input.offset
+    fqIdx               := input.fqIdx
     //Vecvlflowidx := input.Vecvlflowidx
     isFirstIssue := input.isFirstIssue
     dcacheRequireReplay := input.dcacheRequireReplay
@@ -201,6 +204,13 @@ class LqWriteBundle(implicit p: Parameters) extends LsPipelineBundle {
     isPrefetch := input.isPrefetch
     isHWPrefetch := input.isHWPrefetch
     vec128bit := input.vec128bit
+    uop_unit_stride_fof := input.uop_unit_stride_fof
+    rob_idx_valid       := input.rob_idx_valid
+    rob_idx             := input.rob_idx
+    inner_idx           := input.inner_idx
+    reg_offset          := input.reg_offset
+    offset              := input.offset
+    fqIdx               := input.fqIdx
     isFirstIssue := input.isFirstIssue
     isLoadReplay := input.isLoadReplay
     mshrid := input.mshrid
@@ -277,7 +287,7 @@ class LoadViolationQueryReq(implicit p: Parameters) extends XSBundleWithMicroOp 
   val allocated = Bool()
   val datavalid = Bool()
   val miss = Bool()
-  val mask = UInt(8.W)
+  val mask = UInt((VLEN/8).W)
   val paddr = UInt(PAddrBits.W)
   //val rlineflag = Bool()
 }

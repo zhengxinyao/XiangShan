@@ -62,7 +62,6 @@ class LoadToLsqReplayIO(implicit p: Parameters) extends XSBundle with HasDCacheP
   def needReplay()  = cause.asUInt.orR
 }
 
-
 class LoadToLsqIO(implicit p: Parameters) extends XSBundle {
   val loadIn = ValidIO(new LqWriteBundle)
   val loadOut = Flipped(DecoupledIO(new ExuOutput))
@@ -129,7 +128,8 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   val s0_vec128bit           = WireInit(false.B)
   val s0_uop_unit_stride_fof = WireInit(false.B)
   val s0_rob_idx_valid       = WireInit(VecInit(Seq.fill(2)(false.B)))
-  val s0_rob_idx             = WireInit(VecInit(Seq.fill(2)(0.U(log2Up(RobSize).W))))
+  val s0_inner_idx           = WireInit(VecInit(Seq.fill(2)(0.U(3.W))))
+  val s0_rob_idx             = WireInit(VecInit(Seq.fill(2)(0.U.asTypeOf(new RobPtr))))
   val s0_reg_offset          = WireInit(VecInit(Seq.fill(2)(0.U(4.W))))
   val s0_offset              = WireInit(VecInit(Seq.fill(2)(0.U(4.W))))
 
@@ -306,6 +306,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
     //s0_dataSize            := io.vec_in.bits.dataSize
     s0_uop_unit_stride_fof := io.vec_in.bits.uop_unit_stride_fof
     s0_rob_idx_valid       := io.vec_in.bits.rob_idx_valid
+    s0_inner_idx           := io.vec_in.bits.inner_idx
     s0_rob_idx             := io.vec_in.bits.rob_idx
     s0_reg_offset          := io.vec_in.bits.reg_offset
     s0_offset              := io.vec_in.bits.offset
@@ -329,13 +330,13 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   }
 
   // address align check
-  val addrAligned = LookupTree(s0_uop.ctrl.fuOpType(1, 0), List(
+  val alignedType = Mux(s0_vec128bit,io.vec_in.bits.alignedType,s0_uop.ctrl.fuOpType(1, 0))
+  val addrAligned = LookupTree(alignedType, List(
     "b00".U   -> true.B,                   //b
     "b01".U   -> (s0_vaddr(0)    === 0.U), //h
     "b10".U   -> (s0_vaddr(1, 0) === 0.U), //w
     "b11".U   -> (s0_vaddr(2, 0) === 0.U)  //d
   ))
-
 
   // accept load flow if dcache ready (dtlb is always ready)
   // TODO: prefetch need writeback to loadQueueFlag
@@ -352,6 +353,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   //io.out.bits.dataSize            := s0_dataSize
   io.out.bits.uop_unit_stride_fof := s0_uop_unit_stride_fof
   io.out.bits.rob_idx_valid       := s0_rob_idx_valid
+  io.out.bits.inner_idx           := s0_inner_idx
   io.out.bits.rob_idx             := s0_rob_idx
   io.out.bits.reg_offset          := s0_reg_offset
   io.out.bits.offset              := s0_offset
@@ -390,7 +392,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   // accept load flow from rs when:
   // 1) there is no lsq-replayed load
   // 2) there is no high confidence prefetch request
-  io.in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_intloadFirstIssue_select)
+  //io.in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_intloadFirstIssue_select)
 
   // TODO: Fix me!
   io.vec_in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_vecloadFirstIssue_select && !io.lqReplayFull)
@@ -885,6 +887,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
     val forward_mshr = Flipped(new LduToMissqueueForwardIO)
     val refill = Flipped(ValidIO(new Refill))
     val fastUop = ValidIO(new MicroOp) // early wakeup signal generated in load_s1, send to RS in load_s2
+    val vecFastUop = ValidIO(new MicroOp) // now, don't use
     val trigger = Vec(3, new LoadUnitTriggerIO)
 
     val tlb = new TlbRequestIO(2)
@@ -1100,6 +1103,9 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   io.fastUop.valid := false.B
   io.fastUop.bits := RegNext(load_s1.io.out.bits.uop)
 
+  io.vecFastUop.valid := false.B
+  io.vecFastUop.bits := RegNext(load_s1.io.out.bits.uop)
+
   XSDebug(load_s0.io.out.valid,
     p"S0: pc ${Hexadecimal(load_s0.io.out.bits.uop.cf.pc)}, lId ${Hexadecimal(load_s0.io.out.bits.uop.lqIdx.asUInt)}, " +
     p"vaddr ${Hexadecimal(load_s0.io.out.bits.vaddr)}, mask ${Hexadecimal(load_s0.io.out.bits.mask)}\n")
@@ -1221,6 +1227,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   hitLoadOut.bits.debug.paddr := s3_loadOutBits.paddr
   hitLoadOut.bits.debug.vaddr := s3_loadOutBits.vaddr
   hitLoadOut.bits.fflags := DontCare
+  hitLoadOut.bits.vxsat := DontCare
 
   when (s3_forceReplay) {
     hitLoadOut.bits.uop.cf.exceptionVec := 0.U.asTypeOf(s3_loadOutBits.uop.cf.exceptionVec.cloneType)
@@ -1293,6 +1300,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   io.VecloadOut.bits.vecdata        := s3_rdataDcache
   io.VecloadOut.bits.mask           := s3_loadOutBits.mask
   io.VecloadOut.bits.rob_idx_valid  := s3_loadOutBits.rob_idx_valid
+  io.VecloadOut.bits.inner_idx      := s3_loadOutBits.inner_idx
   io.VecloadOut.bits.rob_idx        := s3_loadOutBits.rob_idx
   io.VecloadOut.bits.offset         := s3_loadOutBits.offset
   io.VecloadOut.bits.reg_offset     := s3_loadOutBits.reg_offset
