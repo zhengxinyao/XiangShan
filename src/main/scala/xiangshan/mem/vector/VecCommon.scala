@@ -22,6 +22,7 @@ import chisel3.util._
 import utils._
 import utility._
 import xiangshan._
+import xiangshan.backend.rob.RobPtr
 
 class VecOperand(implicit p: Parameters) extends XSBundleWithMicroOp {
   val vmask = UInt(VLEN.W) // the mask of inst which is readed from reg
@@ -69,7 +70,7 @@ class VecExuOutput(implicit p: Parameters) extends ExuOutput {
   val mask = UInt((VLEN/8).W)
   val rob_idx_valid = Vec(2,Bool())
   val inner_idx = Vec(2,UInt(3.W))
-  val rob_idx = Vec(2,UInt(log2Up(RobSize).W))
+  val rob_idx = Vec(2,new RobPtr)
   val offset = Vec(2,UInt(4.W))
   val reg_offset = Vec(2,UInt(4.W))
 }
@@ -87,9 +88,9 @@ class Uop2Flow(implicit p: Parameters) extends ExuInput(isVpu = true){
 /**
   * when emul is greater than or equal to 1, this means the entire register needs to be written;
   * otherwise, only write the specified number of bytes */
-object EmulDataSize {
-  def apply (emul: UInt): UInt = {
-    (LookupTree(emul,List(
+object MulDataSize {
+  def apply (mul: UInt): UInt = { //mul means emul or lmul
+    (LookupTree(mul,List(
       "b101".U -> 2.U  , // 1/8
       "b110".U -> 4.U  , // 1/4
       "b111".U -> 8.U  , // 1/2
@@ -125,7 +126,7 @@ object EewDataSize {
 object loadDataSize {
   def apply (instType: UInt, emul: UInt, eew: UInt, sew: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000".U ->  EmulDataSize(emul), // unit-stride
+      "b000".U ->  MulDataSize(emul), // unit-stride
       "b010".U ->  EewDataSize(eew)  , // strided
       "b001".U ->  SewDataSize(sew)  , // indexed-unordered
       "b011".U ->  SewDataSize(sew)  , // indexed-ordered
@@ -225,7 +226,7 @@ object EewEq64 {
 object IndexAddr {
   def apply (index: UInt, flow_inner_idx: UInt, eew: UInt): UInt = {
     (LookupTree(eew,List(
-      "b000".U -> EewEq8 (index = index, flow_inner_idx = flow_inner_idx ), // Imm is 1 Byte // TODO: If need to allocate all at once, need to modify this
+      "b000".U -> EewEq8 (index = index, flow_inner_idx = flow_inner_idx ), // Imm is 1 Byte // TODO: index maybe cross register
       "b101".U -> EewEq16(index = index, flow_inner_idx = flow_inner_idx ), // Imm is 2 Byte
       "b110".U -> EewEq32(index = index, flow_inner_idx = flow_inner_idx ), // Imm is 4 Byte
       "b111".U -> EewEq64(index = index, flow_inner_idx = flow_inner_idx )  // Imm is 8 Byte
@@ -247,8 +248,8 @@ object Log2Num {
   * when emul is less than or equal to 1, the nf is equal to uop_inner_idx;
   * when emul is equal to 2, the nf is equal to uop_inner_idx(2,1), and so on*/
 object GenSegNfIdx {
-  def apply (emul: UInt, inner_Idx: UInt):UInt = {
-    (LookupTree(emul,List(
+  def apply (mul: UInt, inner_Idx: UInt):UInt = { // mul means lmul or emul
+    (LookupTree(mul,List(
       "b101".U -> inner_Idx     ,
       "b110".U -> inner_Idx     ,
       "b111".U -> inner_Idx     ,
@@ -262,9 +263,9 @@ object GenSegNfIdx {
 /**
   * when emul is less than or equal to 1, only one segEmulIdx, so the segEmulIdx is 0.U;
   * when emul is equal to 2, the segEmulIdx is equal to inner_Idx(0), and so on*/
-object GenSegEmulIdx {
-  def apply (emul: UInt, inner_Idx: UInt): UInt = {
-    (LookupTree(emul,List(
+object GenSegMulIdx {
+  def apply (mul: UInt, inner_Idx: UInt): UInt = { //mul means emul or lmul
+    (LookupTree(mul,List(
       "b101".U -> 0.U           ,
       "b110".U -> 0.U           ,
       "b111".U -> 0.U           ,
@@ -292,51 +293,15 @@ object EewLog2 {
   * EmulDataSize means the number of bytes that need to be written to the register,
   * eew(1,0) means the number of bytes written at once*/
 object GenRealFlowNum {
-  def apply (instType: UInt, emul: UInt, eew: UInt, sew: UInt): UInt = {
+  def apply (instType: UInt, emul: UInt, lmul: UInt, eew: UInt, sew: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // store use, load do not use
-      "b010".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // strided
-      "b001".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt, // indexed-unordered
-      "b011".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt, // indexed-ordered
-      "b100".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // segment unit-stride
-      "b110".U ->  (EmulDataSize(emul) >> eew(1,0)).asUInt, // segment strided
-      "b101".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt, // segment indexed-unordered
-      "b111".U ->  (EmulDataSize(emul) >> sew(1,0)).asUInt  // segment indexed-ordered
+      "b000".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // store use, load do not use
+      "b010".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // strided
+      "b001".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt, // indexed-unordered
+      "b011".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt, // indexed-ordered
+      "b100".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // segment unit-stride
+      "b110".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // segment strided
+      "b101".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt, // segment indexed-unordered
+      "b111".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt  // segment indexed-ordered
     )))}
-}
-
-
-
-
-object VecGenMask {
-  def apply(rob_idx_valid: Vec[Bool], reg_offset: Vec[UInt], offset: Vec[UInt], mask: Vec[UInt]):Vec[UInt] = {
-    val vMask = VecInit(Seq.fill(2)(0.U(16.W)))
-    for (i <- 0 until 2){
-      when (rob_idx_valid(i)) {
-        when (offset(i) <= reg_offset(i)) {
-          vMask(i) := mask(i) << (reg_offset(i) - offset(i))
-        }.otherwise {
-          vMask(i) := mask(i) >> (offset(i) - reg_offset(i))
-        }
-      }
-    }
-    vMask
-  }
-}
-
-
-object VecGenData {
-  def apply (rob_idx_valid: Vec[Bool], reg_offset: Vec[UInt], offset: Vec[UInt], data:UInt):Vec[UInt] = {
-    val vData = VecInit(Seq.fill(2)(0.U(128.W)))
-    for (i <- 0 until 2){
-      when (rob_idx_valid(i)) {
-        when (offset(i) <= reg_offset(i)) {
-          vData(i) := data << ((reg_offset(i) - offset(i)) << 3.U)
-        }.otherwise {
-          vData(i) := data >> ((offset(i) - reg_offset(i)) << 3.U)
-        }
-      }
-    }
-    vData
-  }
 }

@@ -129,7 +129,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   val s0_uop_unit_stride_fof = WireInit(false.B)
   val s0_rob_idx_valid       = WireInit(VecInit(Seq.fill(2)(false.B)))
   val s0_inner_idx           = WireInit(VecInit(Seq.fill(2)(0.U(3.W))))
-  val s0_rob_idx             = WireInit(VecInit(Seq.fill(2)(0.U(log2Up(RobSize).W))))
+  val s0_rob_idx             = WireInit(VecInit(Seq.fill(2)(0.U.asTypeOf(new RobPtr))))
   val s0_reg_offset          = WireInit(VecInit(Seq.fill(2)(0.U(4.W))))
   val s0_offset              = WireInit(VecInit(Seq.fill(2)(0.U(4.W))))
 

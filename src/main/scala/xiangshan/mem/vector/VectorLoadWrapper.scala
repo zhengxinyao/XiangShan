@@ -9,10 +9,11 @@ import xiangshan._
 
 
 class VectorLoadWrapperIOBundle (implicit p: Parameters) extends XSBundle {
-  val loadRegIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecOperand())))
+  val loadRegIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new ExuInput(isVpu = true))))
   val loadPipleIn = Vec(VecLoadPipelineWidth,Flipped(Decoupled(new VecExuOutput())))
+  val Redirect    = Flipped(ValidIO(new Redirect))
   val loadPipeOut = Vec(VecLoadPipelineWidth,Decoupled(new VecLoadPipelineBundle()))
-  val vecFeedback = Vec(VecLoadPipelineWidth,Output(Bool()))
+  val vecFeedback = Vec(VecLoadPipelineWidth,ValidIO(Bool()))
   val vecLoadWriteback = Vec(VecLoadPipelineWidth, Decoupled(new ExuOutput(isVpu = true)))
 }
 
@@ -34,8 +35,8 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
   for (i <- 0 until VecLoadPipelineWidth) {
     loadInstDec(i).apply(io.loadRegIn(i).bits.uop.cf.instr)
     eew(i)                 := loadInstDec(i).uop_eew
-    sew(i)                 := io.loadRegIn(i).bits.sew
-    lmul(i)                := io.loadRegIn(i).bits.lmul
+    sew(i)                 := io.loadRegIn(i).bits.uop.ctrl.vconfig.vtype.vsew
+    lmul(i)                := io.loadRegIn(i).bits.uop.ctrl.vconfig.vtype.vlmul
     emul(i)                := EewLog2(eew(i)) - sew(i) + lmul(i)
     isSegment(i)           := loadInstDec(i).uop_segment_num =/= "b000".U && !loadInstDec(i).uop_unit_stride_whole_reg
     instType(i)            := Cat(isSegment(i), loadInstDec(i).uop_type)
@@ -46,13 +47,16 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
   val vlflowQueue = Module(new VlflowQueue())
   val vluopQueue = Module(new VluopQueue())
 
+  vluopQueue.io.Redirect <> io.Redirect
+  vlflowQueue.io.Redirect <> io.Redirect
   for (i <- 0 until VecLoadPipelineWidth) {
     io.loadRegIn(i).ready := vluopQueue.io.loadRegIn(i).ready && vlflowQueue.io.loadRegIn(i).ready
-    io.vecFeedback(i) := vluopQueue.io.uopVecFeedback(i) && vlflowQueue.io.flowFeedback(i)
+    io.vecFeedback(i).valid := vluopQueue.io.uopVecFeedback(i).valid && vlflowQueue.io.flowFeedback(i).valid
+    io.vecFeedback(i).bits := vluopQueue.io.uopVecFeedback(i).bits && vlflowQueue.io.flowFeedback(i).bits
 
-    vluopQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && (vlflowQueue.io.loadRegIn(i).ready || vlflowQueue.io.flowFeedback(i))
-    vluopQueue.io.loadRegIn(i).bits := io.loadRegIn(i).bits
-    vlflowQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && (vluopQueue.io.loadRegIn(i).ready || vluopQueue.io.uopVecFeedback(i))
+    vluopQueue.io.loadRegIn(i).valid  := io.loadRegIn(i).valid && (vlflowQueue.io.loadRegIn(i).ready || vlflowQueue.io.flowFeedback(i).bits)
+    vluopQueue.io.loadRegIn(i).bits   := io.loadRegIn(i).bits
+    vlflowQueue.io.loadRegIn(i).valid := io.loadRegIn(i).valid && (vluopQueue.io.loadRegIn(i).ready || vluopQueue.io.uopVecFeedback(i).bits)
     vlflowQueue.io.loadRegIn(i).bits  := io.loadRegIn(i).bits
   }
 

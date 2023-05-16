@@ -497,24 +497,25 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
   memBlock.io.lsqio.exceptionAddr.isStore := CommitType.lsInstIsStore(ctrlBlock.io.robio.exception.bits.uop.ctrl.commitType)
   memBlock.io.debug_ls <> ctrlBlock.io.robio.debug_ls
   memBlock.io.vecStoreIn := DontCare
-  for(i <- 0 until 2) {
-    memBlock.io.VecloadRegIn(i).bits.uop := vecExuBlock.extraio.issue.get(i).bits.uop
-    memBlock.io.VecloadRegIn(i).bits.vmask := vecExuBlock.extraio.issue.get(i).bits.src(3)
-    memBlock.io.VecloadRegIn(i).bits.baseaddr := vecExuBlock.extraio.issue.get(i).bits.src(0)
-    memBlock.io.VecloadRegIn(i).bits.stride := vecExuBlock.extraio.issue.get(i).bits.src(1)
-    memBlock.io.VecloadRegIn(i).bits.index := vecExuBlock.extraio.issue.get(i).bits.src(1)
-    memBlock.io.VecloadRegIn(i).bits.pvd := vecExuBlock.extraio.issue.get(i).bits.uop.pdest
-    memBlock.io.VecloadRegIn(i).bits.lmul := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vlmul
-    memBlock.io.VecloadRegIn(i).bits.sew := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vsew
-    memBlock.io.VecloadRegIn(i).bits.vma := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vma
-    memBlock.io.VecloadRegIn(i).bits.vta := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vta
-    memBlock.io.VecloadRegIn(i).bits.inner_idx := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.uopIdx
-    memBlock.io.VecloadRegIn(i).bits.vl := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vl
-    memBlock.io.VecloadRegIn(i).bits.total_num := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.total_num
-    memBlock.io.VecloadRegIn(i).valid := vecExuBlock.extraio.issue.get(i).valid
-    vecExuBlock.extraio.issue.get(i).ready := memBlock.io.VecloadRegIn(i).ready
-    //memBlock.io.vecFeedback
-  }
+  memBlock.io.VecloadRegIn <> vecExuBlock.extraio.issue.get
+  //for(i <- 0 until 2) {
+  //  memBlock.io.VecloadRegIn(i).bits.uop := vecExuBlock.extraio.issue.get(i).bits.uop
+  //  memBlock.io.VecloadRegIn(i).bits.vmask := vecExuBlock.extraio.issue.get(i).bits.src(3)
+  //  memBlock.io.VecloadRegIn(i).bits.baseaddr := vecExuBlock.extraio.issue.get(i).bits.src(0)
+  //  memBlock.io.VecloadRegIn(i).bits.stride := vecExuBlock.extraio.issue.get(i).bits.src(1)
+  //  memBlock.io.VecloadRegIn(i).bits.index := vecExuBlock.extraio.issue.get(i).bits.src(1)
+  //  memBlock.io.VecloadRegIn(i).bits.pvd := vecExuBlock.extraio.issue.get(i).bits.uop.pdest
+  //  memBlock.io.VecloadRegIn(i).bits.lmul := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vlmul
+  //  memBlock.io.VecloadRegIn(i).bits.sew := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vsew
+  //  memBlock.io.VecloadRegIn(i).bits.vma := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vma
+  //  memBlock.io.VecloadRegIn(i).bits.vta := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vtype.vta
+  //  memBlock.io.VecloadRegIn(i).bits.inner_idx := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.uopIdx
+  //  memBlock.io.VecloadRegIn(i).bits.vl := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.vconfig.vl
+  //  memBlock.io.VecloadRegIn(i).bits.total_num := vecExuBlock.extraio.issue.get(i).bits.uop.ctrl.total_num
+  //  memBlock.io.VecloadRegIn(i).valid := vecExuBlock.extraio.issue.get(i).valid
+  //  vecExuBlock.extraio.issue.get(i).ready := memBlock.io.VecloadRegIn(i).ready
+  //  //memBlock.io.vecFeedback
+  //}
   //memBlock.io.VecloadRegIn <> vecExuBlock.extraio.issue.get
   //memBlock.io.vecFeedback <> vecExuBlock.io.scheExtra.feedback.get
 

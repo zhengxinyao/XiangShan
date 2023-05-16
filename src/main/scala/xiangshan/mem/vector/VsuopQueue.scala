@@ -22,7 +22,8 @@ object VsUopPtr {
 }
 
 class VsUopQueueIOBundle (implicit p: Parameters) extends XSBundle {
-  val storeIn = Vec(VecStorePipelineWidth,Flipped(Decoupled(new ExuInput(isVpu = true))))
+  val storeIn  = Vec(VecStorePipelineWidth,Flipped(Decoupled(new ExuInput(isVpu = true))))
+  val Redirect = Flipped(ValidIO(new Redirect))
   val uop2Flow = Vec(VecStorePipelineWidth,Decoupled(new Uop2Flow()))
 }
 class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
@@ -40,6 +41,8 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val emul = Wire(Vec(VecStorePipelineWidth, UInt(3.W)))
   val isSegment = Wire(Vec(VecStorePipelineWidth, Bool()))
   val instType = Wire(Vec(VecStorePipelineWidth, UInt(3.W)))
+  val storeInValid = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(false.B)))
+  val needFlush = WireInit(VecInit(Seq.fill(VsUopSize)(false.B)))
 
   val enqPtr = RegInit(0.U.asTypeOf(new VsUopPtr))
   val deqPtr = RegInit(0.U.asTypeOf(new VsUopPtr))
@@ -48,14 +51,31 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     io.storeIn(i).ready := PopCount(valid) < VsUopSize.U - 1.U
   }
 
+  for (i <- 0 until VecStorePipelineWidth) {
+    storeInValid(i) := !io.storeIn(i).bits.uop.robIdx.needFlush(io.Redirect) && io.storeIn(i).fire
+  }
+
+  /**
+    * Redirection occurred, flush VsuopQueue */
+  for (entry <- 0 until VsUopSize) {
+    needFlush(entry) := vsUopEntry(entry).uop.robIdx.needFlush(io.Redirect) && valid(entry)
+    when(needFlush(entry)) {
+      valid(entry) := false.B
+    }
+  }
+
 /**
   * VsUopQueue enqPtr update */
-  when (io.storeIn(0).fire && io.storeIn(1).fire) {
-    enqPtr := enqPtr + 2.U
-  }.elsewhen (io.storeIn(0).fire && !io.storeIn(1).fire || !io.storeIn(0).fire && io.storeIn(1).fire) {
-    enqPtr := enqPtr + 1.U
+  val lastRedirect = RegNext(io.Redirect)
+  val uopRedirectCnt = RegNext(PopCount(needFlush))
+  when (lastRedirect.valid) {
+    enqPtr.value := enqPtr.value - uopRedirectCnt
   }.otherwise {
-    enqPtr := enqPtr
+    when (storeInValid(0) && storeInValid(1)) {
+      enqPtr.value := enqPtr.value + 2.U
+    }.elsewhen (storeInValid(0) && !storeInValid(1) || !storeInValid(0) && storeInValid(1)) {
+      enqPtr.value := enqPtr.value + 1.U
+    }
   }
 
   /**
@@ -64,8 +84,6 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     deqPtr := deqPtr + 2.U
   }.elsewhen (io.uop2Flow(0).fire && !io.uop2Flow(1).fire || !io.uop2Flow(0).fire && io.uop2Flow(1).fire) {
     deqPtr := deqPtr + 1.U
-  }.otherwise {
-    deqPtr := deqPtr
   }
 
   for (i <- 0 until VecStorePipelineWidth) {
@@ -80,7 +98,7 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   }
 
   //enqueue
-  when (io.storeIn(0).fire && io.storeIn(1).fire) {
+  when (storeInValid(0) && storeInValid(1)) {
     for (i <- 0 until VecStorePipelineWidth) {
       valid(enqPtr.value + i.U) := true.B
       vsUopEntry(enqPtr.value + i.U).src      := io.storeIn(i).bits.src
@@ -92,7 +110,7 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       vsUopEntry(enqPtr.value + i.U).uop_unit_stride_fof := loadInstDec(i).uop_unit_stride_fof
       vsUopEntry(enqPtr.value + i.U).uop_segment_num := loadInstDec(i).uop_segment_num
     }
-  }.elsewhen (io.storeIn(0).fire && !io.storeIn(1).fire) {
+  }.elsewhen (storeInValid(0) && !storeInValid(1)) {
     valid(enqPtr.value) := true.B
     vsUopEntry(enqPtr.value).src := io.storeIn(0).bits.src
     vsUopEntry(enqPtr.value).uop := io.storeIn(0).bits.uop
@@ -102,7 +120,7 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     vsUopEntry(enqPtr.value).instType := instType(0)
     vsUopEntry(enqPtr.value).uop_unit_stride_fof := loadInstDec(0).uop_unit_stride_fof
     vsUopEntry(enqPtr.value).uop_segment_num := loadInstDec(0).uop_segment_num
-  }.elsewhen (!io.storeIn(0).fire && io.storeIn(1).fire){
+  }.elsewhen (!storeInValid(0) && storeInValid(1)){
     valid(enqPtr.value) := true.B
     vsUopEntry(enqPtr.value).src := io.storeIn(1).bits.src
     vsUopEntry(enqPtr.value).uop := io.storeIn(1).bits.uop
@@ -116,7 +134,7 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
 
   //dequeue
   for (i <- 0 until VecStorePipelineWidth) {
-    io.uop2Flow(i).valid := valid(deqPtr.value + i.U)
+    io.uop2Flow(i).valid := valid(deqPtr.value + i.U)//FIXME: performace, 1 interface may use incorrect valid
     io.uop2Flow(i).bits := DontCare
   }
 
