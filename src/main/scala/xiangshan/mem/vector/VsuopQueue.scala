@@ -141,11 +141,14 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   when (io.uop2Flow(0).fire && io.uop2Flow(1).fire) {
     for (i <- 0 until VecStorePipelineWidth) {
       io.uop2Flow(i).bits := vsUopEntry(deqPtr.value + i.U)
+      valid(deqPtr.value + i.U) := false.B
     }
   }.elsewhen (io.uop2Flow(0).fire && !io.uop2Flow(1).fire) {
     io.uop2Flow(0).bits := vsUopEntry(deqPtr.value)
+    valid(deqPtr.value) := false.B
   }.elsewhen (!io.uop2Flow(0).fire && io.uop2Flow(1).fire) {
     io.uop2Flow(1).bits := vsUopEntry(deqPtr.value)
+    valid(deqPtr.value) := false.B
   }
 
 }

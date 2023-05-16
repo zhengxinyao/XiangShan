@@ -52,7 +52,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val robIdx_0    = 1.U.asTypeOf(new RobPtr)
   val uopIdx_0    = 3.U
   val sqIdx_0     = 3.U.asTypeOf(new SqPtr)
-  val vsew_0      = "b001".U // sew = 1
+  val vsew_0      = "b001".U // sew = 2
   val vlmul_0     = "b011".U //lmul =8
   val total_num_0 = 3.U
   val instr_0     = 0x00000000.U // eew=1
@@ -62,7 +62,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val robIdx_1    = 1.U.asTypeOf(new RobPtr)
   val uopIdx_1    = 2.U
   val sqIdx_1     = 2.U.asTypeOf(new SqPtr)
-  val vsew_1      = "b001".U // sew = 1
+  val vsew_1      = "b001".U // sew = 2
   val vlmul_1     = "b011".U //lmul =8
   val total_num_1 = 3.U
   val instr_1     = 0x00000000.U // eew=1
@@ -73,7 +73,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val robIdx_2    = 1.U.asTypeOf(new RobPtr)
   val uopIdx_2    = 1.U
   val sqIdx_2     = 1.U.asTypeOf(new SqPtr)
-  val vsew_2      = "b001".U // sew = 1
+  val vsew_2      = "b001".U // sew = 2
   val vlmul_2     = "b011".U //lmul =8
   val total_num_2 = 3.U
   val instr_2     = 0x00000000.U // eew=1
@@ -83,7 +83,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val robIdx_3    = 1.U.asTypeOf(new RobPtr)
   val uopIdx_3    = 0.U
   val sqIdx_3     = 0.U.asTypeOf(new SqPtr)
-  val vsew_3      = "b001".U // sew = 1
+  val vsew_3      = "b001".U // sew = 2
   val vlmul_3     = "b011".U //lmul =8
   val total_num_3 = 3.U
   val instr_3     = 0x00000000.U // eew=1

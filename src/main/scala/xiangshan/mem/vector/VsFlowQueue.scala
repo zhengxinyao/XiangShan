@@ -142,6 +142,7 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   val io = IO(new VsFlowBundle())
 
   val valid        = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(VecInit(Seq.fill(VsFlowSize)(false.B)))))
+  val canDeq       = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(VecInit(Seq.fill(VsFlowSize)(false.B)))))
   val isFirstIssue = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(VecInit(Seq.fill(VsFlowSize)(false.B)))))
   val issued       = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(VecInit(Seq.fill(VsFlowSize)(false.B)))))
   val counter      = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(VecInit(Seq.fill(VsFlowSize)(0.U(5.W))))))
@@ -188,10 +189,10 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   for (i <- 0 until VecStorePipelineWidth) {
     flowRedirectCnt(i) := RegNext(PopCount(needFlush(i)))
     when (lastRedirect.valid) {
-        enqPtr(i).value := enqPtr(i).value - flowRedirectCnt(i)
+        enqPtr(i) := enqPtr(i) - flowRedirectCnt(i)
     }.otherwise {
       when (uopInValid(i)) {
-        enqPtr(i).value := enqPtr(i).value + realFlowNum(i)
+        enqPtr(i) := enqPtr(i) + realFlowNum(i)
       }
     }
   }
@@ -199,8 +200,9 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
 /**
   * deqPtr updata*/
   for (i <- 0 until VecStorePipelineWidth) {
-    when (!valid(i)(deqPtr(i).value)) {
-      deqPtr(i).value := deqPtr(i).value + 1.U
+    when (valid(i)(deqPtr(i).value) && canDeq(i)(deqPtr(i).value)) {
+      deqPtr(i) := deqPtr(i) + 1.U
+      valid(i)(deqPtr(i).value) := false.B
     }
   }
 
@@ -209,7 +211,8 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   for (i <- 0 until VecStorePipelineWidth) {
     when (io.vsfqFeedback(i).valid) {
       when (io.vsfqFeedback(i).bits.hit) {
-        valid(i)(io.vsfqFeedback(i).bits.fqIdx)          := false.B
+        //valid(i)(io.vsfqFeedback(i).bits.fqIdx)          := false.B
+        canDeq(i)(io.vsfqFeedback(i).bits.fqIdx)         := true.B
         flowEntry(i)(io.vsfqFeedback(i).bits.fqIdx).mask := 0.U
       }.otherwise {
         issued(i)(io.vsfqFeedback(i).bits.fqIdx)  := false.B
@@ -220,7 +223,7 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
 
   for (i <- 0 until VecStorePipelineWidth) {
     for (entry <- 0 until VsFlowSize) {
-      when (valid(i)(entry) && !isFirstIssue(i)(entry)) {
+      when (valid(i)(entry) && !canDeq(i)(entry) && !isFirstIssue(i)(entry)) {
         counter(i)(entry) := counter(i)(entry) - 1.U
       }
     }
@@ -232,7 +235,8 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     for (entry <- 0 until VsFlowSize) {
       needFlush(i)(entry) := flowEntry(i)(entry).uop.robIdx.needFlush(io.Redirect) && valid(i)(entry)
       when (needFlush(i)(entry)) {
-        valid(i)(entry) := false.B
+        valid(i)(entry)  := false.B
+        //canDeq(i)(entry) := false.B
       }
     }
     uopInValid(i) := !io.uopIn(i).bits.uop.robIdx.needFlush(io.Redirect) && io.uopIn(i).fire
@@ -265,6 +269,7 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
           enqValue := enqPtr(i).value + j.U
           flowEntry(i)(enqValue) := DontCare
           valid(i)(enqValue)        := true.B
+          canDeq(i)(enqValue)       := false.B
           isFirstIssue(i)(enqValue) := true.B
           issued(i)(enqValue)       := false.B
           counter(i)(enqValue)      := 0.U
@@ -285,7 +290,7 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
 /**
   * issue control*/
   for (i <- 0 until VecStorePipelineWidth) {
-    canissue(i) := VecInit((0 until VsFlowSize).map(j => valid(i)(j) && !issued(i)(j) && counter(i)(j) === 0.U))
+    canissue(i) := VecInit((0 until VsFlowSize).map(j => valid(i)(j) && !canDeq(i)(j) && !issued(i)(j) && counter(i)(j) === 0.U))
     deqMask(i)  := UIntToMask(deqPtr(i).value,VsFlowSize)
     deqIdx(i)   := getFirstOne(canissue(i),deqMask(i))
   }
@@ -295,16 +300,16 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     io.isFirstIssue(i)             := isFirstIssue(i)(deqIdx(i))
     io.storePipeOut(i).bits.fqIdx  := deqIdx(i)
     io.storePipeOut(i).bits        := DontCare
-    io.storePipeOut(i).bits.mask   := GenVSMask(reg_offset = flowEntry(i)(deqPtr(i).value).reg_offset,
-                                              offset = flowEntry(i)(deqPtr(i).value).src(0)(3,0),
-                                              mask = flowEntry(i)(deqPtr(i).value).mask)
-    io.storePipeOut(i).bits.src(2) := GenVSData(reg_offset = flowEntry(i)(deqPtr(i).value).reg_offset,
-                                                offset = flowEntry(i)(deqPtr(i).value).src(0)(3,0),
-                                                data = flowEntry(i)(deqPtr(i).value).src(2))
-    io.storePipeOut(i).bits.src(0)              := flowEntry(i)(deqPtr(i).value).src(0)
-    io.storePipeOut(i).bits.uop_unit_stride_fof := flowEntry(i)(deqPtr(i).value).uop_unit_stride_fof
-    io.storePipeOut(i).bits.alignedType         := flowEntry(i)(deqPtr(i).value).alignedType
-    io.storePipeOut(i).bits.uop                 := flowEntry(i)(deqPtr(i).value).uop
+    io.storePipeOut(i).bits.mask   := GenVSMask(reg_offset = flowEntry(i)(deqIdx(i)).reg_offset,
+                                              offset = flowEntry(i)(deqIdx(i)).src(0)(3,0),
+                                              mask = flowEntry(i)(deqIdx(i)).mask)
+    io.storePipeOut(i).bits.src(2) := GenVSData(reg_offset = flowEntry(i)(deqIdx(i)).reg_offset,
+                                                offset = flowEntry(i)(deqIdx(i)).src(0)(3,0),
+                                                data = flowEntry(i)(deqIdx(i)).src(2))
+    io.storePipeOut(i).bits.src(0)              := flowEntry(i)(deqIdx(i)).src(0)
+    io.storePipeOut(i).bits.uop_unit_stride_fof := flowEntry(i)(deqIdx(i)).uop_unit_stride_fof
+    io.storePipeOut(i).bits.alignedType         := flowEntry(i)(deqIdx(i)).alignedType
+    io.storePipeOut(i).bits.uop                 := flowEntry(i)(deqIdx(i)).uop
   }
 
   for (i <- 0 until VecStorePipelineWidth) {
