@@ -71,20 +71,20 @@ case class XSCoreParameters
   RasSize: Int = 32,
   CacheLineSize: Int = 512,
   FtbWays: Int = 4,
-  TageTableInfos: Seq[Tuple3[Int,Int,Int]] =
-  //       Sets  Hist   Tag
-    // Seq(( 2048,    2,    8),
-    //     ( 2048,    9,    8),
-    //     ( 2048,   13,    8),
-    //     ( 2048,   20,    8),
-    //     ( 2048,   26,    8),
-    //     ( 2048,   44,    8),
-    //     ( 2048,   73,    8),
-    //     ( 2048,  256,    8)),
-    Seq(( 4096,    8,    8),
-        ( 4096,   13,    8),
-        ( 4096,   32,    8),
-        ( 4096,  119,    8)),
+  TageTableInfos: Seq[Tuple4[Int,Int,Int,Int]] =
+  //       Sets  Hist   Tag   Shift
+    Seq(( 1024,    5,    7,    6),
+        ( 1024,    8,    7,    5),
+        ( 2048,   12,    8,    4),
+      ( 2048,   18,    8,    3),
+      ( 2048,   27,    9,    2),
+      ( 2048,   40,   10,    1),
+      ( 1024,   61,   11,    1),
+      ( 1024,   91,   12,    2),
+      ( 1024,  138,   12,    3),
+      ( 1024,  209,   13,    4),
+      (  512,  315,   13,    5),
+      (  512,  447,   15,    6)),
   ITTageTableInfos: Seq[Tuple3[Int,Int,Int]] =
   //      Sets  Hist   Tag
     Seq(( 256,    4,    9),

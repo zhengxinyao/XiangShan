@@ -229,7 +229,7 @@ class TageBTable(implicit p: Parameters) extends XSModule with TBTParams{
 @chiselName
 class TageTable
 (
-  val nRows: Int, val histLen: Int, val tagLen: Int, val tableIdx: Int
+  val nRows: Int, val histLen: Int, val tagLen: Int, val pcShift: Int, val tableIdx: Int
 )(implicit p: Parameters)
   extends TageModule with HasFoldedHistory {
   val io = IO(new Bundle() {
@@ -298,7 +298,7 @@ class TageTable
   }
   // pc is start address of basic block, most 2 branch inst in block
   // def getUnhashedIdx(pc: UInt) = pc >> (instOffsetBits+log2Ceil(TageBanks))
-  def getUnhashedIdx(pc: UInt): UInt = pc >> instOffsetBits
+  def getUnhashedIdx(pc: UInt): UInt = pc >> pcShift
 
   // val s1_pc = io.req.bits.pc
   val req_unhashed_idx = getUnhashedIdx(io.req.bits.pc)
@@ -535,8 +535,8 @@ class Tage(implicit p: Parameters) extends BaseTage {
   val resp_meta = Wire(new TageMeta)
   override val meta_size = resp_meta.getWidth
   val tables = TageTableInfos.zipWithIndex.map {
-    case ((nRows, histLen, tagLen), i) => {
-      val t = Module(new TageTable(nRows, histLen, tagLen, i))
+    case ((nRows, histLen, tagLen, pcShift), i) => {
+      val t = Module(new TageTable(nRows, histLen, tagLen, pcShift, i))
       t.io.req.valid := io.s0_fire
       t.io.req.bits.pc := s0_pc
       t.io.req.bits.folded_hist := io.in.bits.folded_hist
