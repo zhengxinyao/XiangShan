@@ -45,7 +45,7 @@ trait TageParams extends HasBPUConst with HasXSParameter {
   def use_alt_idx(pc: UInt) = (pc >> instOffsetBits)(log2Ceil(NUM_USE_ALT_ON_NA)-1, 0)
 
   val TotalBits = TageTableInfos.map {
-    case (s, h, t) => {
+    case (s, h, t, _) => {
       s * (1+t+TageCtrBits+1)
     }
   }.reduce(_+_)
@@ -531,6 +531,9 @@ class FakeTage(implicit p: Parameters) extends BaseTage {
 
 @chiselName
 class Tage(implicit p: Parameters) extends BaseTage {
+
+  // Print total storage used
+  println("TAGE Total bits: %d".format(TotalBits))
 
   val resp_meta = Wire(new TageMeta)
   override val meta_size = resp_meta.getWidth

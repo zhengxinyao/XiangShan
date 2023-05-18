@@ -357,7 +357,7 @@ trait HasXSParameter {
   val ITTageTableInfos = coreParams.ITTageTableInfos
   type FoldedHistoryInfo = Tuple2[Int, Int]
   val foldedGHistInfos =
-    (TageTableInfos.map{ case (nRows, h, t) =>
+    (TageTableInfos.map{ case (nRows, h, t, _) =>
       if (h > 0)
         Set((h, min(log2Ceil(nRows/numBr), h)), (h, min(h, t)), (h, min(h, t-1)))
       else
