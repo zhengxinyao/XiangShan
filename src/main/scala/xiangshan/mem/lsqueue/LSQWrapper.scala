@@ -45,10 +45,15 @@ class InflightBlockInfo(implicit p: Parameters) extends XSBundle {
   val valid = Bool()
 }
 
+class LsqEnqReq(implicit p: Parameters) extends XSBundle {
+  val uop = new MicroOp
+  val enqNumber = UInt()
+}
+
 class LsqEnqIO(implicit p: Parameters) extends XSBundle {
   val canAccept = Output(Bool())
   val needAlloc = Vec(exuParameters.LsExuCnt, Input(UInt(2.W)))
-  val req = Vec(exuParameters.LsExuCnt, Flipped(ValidIO(new MicroOp)))
+  val req = Vec(exuParameters.LsExuCnt, Flipped(ValidIO(new LsqEnqReq)))
   val resp = Vec(exuParameters.LsExuCnt, Output(new LSIdx))
 }
 
@@ -259,8 +264,13 @@ class LsqEnqCtrl(implicit p: Parameters) extends XSModule {
   val sqCounter = RegInit(StoreQueueSize.U(log2Up(StoreQueueSize + 1).W))
   val canAccept = RegInit(false.B)
 
-  val loadEnqNumber = PopCount(io.enq.req.zip(io.enq.needAlloc).map(x => x._1.valid && x._2(0)))
-  val storeEnqNumber = PopCount(io.enq.req.zip(io.enq.needAlloc).map(x => x._1.valid && x._2(1)))
+  //
+  val loadEnqReqValid = io.enq.req.zip(io.enq.needAlloc).map(x => x._1.valid && x._2(0))
+  val loadEnqReqNumber = loadEnqReqValid.zipWithIndex.map { case (v, i) => Mux(v, io.enq.req(i).bits.enqNumber, 0.U) }
+  val loadEnqNumber = loadEnqReqNumber.foldLeft(0.U)(_+_)
+  val storeEnqReqValid = io.enq.req.zip(io.enq.needAlloc).map(x => x._1.valid && x._2(1))
+  val storeEnqReqNumber = storeEnqReqValid.zipWithIndex.map { case (v, i) => Mux(v, io.enq.req(i).bits.enqNumber, 0,U) }
+  val storeEnqNumber = storeEnqReqNumber.foldLeft(0.U)(_+_)
 
   // How to update ptr and counter:
   // (1) by default, updated according to enq/commit
@@ -296,13 +306,9 @@ class LsqEnqCtrl(implicit p: Parameters) extends XSModule {
   // has not been resolved (updated according to the cancel count from LSQ).
   // To solve the issue easily, we block enqueue when t3_update, which is RegNext(t2_update).
   io.enq.canAccept := RegNext(ldCanAccept && sqCanAccept && !t2_update)
-  val lqOffset = Wire(Vec(io.enq.resp.length, UInt(log2Up(maxAllocate + 1).W)))
-  val sqOffset = Wire(Vec(io.enq.resp.length, UInt(log2Up(maxAllocate + 1).W)))
   for ((resp, i) <- io.enq.resp.zipWithIndex) {
-    lqOffset(i) := PopCount(io.enq.needAlloc.take(i).map(a => a(0)))
-    resp.lqIdx := lqPtr + lqOffset(i)
-    sqOffset(i) := PopCount(io.enq.needAlloc.take(i).map(a => a(1)))
-    resp.sqIdx := sqPtr + sqOffset(i)
+    resp.lqIdx := lqPtr + i.U
+    resp.sqIdx := sqPtr + i.U
   }
 
   io.enqLsq.needAlloc := RegNext(io.enq.needAlloc)
