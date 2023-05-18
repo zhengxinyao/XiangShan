@@ -309,9 +309,9 @@ class LsqEnqCtrl(implicit p: Parameters) extends XSModule {
   val lqOffset = Wire(Vec(io.enq.resp.length, UInt(log2Up(maxAllocate + 1).W)))
   val sqOffset = Wire(Vec(io.enq.resp.length, UInt(log2Up(maxAllocate + 1).W)))
   for ((resp, i) <- io.enq.resp.zipWithIndex) {
-    lqOffset(i) := loadEnqNumber.take(i).foldLeft(0.U)(_+_)
+    lqOffset(i) := loadEnqReqNumber.take(i).foldLeft(0.U)(_+_)
     resp.lqIdx := lqPtr + lqOffset(i)
-    sqOffset(i) := storeEnqNumber.take(i).foldLeft(0.U)(_+_)
+    sqOffset(i) := storeEnqReqNumber.take(i).foldLeft(0.U)(_+_)
     resp.sqIdx := sqPtr + sqOffset(i)
   }
 
