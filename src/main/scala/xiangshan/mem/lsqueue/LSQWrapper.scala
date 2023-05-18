@@ -306,9 +306,13 @@ class LsqEnqCtrl(implicit p: Parameters) extends XSModule {
   // has not been resolved (updated according to the cancel count from LSQ).
   // To solve the issue easily, we block enqueue when t3_update, which is RegNext(t2_update).
   io.enq.canAccept := RegNext(ldCanAccept && sqCanAccept && !t2_update)
+  val lqOffset = Wire(Vec(io.enq.resp.length, UInt(log2Up(maxAllocate + 1).W)))
+  val sqOffset = Wire(Vec(io.enq.resp.length, UInt(log2Up(maxAllocate + 1).W)))
   for ((resp, i) <- io.enq.resp.zipWithIndex) {
-    resp.lqIdx := lqPtr + i.U
-    resp.sqIdx := sqPtr + i.U
+    lqOffset(i) := io.enq.needAlloc.take(i).map(a => Mux(a(0), io.enq.req(i).bits.enqNumber, 0.U)).foldLeft(0.U)(_+_)
+    resp.lqIdx := lqPtr + lqOffset(i)
+    sqOffset(i) := io.enq.needAlloc.take(i).map(a => Mux(a(1), io.enq.req(i).bits.enqNumber, 0.U)).foldLeft(0.U)(_+_)
+    resp.sqIdx := sqPtr + sqOffset(i)
   }
 
   io.enqLsq.needAlloc := RegNext(io.enq.needAlloc)
