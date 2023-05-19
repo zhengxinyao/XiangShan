@@ -296,9 +296,8 @@ class TageTable
     XSError(idx_history =/= idx_fh.folded_hist, p"tage table $tableIdx has different fh," +
       p" ghist: ${Binary(idx_history)}, fh: ${Binary(idx_fh.folded_hist)}\n")
   }
-  // pc is start address of basic block, most 2 branch inst in block
-  // def getUnhashedIdx(pc: UInt) = pc >> (instOffsetBits+log2Ceil(TageBanks))
-  def getUnhashedIdx(pc: UInt): UInt = pc >> pcShift
+  // PC hash, from CBP-2016 winner 64KB
+  def getUnhashedIdx(pc: UInt): UInt = (pc >> instOffsetBits).asUInt ^ (pc >> (pcShift+instOffsetBits)).asUInt
 
   // val s1_pc = io.req.bits.pc
   val req_unhashed_idx = getUnhashedIdx(io.req.bits.pc)
