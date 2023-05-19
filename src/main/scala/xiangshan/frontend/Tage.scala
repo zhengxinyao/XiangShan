@@ -282,9 +282,9 @@ class TageTable
     val idx_fh = allFh.getHistWithInfo(idxFhInfo).folded_hist
     val tag_fh = allFh.getHistWithInfo(tagFhInfo).folded_hist
     val alt_tag_fh = allFh.getHistWithInfo(altTagFhInfo).folded_hist
-    // require(idx_fh.getWidth == log2Ceil(nRows))
-    val idx = (unhashed_idx ^ idx_fh)(log2Ceil(nRowsPerBr)-1, 0)
-    val tag = (unhashed_idx ^ tag_fh ^ (alt_tag_fh << 1)) (tagLen - 1, 0)
+    // PC hash, from CBP-2016 winner 64KB
+    val idx = (unhashed_idx ^ (unhashed_idx >> pcShift).asUInt ^ idx_fh)(log2Ceil(nRowsPerBr)-1, 0)
+    val tag = (unhashed_idx ^ tag_fh ^ (alt_tag_fh << 1).asUInt) (tagLen - 1, 0)
     (idx, tag)
   }
 
@@ -296,8 +296,7 @@ class TageTable
     XSError(idx_history =/= idx_fh.folded_hist, p"tage table $tableIdx has different fh," +
       p" ghist: ${Binary(idx_history)}, fh: ${Binary(idx_fh.folded_hist)}\n")
   }
-  // PC hash, from CBP-2016 winner 64KB
-  def getUnhashedIdx(pc: UInt): UInt = (pc >> instOffsetBits).asUInt ^ (pc >> (pcShift+instOffsetBits)).asUInt
+  def getUnhashedIdx(pc: UInt): UInt = (pc >> instOffsetBits).asUInt
 
   // val s1_pc = io.req.bits.pc
   val req_unhashed_idx = getUnhashedIdx(io.req.bits.pc)
