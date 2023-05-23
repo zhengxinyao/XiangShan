@@ -601,7 +601,10 @@ class Tage(implicit p: Parameters) extends BaseTage {
   val u_valid = io.update.valid
   val update = io.update.bits
   val updateValids = VecInit((0 until TageBanks).map(w =>
-      update.ftb_entry.brValids(w) && u_valid && !update.ftb_entry.always_taken(w) &&
+        u_valid &&
+          update.ftb_entry.brValids(w) &&
+          update.br_committed(w) && // Avoid update when branch is not committed
+          !update.ftb_entry.always_taken(w) &&
       !(PriorityEncoder(update.br_taken_mask) < w.U)))
   val updateFHist = update.spec_info.folded_hist
 
