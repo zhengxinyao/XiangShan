@@ -172,15 +172,16 @@ case class XSCoreParameters
     FpDqDeqWidth = 6,
     LsDqDeqWidth = 6,
   ),
-  intPreg: PregParams = IntPregParams(
-    numEntries = 64,
-    numRead = 14,
-    numWrite = 8,
-  ),
-  vfPreg: VfPregParams = VfPregParams(
-    numEntries = 64,
-    numRead = 14,
-    numWrite = 8,
+  exuParameters: ExuParameters = ExuParameters(
+    JmpCnt = 1,
+    AluCnt = 4,
+    MulCnt = 0,
+    MduCnt = 2,
+    FmacCnt = 4,
+    FmiscCnt = 2,
+    FmiscDivSqrtCnt = 0,
+    LduCnt = 2,
+    StuCnt = 2
   ),
   prefetcher: Option[PrefetcherParams] = Some(SMSParams()),
   LoadPipelineWidth: Int = 2,
