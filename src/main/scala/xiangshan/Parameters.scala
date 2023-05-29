@@ -135,9 +135,9 @@ case class XSCoreParameters
   LoadQueueRARSize: Int = 80,
   LoadQueueRAWSize: Int = 64, // NOTE: make sure that LoadQueueRAWSize is power of 2.
   RollbackGroupSize: Int = 8,
-  LoadQueueReplaySize: Int = 80,
+  LoadQueueReplaySize: Int = 72,
   LoadUncacheBufferSize: Int = 20,
-  LoadQueueNWriteBanks: Int = 8, // NOTE: make sure that LoadQueueRARSize/LoadQueueRAWSize is divided by LoadQueueNWriteBanks
+  LoadQueueNWriteBanks: Int = 4, // NOTE: make sure that LoadQueueRARSize/LoadQueueRAWSize is divided by LoadQueueNWriteBanks
   StoreQueueSize: Int = 64,
   StoreQueueNWriteBanks: Int = 8, // NOTE: make sure that StoreQueueSize is divided by StoreQueueNWriteBanks
   StoreQueueForwardWithMask: Boolean = true,
