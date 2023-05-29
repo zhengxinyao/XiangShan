@@ -936,7 +936,7 @@ class PrefetchFilter()(implicit p: Parameters) extends XSModule with HasSMSModul
 
 class SMSPrefetcher()(implicit p: Parameters) extends BasePrefecher with HasSMSModuleHelper {
 
-  require(backendParams.LduCnt == 2)
+  require(backendParams.LduCnt == 3)
 
   val io_agt_en = IO(Input(Bool()))
   val io_stride_en = IO(Input(Bool()))
