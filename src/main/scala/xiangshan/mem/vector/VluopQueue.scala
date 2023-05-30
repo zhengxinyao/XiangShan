@@ -97,9 +97,10 @@ class VluopQueueIOBundle(implicit p: Parameters) extends XSBundle {
   val Redirect    = Flipped(ValidIO(new Redirect))
   val instType    = Vec(VecLoadPipelineWidth, Input(UInt(3.W)))
   val emul        = Vec(VecLoadPipelineWidth, Input(UInt(3.W)))
+  val realFlowNum = Vec(VecLoadPipelineWidth, Input(UInt(5.W)))
   val loadPipeIn  = Vec(VecLoadPipelineWidth, Flipped(DecoupledIO(new VecExuOutput)))
   val uopVecFeedback = Vec(VecLoadPipelineWidth,ValidIO(Bool()))
-  val vecLoadWriteback = Vec(2,DecoupledIO(new ExuOutput(isVpu = true)))
+  val vecLoadWriteback = Vec(VecLoadPipelineWidth,DecoupledIO(new ExuOutput(isVpu = true)))
   //val vecData = Vec(2,DecoupledIO(UInt(VLEN.W)))
 }
 
@@ -118,14 +119,17 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val allocated = RegInit(VecInit(Seq.fill(VlUopSize)(false.B)))
   // When both data and pdest are readym, this entry is finished
   val finished = RegInit(VecInit(Seq.fill(VlUopSize)(false.B)))
+  val counter = RegInit(VecInit(Seq.fill(VlUopSize)(0.U(4.W))))
 
   val enqPtr = RegInit(0.U.asTypeOf(new VluopPtr))
   val deqPtr = RegInit(0.U.asTypeOf(new VluopPtr))
-  val already_in = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
+  val realFlowNum    = Wire(Vec(VecLoadPipelineWidth, UInt(5.W)))
+  val vend           = Wire(Vec(VecLoadPipelineWidth, UInt(5.W)))
+  val already_in     = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
   val already_in_vec = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(VlUopSize)(false.B)))))
-  val enq_valid = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
-  val instType = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
-  val mul      = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val enq_valid      = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
+  val instType       = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
+  val mul            = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val loadRegInValid = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(false.B)))
   val needFlush = WireInit(VecInit(Seq.fill(VlUopSize)(false.B)))
 
@@ -186,8 +190,17 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       VluopEntry(entry).dataVMask := VecInit(Seq.fill(VLEN / 8)(false.B))
     }
   }
+
   for (i <- 0 until VecLoadPipelineWidth) {
     loadRegInValid(i) := !io.loadRegIn(i).bits.uop.robIdx.needFlush(io.Redirect) && io.loadRegIn(i).fire
+    vend(i) := DontCare
+    when (instType(0) === "b000".U) {
+      vend(i) := io.loadRegIn(i).bits.src(0)(3,0) + MulDataSize(mul=io.emul(i))
+      realFlowNum(i) := vend(i)(4) +& (vend(i)(3,0) =/= 0.U).asUInt
+      //realFlowNum(i) := Cat(0.U(4.W),vend(i)(4)) + Cat(0.U(4.W),(vend(i)(3,0) =/= 0.U).asUInt)
+    }.otherwise {
+      realFlowNum(i) := io.realFlowNum(i)
+    }
   }
 
   //enqPtr update
@@ -241,6 +254,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
             VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
             valid(enqPtr.value + i.U) := true.B
             pre_allocated(enqPtr.value + i.U) := true.B
+            counter(enqPtr.value + i.U) := realFlowNum(0)
             when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx || i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
               allocated(enqPtr.value + i.U) := true.B
             }
@@ -257,6 +271,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
             VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
             valid(enqPtr.value + i.U) := true.B
             pre_allocated(enqPtr.value + i.U) := true.B
+            counter(enqPtr.value + i.U) := realFlowNum(0)
             when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx) {
               allocated(enqPtr.value + i.U) := true.B
             }
@@ -270,6 +285,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
             VluopEntry(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U).apply(uop = inUop, mul = mul(1), is_pre = isPer)
             valid(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U) := true.B
             pre_allocated(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U) := true.B
+            counter(enqPtr.value + i.U) := realFlowNum(1)
             when (i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
               allocated(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U) := true.B
             }
@@ -287,6 +303,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
           VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
           valid(enqPtr.value + i.U) := true.B
           pre_allocated(enqPtr.value + i.U) := true.B
+          counter(enqPtr.value + i.U) := realFlowNum(0)
           when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx) {
             allocated(enqPtr.value + i.U) := true.B
           }
@@ -296,6 +313,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       valid        (enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := true.B
       pre_allocated(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := true.B
       allocated    (enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := true.B
+      counter      (enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := realFlowNum(1)
 
     }.elsewhen (instType(0) =/= "b000".U && instType(1) === "b000".U ) {
       //enqPtr.value := enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 2.U
@@ -308,6 +326,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
           VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(1), is_pre = isPer)
           valid(enqPtr.value + i.U) := true.B
           pre_allocated(enqPtr.value + i.U) := true.B
+          counter(enqPtr.value + i.U) := realFlowNum(1)
           when (i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
             allocated(enqPtr.value + i.U) := true.B
           }
@@ -317,6 +336,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       valid        (enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := true.B
       pre_allocated(enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := true.B
       allocated    (enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := true.B
+      counter      (enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := realFlowNum(0)
     }.otherwise {
       //enqPtr.value := enqPtr.value + 2.U
       for (i <- 0 until 2) {
@@ -324,6 +344,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
         valid        (enqPtr.value + i.U) := true.B
         pre_allocated(enqPtr.value + i.U) := true.B
         allocated    (enqPtr.value + i.U) := true.B
+        counter      (enqPtr.value + i.U) := realFlowNum(i)
       }
     }
   }.elsewhen (enq_valid(0) && !enq_valid(1)) {
@@ -338,6 +359,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
           VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
           valid(enqPtr.value + i.U) := true.B
           pre_allocated(enqPtr.value + i.U) := true.B
+          counter      (enqPtr.value + i.U) := realFlowNum(0)
           when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx) {
             allocated(enqPtr.value + i.U) := true.B
           }
@@ -349,6 +371,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       valid        (enqPtr.value) := true.B
       pre_allocated(enqPtr.value) := true.B
       allocated    (enqPtr.value) := true.B
+      counter      (enqPtr.value) := realFlowNum(0)
     }
   }.elsewhen (!enq_valid(0) && enq_valid(1)) {
     when (instType(1) === "b000".U) {
@@ -362,6 +385,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
           VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(1), is_pre = isPer)
           valid(enqPtr.value + i.U) := true.B
           pre_allocated(enqPtr.value + i.U) := true.B
+          counter      (enqPtr.value + i.U) := realFlowNum(1)
           when (i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
             allocated(enqPtr.value + i.U) := true.B
           }
@@ -373,6 +397,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       valid        (enqPtr.value) := true.B
       pre_allocated(enqPtr.value) := true.B
       allocated    (enqPtr.value) := true.B
+      counter      (enqPtr.value) := realFlowNum(1)
     }
   }.otherwise {
     enqPtr.value := enqPtr.value
@@ -394,7 +419,7 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       }
     }
   }*/
-
+/*
   for (entry <- 0 until VlUopSize) {
     when (VluopEntry(entry).mul(2) === 0.U ) {
      finished(entry) := valid(entry) && allocated(entry) && VluopEntry(entry).dataVMask.asUInt.andR
@@ -405,6 +430,10 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     }.elsewhen(VluopEntry(entry).mul === "b101".U) { // 1/8
       finished(entry) := valid(entry) && allocated(entry) && VluopEntry(entry).dataVMask.asUInt(1,0).andR
     }
+  }
+ */
+  for (entry <- 0 until VlUopSize) {
+    finished(entry) := valid(entry) && allocated(entry) && counter(entry) === 0.U
   }
 
   // write data from loadpipe to first_level buffer
@@ -447,9 +476,10 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   //write data from second_level buffer to VluopEntry
   for (i <- 0 until VecLoadPipelineWidth) {
     for (j <- 0 until 2) {
-      when (buffer_valid_s1(i)(j) === true.B && rob_idx_valid_s1(i)(j) === true.B) {
+      when (buffer_valid_s1(i)(j) && rob_idx_valid_s1(i)(j)) {
         for (entry <- 0 until VlUopSize) {
           when (rob_idx_s1(i)(j).value === VluopEntry(entry).uop.robIdx.value && inner_idx_s1(i)(j) === VluopEntry(entry).uop.ctrl.uopIdx) {
+            counter(entry) := counter(entry) - 1.U
             for (k <- 0 until VLEN/8) {
               when (mask_buffer_s1(i)(j)(k)) {
                 VluopEntry(entry).data(k)      := data_buffer_s1(i)(j)(k*8 + 7,k*8)

@@ -1,18 +1,18 @@
 /***************************************************************************************
- * Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
- * Copyright (c) 2020-2021 Peng Cheng Laboratory
- *
- * XiangShan is licensed under Mulan PSL v2.
- * You can use this software according to the terms and conditions of the Mulan PSL v2.
- * You may obtain a copy of Mulan PSL v2 at:
- *          http://license.coscl.org.cn/MulanPSL2
- *
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
- * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
- * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
- *
- * See the Mulan PSL v2 for more details.
- ***************************************************************************************/
+  * Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+  * Copyright (c) 2020-2021 Peng Cheng Laboratory
+  *
+  * XiangShan is licensed under Mulan PSL v2.
+  * You can use this software according to the terms and conditions of the Mulan PSL v2.
+  * You may obtain a copy of Mulan PSL v2 at:
+  *          http://license.coscl.org.cn/MulanPSL2
+  *
+  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+  * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  *
+  * See the Mulan PSL v2 for more details.
+  ***************************************************************************************/
 
 package xiangshan.mem
 
@@ -85,6 +85,19 @@ class Uop2Flow(implicit p: Parameters) extends ExuInput(isVpu = true){
   val uop_segment_num = UInt(3.W)
 }
 
+
+object MulNum {
+  def apply (mul: UInt): UInt = { //mul means emul or lmul
+    (LookupTree(mul,List(
+      "b101".U -> 1.U , // 1/8
+      "b110".U -> 1.U , // 1/4
+      "b111".U -> 1.U , // 1/2
+      "b000".U -> 1.U , // 1
+      "b001".U -> 2.U , // 2
+      "b010".U -> 4.U , // 4
+      "b011".U -> 8.U   // 8
+    )))}
+}
 /**
   * when emul is greater than or equal to 1, this means the entire register needs to be written;
   * otherwise, only write the specified number of bytes */
@@ -232,6 +245,53 @@ object IndexAddr {
       "b111".U -> EewEq64(index = index, flow_inner_idx = flow_inner_idx )  // Imm is 8 Byte
     )))}
 }
+/*
+object RegFLowCnt {
+  def apply (emul: UInt, lmul:UInt, eew: UInt, uopIdx: UInt, flowIdx: UInt): UInt = {
+
+    (LookupTree(Cat(emul,lmul),List(
+      "b001000".U -> ((uopIdx(0  ) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx),//emul = 2,lmul = 1
+      "b010000".U -> ((uopIdx(1,0) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx),//emul = 4,lmul = 1
+      "b011000".U -> ((uopIdx(2,0) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx),//emul = 8,lmul = 1
+      "b010001".U -> ((uopIdx(0  ) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx),//emul = 4,lmul = 2
+      "b011001".U -> ((uopIdx(1,0) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx),//emul = 8,lmul = 2
+      "b011010".U -> ((uopIdx(0  ) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx) //emul = 8,lmul = 4
+    )))}
+}
+
+object AddrFLowCnt {
+  def apply (emul: UInt, lmul:UInt, sew:UInt, uopIdx: UInt, flowIdx: UInt):UInt = {
+    (LookupTree(Cat(lmul,emul),List(
+      "b001000".U -> ((uopIdx(0  ) << Log2Num((MulDataSize(lmul) >> sew(1,0)).asUInt)).asUInt + flowIdx),//lmul = 2, emul = 1
+      "b010000".U -> ((uopIdx(1,0) << Log2Num((MulDataSize(lmul) >> sew(1,0)).asUInt)).asUInt + flowIdx),//lmul = 4, emul = 1
+      "b011000".U -> ((uopIdx(2,0) << Log2Num((MulDataSize(lmul) >> sew(1,0)).asUInt)).asUInt + flowIdx),//lmul = 8, emul = 1
+      "b010001".U -> ((uopIdx(0  ) << Log2Num((MulDataSize(lmul) >> sew(1,0)).asUInt)).asUInt + flowIdx),//lmul = 4, emul = 2
+      "b011001".U -> ((uopIdx(1,0) << Log2Num((MulDataSize(lmul) >> sew(1,0)).asUInt)).asUInt + flowIdx),//lmul = 8, emul = 2
+      "b011011".U -> ((uopIdx(0  ) << Log2Num((MulDataSize(lmul) >> sew(1,0)).asUInt)).asUInt + flowIdx) //lmul = 8, emul = 4
+    )))}
+}
+*/
+
+object RegFLowCnt {
+  def apply (emulNum: UInt, lmulNum:UInt, eew: UInt, uopIdx: UInt, flowIdx: UInt):UInt = {
+    (LookupTree(emulNum/lmulNum,List(
+      //"d1".U -> flowIdx,
+      "d2".U -> ((uopIdx(0  ) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx),
+      "d4".U -> ((uopIdx(1,0) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx),
+      "d8".U -> ((uopIdx(2,0) << Log2Num((16.U >> eew(1,0)).asUInt)).asUInt + flowIdx)
+    )))}
+}
+
+object AddrFLowCnt {
+  def apply (emulNum: UInt, lmulNum:UInt, sew:UInt, uopIdx: UInt, flowIdx: UInt):UInt = {
+    (LookupTree(lmulNum/emulNum,List(
+      "d1".U -> flowIdx,
+      "d2".U -> ((uopIdx(0  ) << Log2Num((16.U >> sew(1,0)).asUInt)).asUInt + flowIdx),
+      "d4".U -> ((uopIdx(1,0) << Log2Num((16.U >> sew(1,0)).asUInt)).asUInt + flowIdx),
+      "d8".U -> ((uopIdx(2,0) << Log2Num((16.U >> sew(1,0)).asUInt)).asUInt + flowIdx)
+    )))}
+}
+
 
 object Log2Num {
   def apply (num: UInt): UInt = {
@@ -248,31 +308,43 @@ object Log2Num {
   * when emul is less than or equal to 1, the nf is equal to uop_inner_idx;
   * when emul is equal to 2, the nf is equal to uop_inner_idx(2,1), and so on*/
 object GenSegNfIdx {
-  def apply (mul: UInt, inner_Idx: UInt):UInt = { // mul means lmul or emul
+  def apply (mul: UInt, uopIdx: UInt):UInt = { // mul means lmul or emul
     (LookupTree(mul,List(
-      "b101".U -> inner_Idx     ,
-      "b110".U -> inner_Idx     ,
-      "b111".U -> inner_Idx     ,
-      "b000".U -> inner_Idx     ,
-      "b001".U -> inner_Idx(2,1),
-      "b010".U -> inner_Idx(2)  ,
-      "b011".U -> 0.U
+      "b101".U -> uopIdx     , // 1/8
+      "b110".U -> uopIdx     , // 1/4
+      "b111".U -> uopIdx     , // 1/2
+      "b000".U -> uopIdx     , // 1
+      "b001".U -> uopIdx(2,1), // 2
+      "b010".U -> uopIdx(2)  , // 4
+      "b011".U -> 0.U          //8
+    )))}
+}
+
+object GenSegNfIdxMul {
+  def apply (emul: UInt, lmul: UInt, uopIdx: UInt):UInt = {
+    (LookupTree(Cat(emul,lmul),List(
+      "b001000".U -> uopIdx(5,1), //emul = 2,lmul = 1
+      "b010000".U -> uopIdx(5,2), //emul = 4,lmul = 1
+      "b011000".U -> uopIdx(5,3), //emul = 8,lmul = 1
+      "b010001".U -> uopIdx(5,3), //emul = 4,lmul = 2
+      "b011001".U -> uopIdx(5,4), //emul = 8,lmul = 2
+      "b011010".U -> uopIdx(5,5)  //emul = 8,lmul = 4
     )))}
 }
 
 /**
   * when emul is less than or equal to 1, only one segEmulIdx, so the segEmulIdx is 0.U;
-  * when emul is equal to 2, the segEmulIdx is equal to inner_Idx(0), and so on*/
+  * when emul is equal to 2, the segEmulIdx is equal to uopIdx(0), and so on*/
 object GenSegMulIdx {
-  def apply (mul: UInt, inner_Idx: UInt): UInt = { //mul means emul or lmul
+  def apply (mul: UInt, uopIdx: UInt): UInt = { //mul means emul or lmul
     (LookupTree(mul,List(
-      "b101".U -> 0.U           ,
-      "b110".U -> 0.U           ,
-      "b111".U -> 0.U           ,
-      "b000".U -> 0.U           ,
-      "b001".U -> inner_Idx(0)  ,
-      "b010".U -> inner_Idx(1,0),
-      "b011".U -> inner_Idx(2,0)
+      "b101".U -> 0.U        , // 1/8
+      "b110".U -> 0.U        , // 1/4
+      "b111".U -> 0.U        , // 1/2
+      "b000".U -> 0.U        , // 1
+      "b001".U -> uopIdx(0)  , // 2
+      "b010".U -> uopIdx(1,0), // 4
+      "b011".U -> uopIdx(2,0)  //8
     )))}
 }
 
@@ -297,11 +369,11 @@ object GenRealFlowNum {
     (LookupTree(instType,List(
       "b000".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // store use, load do not use
       "b010".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // strided
-      "b001".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt, // indexed-unordered
-      "b011".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt, // indexed-ordered
+      "b001".U ->  Mux(!emul(2) && !lmul(2) && emul > lmul,(MulDataSize(emul) >> eew(1,0)).asUInt,(MulDataSize(lmul) >> sew(1,0)).asUInt), // indexed-unordered
+      "b011".U ->  Mux(!emul(2) && !lmul(2) && emul > lmul,(MulDataSize(emul) >> eew(1,0)).asUInt,(MulDataSize(lmul) >> sew(1,0)).asUInt), // indexed-ordered
       "b100".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // segment unit-stride
       "b110".U ->  (MulDataSize(emul) >> eew(1,0)).asUInt, // segment strided
-      "b101".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt, // segment indexed-unordered
-      "b111".U ->  (MulDataSize(lmul) >> sew(1,0)).asUInt  // segment indexed-ordered
+      "b101".U ->  Mux(!emul(2) && !lmul(2) && emul > lmul,(MulDataSize(emul) >> eew(1,0)).asUInt,(MulDataSize(lmul) >> sew(1,0)).asUInt), // segment indexed-unordered
+      "b111".U ->  Mux(!emul(2) && !lmul(2) && emul > lmul,(MulDataSize(emul) >> eew(1,0)).asUInt,(MulDataSize(lmul) >> sew(1,0)).asUInt)  // segment indexed-ordered
     )))}
 }

@@ -1,3 +1,18 @@
+/***************************************************************************************
+  * Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+  * Copyright (c) 2020-2021 Peng Cheng Laboratory
+  *
+  * XiangShan is licensed under Mulan PSL v2.
+  * You can use this software according to the terms and conditions of the Mulan PSL v2.
+  * You may obtain a copy of Mulan PSL v2 at:
+  *          http://license.coscl.org.cn/MulanPSL2
+  *
+  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+  * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  *
+  * See the Mulan PSL v2 for more details.
+  ***************************************************************************************/
 package xiangshan.mem
 
 import chipsalliance.rocketchip.config.Parameters
@@ -29,6 +44,7 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
   val instType    = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val uop_unit_stride_fof = Wire(Vec(VecLoadPipelineWidth, Bool()))
   val uop_segment_num = Wire(Vec(VecLoadPipelineWidth, Bool()))
+  val realFlowNum     = Wire(Vec(VecLoadPipelineWidth, UInt(5.W)))
 
 
 
@@ -42,6 +58,7 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
     instType(i)            := Cat(isSegment(i), loadInstDec(i).uop_type)
     uop_unit_stride_fof(i) := loadInstDec(i).uop_unit_stride_fof
     uop_segment_num(i)     := loadInstDec(i).uop_segment_num
+    realFlowNum(i)         := GenRealFlowNum(instType = instType(i), emul = emul(i), lmul = lmul(i), eew = eew(i), sew = sew(i))
   }
 
   val vlflowQueue = Module(new VlflowQueue())
@@ -62,6 +79,7 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
 
   vluopQueue.io.instType  := instType
   vluopQueue.io.emul      := emul
+  vluopQueue.io.realFlowNum := realFlowNum
   vluopQueue.io.loadPipeIn <> io.loadPipleIn
   vluopQueue.io.vecLoadWriteback <> io.vecLoadWriteback
   vlflowQueue.io.eew                 := eew
@@ -70,6 +88,7 @@ class VectorLoadWrapper (implicit p: Parameters) extends XSModule with HasCircul
   vlflowQueue.io.instType            := instType
   vlflowQueue.io.uop_unit_stride_fof := uop_unit_stride_fof
   vlflowQueue.io.uop_segment_num     := uop_segment_num
+  vlflowQueue.io.realFlowNum         := realFlowNum
   vlflowQueue.io.loadPipeOut          <> io.loadPipeOut
 
 }

@@ -595,22 +595,24 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   uncache.io.flush.valid := sbuffer.io.flush.valid
 
   //Vector Load/Store Queue
-  for (i <- 0 until VecStorePipelineWidth) {
-    vectorLoadWrapperModule.io.loadRegIn(i) <> io.VecloadRegIn(i)
-    vectorLoadWrapperModule.io.vecLoadWriteback(i) <> io.vecWriteback(i)
-    vectorLoadWrapperModule.io.vecFeedback(i) <> io.vecFeedback(i)
-  }
-  vectorLoadWrapperModule.io.Redirect <> redirect
-  vlExcSignal.io.vecloadRegIn.map(_.ready := false.B)
-  vlExcSignal.io.vecloadRegIn.map(_.bits := DontCare)
-  vlExcSignal.io.vecloadRegIn.map(_.valid := DontCare)
-  vlExcSignal.io.vecwriteback := DontCare
-  vlExcSignal.io.vecFeedback := DontCare
+  //for (i <- 0 until VecStorePipelineWidth) {
+  //  vectorLoadWrapperModule.io.loadRegIn(i) <> io.VecloadRegIn(i)
+  //  vectorLoadWrapperModule.io.vecLoadWriteback(i) <> io.vecWriteback(i)
+  //  vectorLoadWrapperModule.io.vecFeedback(i) <> io.vecFeedback(i)
+  //}
+  //vectorLoadWrapperModule.io.Redirect <> redirect
+  //vlExcSignal.io.vecloadRegIn.map(_.ready := false.B)
+  //vlExcSignal.io.vecloadRegIn.map(_.bits := DontCare)
+  //vlExcSignal.io.vecloadRegIn.map(_.valid := DontCare)
+  //vlExcSignal.io.vecwriteback := DontCare
+  //vlExcSignal.io.vecFeedback := DontCare
 
   // vector test
-  //vectorLoadWrapperModule.io.loadRegIn <> vlExcSignal.io.vecloadRegIn
-  //vectorLoadWrapperModule.io.vecLoadWriteback <> vlExcSignal.io.vecwriteback
-  //vectorLoadWrapperModule.io.vecFeedback <> vlExcSignal.io.vecFeedback
+  vectorLoadWrapperModule.io.loadRegIn := DontCare
+  vectorLoadWrapperModule.io.Redirect := DontCare
+  vectorLoadWrapperModule.io.loadRegIn <> vlExcSignal.io.vecloadRegIn
+  vectorLoadWrapperModule.io.vecLoadWriteback <> vlExcSignal.io.vecwriteback
+  vectorLoadWrapperModule.io.vecFeedback <> vlExcSignal.io.vecFeedback
 
   //vluopqueue.io.loadPipeIn <> VecInit(loadUnits.map(_.io.VecloadOut))
   for (i <- 0 until 2) {

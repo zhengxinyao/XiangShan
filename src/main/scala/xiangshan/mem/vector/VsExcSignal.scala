@@ -160,11 +160,11 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val src0_10      = 0x80000000L.U + 0x10008.U // 10 and 12
   val src1_10      = "h00112233445566778899aabbccddeeff".U
   val src2_10      = "h00001111222233334444555566667777".U
-  val robIdx_10    = 4.U.asTypeOf(new RobPtr)
+  val robIdx_10    = 14.U.asTypeOf(new RobPtr)
   val uopIdx_10    = 0.U
   val sqIdx_10     = 10.U.asTypeOf(new SqPtr)
-  val vsew_10      = "b010".U
-  val vlmul_10     = "b011".U
+  val vsew_10      = "b010".U //4
+  val vlmul_10     = "b001".U//2
   val total_num_10 = 1.U
   val instr_10     = 0x0c000000.U //eew = 1
   val src0_11      = 0x80000000L.U + 0x10006.U//11 and 13
@@ -174,18 +174,18 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val uopIdx_11    = 0.U
   val sqIdx_11     = 11.U.asTypeOf(new SqPtr)
   val vsew_11      = "b001".U //2
-  val vlmul_11     = "b010".U//4
+  val vlmul_11     = "b001".U//2
   val total_num_11 = 1.U
   val instr_11     = 0x0c000000.U //eew = 1
 
   val src0_12      = 0x80000000L.U + 0x10008.U
   val src1_12      = "h00112233445566778899aabbccddeeff".U
   val src2_12      = "h00001111222233334444555566667777".U
-  val robIdx_12    = 4.U.asTypeOf(new RobPtr)
-  val uopIdx_12    = 0.U
+  val robIdx_12    = 14.U.asTypeOf(new RobPtr)
+  val uopIdx_12    = 1.U
   val sqIdx_12     = 12.U.asTypeOf(new SqPtr)
-  val vsew_12      = "b010".U
-  val vlmul_12     = "b011".U
+  val vsew_12      = "b010".U //4
+  val vlmul_12     = "b001".U//2
   val total_num_12 = 1.U
   val instr_12     = 0x0c000000.U //eew = 1
   val src0_13      = 0x80000000L.U + 0x10006.U
@@ -195,14 +195,14 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val uopIdx_13    = 1.U
   val sqIdx_13     = 12.U.asTypeOf(new SqPtr)
   val vsew_13      = "b001".U // 2
-  val vlmul_13     = "b010".U //4
+  val vlmul_13     = "b001".U//2
   val total_num_13 = 1.U
   val instr_13     = 0x0c000000.U //eew = 1
 
   val src0_14      = 0x80000000L.U + 0x10001.U
   val src1_14      = "h00112233445566778899aabbccddeeff".U
   val src2_14      = "h00002222444466668888aaaaccccceeee".U
-  val robIdx_14    = 6.U.asTypeOf(new RobPtr)
+  val robIdx_14    = 16.U.asTypeOf(new RobPtr)
   val uopIdx_14    = 0.U
   val sqIdx_14     = 14.U.asTypeOf(new SqPtr)
   val vsew_14      = "b000".U //1
@@ -212,7 +212,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val src0_15      = 0x80000000L.U + 0x10004.U
   val src1_15      = "h00004444000044440000444400004444".U
   val src2_15      = "h00002222444466668888aaaaccccceeee".U
-  val robIdx_15    = 7.U.asTypeOf(new RobPtr)
+  val robIdx_15    = 17.U.asTypeOf(new RobPtr)
   val uopIdx_15    = 0.U
   val sqIdx_15     = 15.U.asTypeOf(new SqPtr)
   val vsew_15      = "b010".U //4
@@ -404,7 +404,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val uopIdx_32    = 1.U
   val sqIdx_32     = 32.U.asTypeOf(new SqPtr)
   val vsew_32      = "b010".U // SEW=4
-  val vlmul_32     = "b011".U //8
+  val vlmul_32     = "b001".U //2
   val total_num_32 = 3.U
   val instr_32     = 0x2c000000.U // nf =2; eew= 1
   val src0_33      = 0x80000000L.U + 0x1000.U
@@ -414,7 +414,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val uopIdx_33    = 2.U
   val sqIdx_33     = 33.U.asTypeOf(new SqPtr)
   val vsew_33      = "b010".U // SEW=4
-  val vlmul_33     = "b011".U //8
+  val vlmul_33     = "b001".U //2
   val total_num_33 = 3.U
   val instr_33     = 0x2c000000.U // nf =2; eew= 1
 
@@ -425,7 +425,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val uopIdx_34    = 0.U
   val sqIdx_34     = 34.U.asTypeOf(new SqPtr)
   val vsew_34      = "b010".U // SEW=4
-  val vlmul_34     = "b011".U //8
+  val vlmul_34     = "b001".U //2
   val total_num_34 = 3.U
   val instr_34     = 0x2c000000.U // nf =2; eew= 1
   val src0_35      = 0x80000000L.U + 0x1000.U
@@ -435,7 +435,7 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val uopIdx_35    = 3.U
   val sqIdx_35     = 35.U.asTypeOf(new SqPtr)
   val vsew_35      = "b010".U // SEW=4
-  val vlmul_35     = "b011".U //8
+  val vlmul_35     = "b001".U //2
   val total_num_35 = 3.U
   val instr_35     = 0x2c000000.U // nf =2; eew= 1
 
@@ -446,17 +446,17 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
   val uopIdx_36    = 0.U
   val sqIdx_36     = 36.U.asTypeOf(new SqPtr)
   val vsew_36      = "b010".U //SEW = 4
-  val vlmul_36     = "b000".U //LMUL = 1
+  val vlmul_36     = "b111".U //LMUL = 1/2
   val total_num_36 = 2.U
   val instr_36     = 0x2c005000.U // nf =2; eew= 2
   val src0_37      = 0x80000000L.U + 0x1008.U
   val src1_37      = "h000044448888ccccc000044448888ccccc".U
   val src2_37      = "h00112233445566778899aabbccddeeff".U
   val robIdx_37    = 19.U.asTypeOf(new RobPtr)
-  val uopIdx_37    = 0.U
-  val sqIdx_37     = 36.U.asTypeOf(new SqPtr)
+  val uopIdx_37    = 1.U
+  val sqIdx_37     = 37.U.asTypeOf(new SqPtr)
   val vsew_37      = "b010".U //SEW = 4
-  val vlmul_37     = "b000".U //LMUL = 1
+  val vlmul_37     = "b111".U //LMUL = 1/2
   val total_num_37 = 2.U
   val instr_37     = 0x2c005000.U // nf =2; eew= 2
 
@@ -489,10 +489,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_2
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_2
       storeOUt(0).uop.sqIdx                    := sqIdx_2
-      storeOUt(0).uop.cf.instr                 := vsew_2
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_2
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_2
-      storeOUt(0).uop.ctrl.total_num           := instr_2
+      storeOUt(0).uop.cf.instr                 := instr_2
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_2
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_2
+      storeOUt(0).uop.ctrl.total_num           := total_num_2
       state_0 := s_2
     }
     is (s_2) {
@@ -507,10 +507,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_4
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_4
       storeOUt(0).uop.sqIdx                    := sqIdx_4
-      storeOUt(0).uop.cf.instr                 := vsew_4
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_4
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_4
-      storeOUt(0).uop.ctrl.total_num           := instr_4
+      storeOUt(0).uop.cf.instr                 := instr_4
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_4
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_4
+      storeOUt(0).uop.ctrl.total_num           := total_num_4
       when(counter === 201.U) {
         state_0 := s_3
       }
@@ -523,10 +523,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_6
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_6
       storeOUt(0).uop.sqIdx                    := sqIdx_6
-      storeOUt(0).uop.cf.instr                 := vsew_6
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_6
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_6
-      storeOUt(0).uop.ctrl.total_num           := instr_6
+      storeOUt(0).uop.cf.instr                 := instr_6
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_6
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_6
+      storeOUt(0).uop.ctrl.total_num           := total_num_6
       state_0 := s_4
     }
     is(s_4) {
@@ -541,10 +541,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_8
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_8
       storeOUt(0).uop.sqIdx                    := sqIdx_8
-      storeOUt(0).uop.cf.instr                 := vsew_8
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_8
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_8
-      storeOUt(0).uop.ctrl.total_num           := instr_8
+      storeOUt(0).uop.cf.instr                 := instr_8
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_8
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_8
+      storeOUt(0).uop.ctrl.total_num           := total_num_8
       when(counter === 301.U) {
         state_0 := s_5
       }
@@ -557,10 +557,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_10
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_10
       storeOUt(0).uop.sqIdx                    := sqIdx_10
-      storeOUt(0).uop.cf.instr                 := vsew_10
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_10
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_10
-      storeOUt(0).uop.ctrl.total_num           := instr_10
+      storeOUt(0).uop.cf.instr                 := instr_10
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_10
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_10
+      storeOUt(0).uop.ctrl.total_num           := total_num_10
       state_0 := s_6
     }
     is(s_6) {
@@ -575,10 +575,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_12
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_12
       storeOUt(0).uop.sqIdx                    := sqIdx_12
-      storeOUt(0).uop.cf.instr                 := vsew_12
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_12
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_12
-      storeOUt(0).uop.ctrl.total_num           := instr_12
+      storeOUt(0).uop.cf.instr                 := instr_12
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_12
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_12
+      storeOUt(0).uop.ctrl.total_num           := total_num_12
       when(counter === 401.U) {
         state_0 := s_7
       }
@@ -591,10 +591,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_14
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_14
       storeOUt(0).uop.sqIdx                    := sqIdx_14
-      storeOUt(0).uop.cf.instr                 := vsew_14
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_14
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_14
-      storeOUt(0).uop.ctrl.total_num           := instr_14
+      storeOUt(0).uop.cf.instr                 := instr_14
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_14
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_14
+      storeOUt(0).uop.ctrl.total_num           := total_num_14
       state_0 := s_8
     }
     is(s_8) {
@@ -609,10 +609,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_16
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_16
       storeOUt(0).uop.sqIdx                    := sqIdx_16
-      storeOUt(0).uop.cf.instr                 := vsew_16
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_16
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_16
-      storeOUt(0).uop.ctrl.total_num           := instr_16
+      storeOUt(0).uop.cf.instr                 := instr_16
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_16
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_16
+      storeOUt(0).uop.ctrl.total_num           := total_num_16
       when(counter === 501.U) {
         state_0 := s_9
       }
@@ -625,10 +625,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_18
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_18
       storeOUt(0).uop.sqIdx                    := sqIdx_18
-      storeOUt(0).uop.cf.instr                 := vsew_18
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_18
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_18
-      storeOUt(0).uop.ctrl.total_num           := instr_18
+      storeOUt(0).uop.cf.instr                 := instr_18
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_18
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_18
+      storeOUt(0).uop.ctrl.total_num           := total_num_18
       state_0 := s_10
     }
     is(s_10) {
@@ -643,10 +643,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_20
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_20
       storeOUt(0).uop.sqIdx                    := sqIdx_20
-      storeOUt(0).uop.cf.instr                 := vsew_20
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_20
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_20
-      storeOUt(0).uop.ctrl.total_num           := instr_20
+      storeOUt(0).uop.cf.instr                 := instr_20
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_20
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_20
+      storeOUt(0).uop.ctrl.total_num           := total_num_20
       when(counter === 601.U) {
         state_0 := s_11
       }
@@ -659,10 +659,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_22
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_22
       storeOUt(0).uop.sqIdx                    := sqIdx_22
-      storeOUt(0).uop.cf.instr                 := vsew_22
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_22
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_22
-      storeOUt(0).uop.ctrl.total_num           := instr_22
+      storeOUt(0).uop.cf.instr                 := instr_22
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_22
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_22
+      storeOUt(0).uop.ctrl.total_num           := total_num_22
       state_0 := s_12
     }
     is(s_12) {
@@ -677,10 +677,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_24
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_24
       storeOUt(0).uop.sqIdx                    := sqIdx_24
-      storeOUt(0).uop.cf.instr                 := vsew_24
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_24
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_24
-      storeOUt(0).uop.ctrl.total_num           := instr_24
+      storeOUt(0).uop.cf.instr                 := instr_24
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_24
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_24
+      storeOUt(0).uop.ctrl.total_num           := total_num_24
       when(counter === 701.U) {
         state_0 := s_13
       }
@@ -693,10 +693,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_26
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_26
       storeOUt(0).uop.sqIdx                    := sqIdx_26
-      storeOUt(0).uop.cf.instr                 := vsew_26
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_26
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_26
-      storeOUt(0).uop.ctrl.total_num           := instr_26
+      storeOUt(0).uop.cf.instr                 := instr_26
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_26
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_26
+      storeOUt(0).uop.ctrl.total_num           := total_num_26
       state_0 := s_14
     }
     is(s_14) {
@@ -711,10 +711,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_28
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_28
       storeOUt(0).uop.sqIdx                    := sqIdx_28
-      storeOUt(0).uop.cf.instr                 := vsew_28
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_28
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_28
-      storeOUt(0).uop.ctrl.total_num           := instr_28
+      storeOUt(0).uop.cf.instr                 := instr_28
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_28
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_28
+      storeOUt(0).uop.ctrl.total_num           := total_num_28
       when(counter === 801.U) {
         state_0 := s_15
       }
@@ -727,10 +727,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_30
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_30
       storeOUt(0).uop.sqIdx                    := sqIdx_30
-      storeOUt(0).uop.cf.instr                 := vsew_30
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_30
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_30
-      storeOUt(0).uop.ctrl.total_num           := instr_30
+      storeOUt(0).uop.cf.instr                 := instr_30
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_30
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_30
+      storeOUt(0).uop.ctrl.total_num           := total_num_30
       state_0 := s_16
     }
     is(s_16) {
@@ -745,10 +745,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_32
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_32
       storeOUt(0).uop.sqIdx                    := sqIdx_32
-      storeOUt(0).uop.cf.instr                 := vsew_32
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_32
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_32
-      storeOUt(0).uop.ctrl.total_num           := instr_32
+      storeOUt(0).uop.cf.instr                 := instr_32
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_32
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_32
+      storeOUt(0).uop.ctrl.total_num           := total_num_32
       when(counter === 901.U) {
         state_0 := s_17
       }
@@ -761,10 +761,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_34
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_34
       storeOUt(0).uop.sqIdx                    := sqIdx_34
-      storeOUt(0).uop.cf.instr                 := vsew_34
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_34
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_34
-      storeOUt(0).uop.ctrl.total_num           := instr_34
+      storeOUt(0).uop.cf.instr                 := instr_34
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_34
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_34
+      storeOUt(0).uop.ctrl.total_num           := total_num_34
       state_0 := s_18
     }
     is(s_18) {
@@ -779,10 +779,10 @@ class VsExcSignal (implicit p: Parameters) extends XSModule {
       storeOUt(0).uop.robIdx                   := robIdx_36
       storeOUt(0).uop.ctrl.uopIdx              := uopIdx_36
       storeOUt(0).uop.sqIdx                    := sqIdx_36
-      storeOUt(0).uop.cf.instr                 := vsew_36
-      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vlmul_36
-      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := total_num_36
-      storeOUt(0).uop.ctrl.total_num           := instr_36
+      storeOUt(0).uop.cf.instr                 := instr_36
+      storeOUt(0).uop.ctrl.vconfig.vtype.vsew  := vsew_36
+      storeOUt(0).uop.ctrl.vconfig.vtype.vlmul := vlmul_36
+      storeOUt(0).uop.ctrl.total_num           := total_num_36
       when(counter === 1001.U) {
         state_0 := s_idle
       }

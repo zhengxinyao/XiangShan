@@ -198,22 +198,19 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
 
   // Send TLB feedback to store issue queue
   // Store feedback is generated in store_s1, sent to RS in store_s2
-  io.vsfqFeedBack.valid := false.B
+  //io.vsfqFeedBack.valid := false.B
   io.vsfqFeedBack.bits := DontCare
-  io.rsFeedback.valid := false.B
+  //io.rsFeedback.valid := false.B
   io.rsFeedback.bits := DontCare
-  when (io.in.bits.vec128bit) {
-    io.vsfqFeedBack.valid := io.in.valid
-    io.vsfqFeedBack.bits.fqIdx := io.in.bits.fqIdx
-    io.vsfqFeedBack.bits.hit := !s1_tlb_miss
-    io.vsfqFeedBack.bits.sourceType := VSFQFeedbackType.tlbMiss
-  }.otherwise {
-    io.rsFeedback.valid := io.in.valid
-    io.rsFeedback.bits.hit := !s1_tlb_miss
-    io.rsFeedback.bits.flushState := io.dtlbResp.bits.ptwBack
-    io.rsFeedback.bits.rsIdx := io.in.bits.rsIdx
-    io.rsFeedback.bits.sourceType := RSFeedbackType.tlbMiss
-  }
+  io.vsfqFeedBack.valid := io.in.valid && io.in.bits.vec128bit
+  io.vsfqFeedBack.bits.fqIdx := io.in.bits.fqIdx
+  io.vsfqFeedBack.bits.hit := !s1_tlb_miss
+  io.vsfqFeedBack.bits.sourceType := VSFQFeedbackType.tlbMiss
+  io.rsFeedback.valid := io.in.valid && !io.in.bits.vec128bit
+  io.rsFeedback.bits.hit := !s1_tlb_miss
+  io.rsFeedback.bits.flushState := io.dtlbResp.bits.ptwBack
+  io.rsFeedback.bits.rsIdx := io.in.bits.rsIdx
+  io.rsFeedback.bits.sourceType := RSFeedbackType.tlbMiss
 
   XSDebug(io.rsFeedback.valid,
     "S1 Store: tlbHit: %d robIdx: %d\n",
@@ -239,7 +236,7 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
   io.out.bits.uop.cf.exceptionVec(storePageFault) := io.dtlbResp.bits.excp(0).pf.st
   io.out.bits.uop.cf.exceptionVec(storeAccessFault) := io.dtlbResp.bits.excp(0).af.st
 
-  io.lsq.valid := io.in.valid
+  io.lsq.valid := io.in.valid && !io.in.bits.vec128bit //TODO: vector don't write
   io.lsq.bits := io.out.bits
   io.lsq.bits.miss := s1_tlb_miss
 
@@ -369,7 +366,7 @@ class StoreUnit(implicit p: Parameters) extends XSModule {
   io.feedbackSlow.bits := RegNext(store_s1.io.rsFeedback.bits)
   io.feedbackSlow.valid := RegNext(store_s1.io.rsFeedback.valid && !store_s1.io.out.bits.uop.robIdx.needFlush(io.redirect))
   io.vsfqFeedBack.bits := RegNext(store_s1.io.vsfqFeedBack.bits)
-  io.vsfqFeedBack.valid := RegNext(store_s1.io.rsFeedback.valid && !store_s1.io.out.bits.uop.robIdx.needFlush(io.redirect))//TODO:
+  io.vsfqFeedBack.valid := RegNext(store_s1.io.vsfqFeedBack.valid && !store_s1.io.out.bits.uop.robIdx.needFlush(io.redirect))//TODO:
 
   store_s2.io.pmpResp <> io.pmp
   store_s2.io.static_pm := RegNext(io.tlb.resp.bits.static_pm)
