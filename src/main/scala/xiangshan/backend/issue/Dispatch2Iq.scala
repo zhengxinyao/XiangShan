@@ -345,7 +345,6 @@ class Dispatch2IqMemImp(override val wrapper: Dispatch2Iq)(implicit p: Parameter
     }
   }
 
-  println(io.in.size)
   // enqLsq io
   require(enqLsqIO.req.size == enqLsqIO.resp.size)
   for (i <- enqLsqIO.req.indices) {

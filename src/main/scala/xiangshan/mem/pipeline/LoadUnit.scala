@@ -307,7 +307,6 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
     s0_rsIdx := DontCare
     s0_sqIdx := DontCare
     s0_replayCarry := DontCare
-    s0_rsIdx := DontCare
     s0_isLoadReplay := DontCare
     // ctrl signal
     isPrefetch := true.B
@@ -321,8 +320,8 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
     s0_isFirstIssue := true.B
     s0_rsIdx := io.in.bits.iqIdx
     s0_sqIdx := io.in.bits.uop.sqIdx
-    val issueUopIsPrefetch = WireInit(LSUOpType.isPrefetch(io.in.bits.uop.fuOpType))
     s0_isLoadReplay := false.B
+    val issueUopIsPrefetch = WireInit(LSUOpType.isPrefetch(io.in.bits.uop.fuOpType))
     when (issueUopIsPrefetch) {
       isPrefetch := true.B
     }
