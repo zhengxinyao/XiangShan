@@ -112,6 +112,8 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
     val s0_sqIdx = Output(new SqPtr)
     // l2l
     val l2lForward_select = Output(Bool())
+    val lqReplayFull = Input(Bool())
+    val ldWbPtr = Input(new LqPtr)
   })
   require(LoadPipelineWidth == backendParams.LduCnt)
 
@@ -384,7 +386,9 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
   // accept load flow from rs when:
   // 1) there is no lsq-replayed load
   // 2) there is no high confidence prefetch request
-  io.in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_intloadFirstIssue_select)
+  // 3) there is no older inst when LoadQueueReplay full.
+  val loadIsOldest = io.in.bits.uop.lqIdx === io.ldWbPtr
+  io.in.ready := (io.out.ready && io.dcacheReq.ready && lfsrc_intloadFirstIssue_select && (!io.lqReplayFull || loadIsOldest))
 
   // for hw prefetch load flow feedback, to be added later
   // io.prefetch_in.ready := lfsrc_hwprefetch_select
@@ -905,6 +909,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
     val debug_ls = Output(new DebugLsInfoBundle)
     val s2IsPointerChasing = Output(Bool()) // provide right pc for hw prefetch
     val lqReplayFull = Input(Bool())
+    val ldWbPtr = Input(new LqPtr)
 
     // Load fast replay path
     val fastReplayIn = Flipped(Decoupled(new LqWriteBundle))
@@ -928,6 +933,8 @@ class LoadUnit(implicit p: Parameters) extends XSModule
   // hareware prefetch to l1
   load_s0.io.prefetch_in <> io.prefetch_req
   load_s0.io.fastReplay <> io.fastReplayIn
+  load_s0.io.lqReplayFull <> io.lqReplayFull
+  load_s0.io.ldWbPtr <> io.ldWbPtr
 
   // we try pointerchasing if lfsrc_l2lForward_select condition is satisfied
   val s0_tryPointerChasing = load_s0.io.l2lForward_select

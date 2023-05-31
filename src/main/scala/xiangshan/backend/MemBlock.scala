@@ -364,6 +364,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     loadUnits(i).io.loadIn <> io.issue(i)
     loadUnits(i).io.feedbackSlow <> io.ldaIqFeedback(i).feedbackSlow
     loadUnits(i).io.feedbackFast <> io.ldaIqFeedback(i).feedbackFast
+    loadUnits(i).io.ldWbPtr <> lsq.io.ldWbPtr
+    loadUnits(i).io.lqReplayFull <> lsq.io.lqReplayFull
 
     // fast replay
     loadUnits(i).io.fastReplayIn.valid := balanceFastReplaySel(i).valid 
@@ -399,7 +401,6 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     for (s <- 0 until StorePipelineWidth) {
       loadUnits(i).io.reExecuteQuery(s) := storeUnits(s).io.reExecuteQuery
     }
-    loadUnits(i).io.lqReplayFull <> lsq.io.lqReplayFull
     // prefetch
     prefetcherOpt.foreach(pf => {
       pf.io.ld_in(i).valid := Mux(pf_train_on_hit,
