@@ -273,8 +273,7 @@ class ExceptionGen(params: BackendParams)(implicit p: Parameters) extends XSModu
 
   def getOldest(valid: Seq[Bool], bits: Seq[RobExceptionInfo]): (Seq[Bool], Seq[RobExceptionInfo]) = {
     assert(valid.length == bits.length)
-    assert(isPow2(valid.length))
-    if (valid.length == 1) {
+    if (valid.length == 0 || valid.length == 1) {
       (valid, bits)
     } else if (valid.length == 2) {
       val res = Seq.fill(2)(Wire(ValidIO(chiselTypeOf(bits(0)))))
@@ -286,7 +285,7 @@ class ExceptionGen(params: BackendParams)(implicit p: Parameters) extends XSModu
       (Seq(oldest.valid), Seq(oldest.bits))
     } else {
       val left = getOldest(valid.take(valid.length / 2), bits.take(valid.length / 2))
-      val right = getOldest(valid.takeRight(valid.length / 2), bits.takeRight(valid.length / 2))
+      val right = getOldest(valid.takeRight(valid.length - valid.length / 2), bits.takeRight(valid.length - valid.length / 2))
       getOldest(left._1 ++ right._1, left._2 ++ right._2)
     }
   }

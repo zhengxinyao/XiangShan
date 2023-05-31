@@ -595,14 +595,6 @@ trait HasXSParameter {
   val LFSTWidth = 4
   val StoreSetEnable = true // LWT will be disabled if SS is enabled
   val LFSTEnable = false
-  val loadExuConfigs = coreParams.loadExuConfigs
-  val storeExuConfigs = coreParams.storeExuConfigs
-
-  val intExuConfigs = coreParams.intExuConfigs
-
-  val fpExuConfigs = coreParams.fpExuConfigs
-
-  val exuConfigs = coreParams.exuConfigs
 
   val PCntIncrStep: Int = 6
   val numPCntHc: Int = 25

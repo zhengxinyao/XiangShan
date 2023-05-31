@@ -61,8 +61,6 @@ class FreeList(size: Int, allocWidth: Int, freeWidth: Int, enablePreAlloc: Boole
   val tailPtrNext = Wire(new FreeListPtr)
 
   // legality check
-  require(isPow2(freeWidth))
-  require((size % freeWidth) == 0)
   def getRemBits(input: UInt)(rem: Int): UInt = {
     VecInit((0 until size / freeWidth).map(i => { input(freeWidth * i + rem) })).asUInt
   }  
@@ -73,17 +71,23 @@ class FreeList(size: Int, allocWidth: Int, freeWidth: Int, enablePreAlloc: Boole
   val freeSelMaskVec = Wire(Vec(freeWidth, UInt(size.W)))
 
   // update freeMask
+  require((size % freeWidth) == 0)
   freeSelMask := freeSelMaskVec.reduce(_|_)
   freeMask := (io.free | freeMask) & ~freeSelMask
 
   val remFreeSelMaskVec = VecInit(Seq.tabulate(freeWidth)(rem => getRemBits((freeMask & ~freeSelMask))(rem)))
-  val remFreeSelIndexVec = VecInit(Seq.tabulate(freeWidth)(fport => {
-    val highIndex = PriorityEncoder(remFreeSelMaskVec(fport))
-    Cat(highIndex, fport.U(log2Ceil(freeWidth).W))
+  val remFreeSelIndexOHVec = VecInit(Seq.tabulate(freeWidth)(fport => {
+    val highIndexOH = PriorityEncoderOH(remFreeSelMaskVec(fport))
+    val freeIndexOHVec = Wire(Vec(size, Bool()))
+    freeIndexOHVec.foreach(e => e := false.B)
+    for (i <- 0 until LoadQueueReplaySize / LoadPipelineWidth) {
+      freeIndexOHVec(i * LoadPipelineWidth + fport) := highIndexOH(i)
+    }
+    freeIndexOHVec.asUInt
   }))
 
   val freeReq = RegNext(VecInit(remFreeSelMaskVec.map(_.asUInt.orR)))
-  val freeSlot = RegNext(remFreeSelIndexVec)
+  val freeSlot = RegNext(remFreeSelIndexOHVec)
   val doFree = freeReq.asUInt.orR
 
   for (i <- 0 until freeWidth) {
@@ -94,7 +98,7 @@ class FreeList(size: Int, allocWidth: Int, freeWidth: Int, enablePreAlloc: Boole
       freeList(enqPtr.value) := freeSlot(i)
     }
 
-    freeSelMaskVec(i) := Mux(freeReq(i), UIntToOH(freeSlot(i)), 0.U)
+    freeSelMaskVec(i) := Mux(freeReq(i), freeSlot(i), 0.U)
   }
 
   tailPtrNext := tailPtr + PopCount(freeReq)

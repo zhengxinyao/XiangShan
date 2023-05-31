@@ -357,18 +357,19 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
   }}
   val balanceFastReplaySel = balanceReOrder(fastReplaySel)
 
-  for (i <- 0 until exuParameters.LduCnt) {
+  for (i <- 0 until LduCnt) {
     loadUnits(i).io.redirect <> redirect
     // get input form dispatch
     loadUnits(i).io.loadIn <> io.issue(i)
-    loadUnits(i).io.rsIdx := DontCare
-   
+    loadUnits(i).io.ldWbPtr <> lsq.io.ldWbPtr
+    loadUnits(i).io.lqReplayFull <> lsq.io.lqReplayFull
+
     // fast replay
     loadUnits(i).io.fastReplayIn.valid := balanceFastReplaySel(i).valid 
     loadUnits(i).io.fastReplayIn.bits := balanceFastReplaySel(i).bits.req
 
     loadUnits(i).io.fastReplayOut.ready := false.B
-    for (j <- 0 until exuParameters.LduCnt) {
+    for (j <- 0 until LduCnt) {
       when (balanceFastReplaySel(j).valid && balanceFastReplaySel(j).bits.port === i.U) {
         loadUnits(i).io.fastReplayOut.ready := loadUnits(j).io.fastReplayIn.ready
       }
@@ -397,7 +398,6 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     for (s <- 0 until StorePipelineWidth) {
       loadUnits(i).io.reExecuteQuery(s) := storeUnits(s).io.reExecuteQuery
     }
-    loadUnits(i).io.lqReplayFull <> lsq.io.lqReplayFull
     // prefetch
     prefetcherOpt.foreach(pf => {
       pf.io.ld_in(i).valid := Mux(pf_train_on_hit,

@@ -490,14 +490,14 @@ class IssueQueueMemAddrImp(override val wrapper: IssueQueue)(implicit p: Paramet
   override lazy val io = IO(new IssueQueueMemIO).suggestName("io")
   private val memIO = io.memIO.get
 
-  for (i <- io.enq.indices) {
-    val blockNotReleased = isAfter(io.enq(i).bits.sqIdx, memIO.checkWait.stIssuePtr)
-    val storeAddrWaitForIsIssuing = VecInit((0 until StorePipelineWidth).map(i => {
-      memIO.checkWait.memWaitUpdateReq.staIssue(i).valid &&
-        memIO.checkWait.memWaitUpdateReq.staIssue(i).bits.uop.robIdx.value === io.enq(i).bits.waitForRobIdx.value
-    })).asUInt.orR && !io.enq(i).bits.loadWaitStrict // is waiting for store addr ready
-    s0_enqBits(i).loadWaitBit := io.enq(i).bits.loadWaitBit && !storeAddrWaitForIsIssuing && blockNotReleased
-  }
+  // for (i <- io.enq.indices) {
+  //   val blockNotReleased = isAfter(io.enq(i).bits.sqIdx, memIO.checkWait.stIssuePtr)
+  //   val storeAddrWaitForIsIssuing = VecInit((0 until StorePipelineWidth).map(i => {
+  //     memIO.checkWait.memWaitUpdateReq.staIssue(i).valid &&
+  //       memIO.checkWait.memWaitUpdateReq.staIssue(i).bits.uop.robIdx.value === io.enq(i).bits.waitForRobIdx.value
+  //   })).asUInt.orR && !io.enq(i).bits.loadWaitStrict // is waiting for store addr ready
+  //   s0_enqBits(i).loadWaitBit := io.enq(i).bits.loadWaitBit && !storeAddrWaitForIsIssuing && blockNotReleased
+  // }
 
   for (i <- statusArray.io.enq.indices) {
     statusArray.io.enq(i).bits.data match { case enqData =>
