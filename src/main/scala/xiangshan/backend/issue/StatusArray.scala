@@ -216,7 +216,7 @@ class StatusArrayMem()(implicit p: Parameters, params: IssueBlockParams) extends
     val clearByFlush = (enqStatusVec(i).valid || validVec(i)) && flushedVec(i)
     val clearByResp = deqRespVec(i).valid && (
       //do: special mem success
-      if(params.StaCnt == 0) {
+      if(params.StaCnt == 0 && params.LduCnt == 0 && params.MouCnt == 0) {
         deqRespVec(i).bits.respType === RSFeedbackType.fuIdle
       }
       else{
