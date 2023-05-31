@@ -155,9 +155,9 @@ case class XSCoreParameters
   LoadQueueRARSize: Int = 80,
   LoadQueueRAWSize: Int = 64, // NOTE: make sure that LoadQueueRAWSize is power of 2.
   RollbackGroupSize: Int = 8,
-  LoadQueueReplaySize: Int = 80,
+  LoadQueueReplaySize: Int = 72,
   LoadUncacheBufferSize: Int = 20,
-  LoadQueueNWriteBanks: Int = 8, // NOTE: make sure that LoadQueueRARSize/LoadQueueRAWSize is divided by LoadQueueNWriteBanks
+  LoadQueueNWriteBanks: Int = 4, // NOTE: make sure that LoadQueueRARSize/LoadQueueRAWSize is divided by LoadQueueNWriteBanks
   StoreQueueSize: Int = 64,
   StoreQueueNWriteBanks: Int = 8, // NOTE: make sure that StoreQueueSize is divided by StoreQueueNWriteBanks
   StoreQueueForwardWithMask: Boolean = true,
@@ -183,8 +183,8 @@ case class XSCoreParameters
     numWrite = 8,
   ),
   prefetcher: Option[PrefetcherParams] = Some(SMSParams()),
-  LoadPipelineWidth: Int = 2,
-  StorePipelineWidth: Int = 2,
+  LoadPipelineWidth: Int = 3,
+  StorePipelineWidth: Int = 3,
   VecMemSrcInWidth: Int = 2,
   VecMemInstWbWidth: Int = 1,
   VecMemDispatchWidth: Int = 1,
@@ -593,6 +593,16 @@ trait HasXSParameter {
   val SSIDWidth = log2Up(LFSTSize)
   val LFSTWidth = 4
   val StoreSetEnable = true // LWT will be disabled if SS is enabled
+  val LFSTEnable = false
+  val loadExuConfigs = coreParams.loadExuConfigs
+  val storeExuConfigs = coreParams.storeExuConfigs
+
+  val intExuConfigs = coreParams.intExuConfigs
+
+  val fpExuConfigs = coreParams.fpExuConfigs
+
+  val exuConfigs = coreParams.exuConfigs
+
   val PCntIncrStep: Int = 6
   val numPCntHc: Int = 25
   val numPCntPtw: Int = 19
