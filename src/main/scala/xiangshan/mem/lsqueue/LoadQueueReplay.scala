@@ -220,8 +220,10 @@ class LoadQueueReplay(implicit p: Parameters) extends XSModule
   val blockByWaitStore = RegInit(VecInit(List.fill(LoadQueueReplaySize)(false.B)))
   val blockByCacheMiss = RegInit(VecInit(List.fill(LoadQueueReplaySize)(false.B)))
   val blockByOthers = RegInit(VecInit(List.fill(LoadQueueReplaySize)(false.B)))
-  //  DCache miss block
+  // DCache miss block
   val missMSHRId = RegInit(VecInit(List.fill(LoadQueueReplaySize)(0.U((log2Up(cfg.nMissEntries).W)))))
+  // Has this load already updated dcache replacement?
+  val replacementUpdated = RegInit(VecInit(List.fill(LoadQueueReplaySize)(false.B)))
   val trueCacheMissReplay = WireInit(VecInit(cause.map(_(LoadReplayCauses.dcacheMiss))))
   val creditUpdate = WireInit(VecInit(List.fill(LoadQueueReplaySize)(0.U(ReSelectLen.W))))
   (0 until LoadQueueReplaySize).map(i => {
@@ -393,6 +395,7 @@ class LoadQueueReplay(implicit p: Parameters) extends XSModule
     val s1_replayIdx = s1_oldestSel(i).bits
     val s2_replayUop = RegNext(uop(s1_replayIdx))
     val s2_replayMSHRId = RegNext(missMSHRId(s1_replayIdx))
+    val s2_replacementUpdated = RegNext(replacementUpdated(s1_replayIdx))
     val s2_replayCauses = RegNext(cause(s1_replayIdx))
     val s2_replayCarry = RegNext(replayCarryReg(s1_replayIdx))
     val s2_replayCacheMissReplay = RegNext(trueCacheMissReplay(s1_replayIdx))
@@ -411,6 +414,7 @@ class LoadQueueReplay(implicit p: Parameters) extends XSModule
     io.replay(i).bits.isLoadReplay := true.B
     io.replay(i).bits.replayCarry := s2_replayCarry
     io.replay(i).bits.mshrid := s2_replayMSHRId
+    io.replay(i).bits.replacementUpdated := s2_replacementUpdated
     io.replay(i).bits.forward_tlDchannel := s2_replayCauses(LoadReplayCauses.dcacheMiss)
     io.replay(i).bits.sleepIndex := s2_oldestSel(i).bits
 
@@ -544,9 +548,13 @@ class LoadQueueReplay(implicit p: Parameters) extends XSModule
         blockPtrOthers(enqIndex) :=  Mux(blockPtrOthers(enqIndex) === 3.U(2.W), blockPtrOthers(enqIndex), blockPtrOthers(enqIndex) + 1.U(2.W)) 
       }
 
-      // 
+      // extra info
       replayCarryReg(enqIndex) := replayInfo.replayCarry
-      missMSHRId(enqIndex) := replayInfo.missMSHRId
+      replacementUpdated(enqIndex) := enq.bits.replacementUpdated
+      // update missMSHRId only when the load has already been handled by mshr
+      when(enq.bits.handledByMSHR) {
+        missMSHRId(enqIndex) := replayInfo.missMSHRId
+      }
     }
 
     //
