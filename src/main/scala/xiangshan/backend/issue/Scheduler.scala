@@ -58,7 +58,6 @@ class SchedulerIO()(implicit params: SchdBlockParams, p: Parameters) extends XSB
   val fromDataPath: MixedVec[MixedVec[Bundles.OGRespBundle]] = MixedVec(params.issueBlockParams.map(x => Flipped(x.genOGRespBundle)))
 
   val memIO = if (params.isMemSchd) Some(new Bundle {
-    // val feedbackIO = Flipped(Vec(params.StaCnt + params.LduCnt, new MemRSFeedbackIO))
     val feedbackIO = Flipped(Vec(params.StaCnt, new MemRSFeedbackIO))
     val lsqEnqIO = Flipped(new LsqEnqIO)
   }) else None
@@ -268,7 +267,7 @@ class SchedulerMemImp(override val wrapper: Scheduler)(implicit params: SchdBloc
     stdIQ.io.wakeup := wakeupFromWBVec
   }
 
-  val iqMemBundleVec = memAddrIQs.map {
+  val iqMemBundleVec = stAddrIQs.map {
     case imp: IssueQueueMemAddrImp => imp.io.memIO
     case _ => None
   }.filter(_.nonEmpty).map(_.get)

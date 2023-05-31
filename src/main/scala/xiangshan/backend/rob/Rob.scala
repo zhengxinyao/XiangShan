@@ -285,7 +285,7 @@ class ExceptionGen(params: BackendParams)(implicit p: Parameters) extends XSModu
       (Seq(oldest.valid), Seq(oldest.bits))
     } else {
       val left = getOldest(valid.take(valid.length / 2), bits.take(valid.length / 2))
-      val right = getOldest(valid.takeRight(valid.length - valid.length / 2), bits.takeRight(valid.length - valid.length / 2))
+      val right = getOldest(valid.drop(valid.length / 2), bits.drop(valid.length / 2))
       getOldest(left._1 ++ right._1, left._2 ++ right._2)
     }
   }
