@@ -80,8 +80,8 @@ class FreeList(size: Int, allocWidth: Int, freeWidth: Int, enablePreAlloc: Boole
     val highIndexOH = PriorityEncoderOH(remFreeSelMaskVec(fport))
     val freeIndexOHVec = Wire(Vec(size, Bool()))
     freeIndexOHVec.foreach(e => e := false.B)
-    for (i <- 0 until LoadQueueReplaySize / LoadPipelineWidth) {
-      freeIndexOHVec(i * LoadPipelineWidth + fport) := highIndexOH(i)
+    for (i <- 0 until size / freeWidth) {
+      freeIndexOHVec(i * freeWidth + fport) := highIndexOH(i)
     }
     freeIndexOHVec.asUInt
   }))
