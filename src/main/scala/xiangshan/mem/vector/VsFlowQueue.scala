@@ -35,7 +35,7 @@ object VsFlowPtr {
     ptr
   }
 }
-
+/*
 object VSRegOffset {
   def apply (instType: UInt, flowIdx: UInt, eew: UInt, sew: UInt):UInt = {
     (LookupTree(instType,List(
@@ -48,6 +48,16 @@ object VSRegOffset {
     "b101".U -> (flowIdx << sew(1,0)).asUInt, // segment indexed-unordered
     "b111".U -> (flowIdx << sew(1,0)).asUInt // segment indexed-ordered
     )))}
+}*/
+
+object VSRegOffset {
+  def apply (instType: UInt, flowIdx: UInt, eew: UInt, sew: UInt):UInt = {
+    (LookupTree(instType(1,0),List(
+      "b00".U -> (flowIdx << eew(1,0)).asUInt, // (segment) unit-stride(don't use),
+      "b10".U -> (flowIdx << eew(1,0)).asUInt, // (segment) strided
+      "b01".U -> (flowIdx << sew(1,0)).asUInt, // (segment) indexed-unordered
+      "b11".U -> (flowIdx << sew(1,0)).asUInt, // (segment) indexed-ordered
+    )))}
 }
 
 /**
@@ -58,11 +68,11 @@ object VSRegOffset {
   * (4) segment instructions: To calculate the address, segment instructions need calculate segEmulIdx and segNfIdx;
   * */
 object GenVSAddr {
-  def apply (instType: UInt, baseaddr: UInt, emul:UInt, lmul: UInt, uopIdx:UInt, flow_inner_idx: UInt, stride: UInt,
+  def apply (instType: UInt, baseaddr: UInt, eleIdx: UInt, emul:UInt, lmul: UInt, uopIdx:UInt, flow_inner_idx: UInt, stride: UInt,
              index: UInt, eew: UInt, sew: UInt, nf:UInt, segNfIdx: UInt, segMulIdx: UInt): UInt = {
     (LookupTree(instType,List(
-      "b000".U -> (baseaddr + ((flow_inner_idx + (uopIdx << Log2Num(GenRealFlowNum(instType,emul,lmul,eew,sew))).asUInt) << eew(1,0)).asUInt).asUInt,// unit-stride
-      "b010".U -> (baseaddr + stride * (flow_inner_idx + (uopIdx << Log2Num(GenRealFlowNum(instType,emul,lmul,eew,sew))).asUInt)),// strided
+      "b000".U -> (baseaddr + (eleIdx << eew(1,0)).asUInt).asUInt,// unit-stride
+      "b010".U -> (baseaddr + stride * eleIdx),// strided
       "b001".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = flow_inner_idx, eew = eew)), // indexed-unordered
       "b011".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = flow_inner_idx, eew = eew)), // indexed-ordered
       "b100".U -> (baseaddr +
@@ -74,6 +84,26 @@ object GenVSAddr {
       "b101".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = flow_inner_idx, eew = eew) + (segNfIdx << sew(1,0)).asUInt), // segment indexed-unordered
       "b111".U -> (baseaddr + IndexAddr(index= index, flow_inner_idx = flow_inner_idx, eew = eew) + (segNfIdx << sew(1,0)).asUInt)  // segment indexed-ordered
     )))}
+}
+
+object VSMaskCtrl {
+  def apply (vstart: UInt, vl: UInt, eleIdx: UInt, vmask: UInt, mask: UInt):(UInt,Bool) = {
+    val vsMask = Wire(UInt(16.W))
+    val exp = Wire(Bool())
+    when (vstart >= vl || vl === 0.U) {
+      vsMask := 0.U
+      exp := false.B
+    }.otherwise {
+      when (eleIdx >= vstart && eleIdx < vl && vmask(eleIdx)) {
+        vsMask := mask
+        exp := true.B
+      }.otherwise {
+        vsMask := 0.U
+        exp := false.B
+      }
+    }
+    (vsMask,exp)
+  }
 }
 
 object GenVSMask {
@@ -120,6 +150,7 @@ class VSFQFeedback (implicit p: Parameters) extends XSBundle {
 }
 
 class VecFlowEntry (implicit p: Parameters) extends ExuInput(isVpu = true) {
+  val exp                 = Bool()
   val mask                = UInt((VLEN/8).W)
   val uop_unit_stride_fof = Bool()
   val alignedType         = UInt(2.W)
@@ -131,6 +162,7 @@ class VecFlowEntry (implicit p: Parameters) extends ExuInput(isVpu = true) {
 }
 
 class VecPipeBundle(implicit p: Parameters) extends ExuInput(isVpu = true) {
+  val exp                 = Bool()
   val mask                = UInt((VLEN/8).W)
   val uop_unit_stride_fof = Bool()
   val alignedType         = UInt(2.W)
@@ -159,6 +191,10 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   val alignedType     = Wire(Vec(VecStorePipelineWidth, UInt(2.W)))
   val realFlowNum     = Wire(Vec(VecStorePipelineWidth, UInt(5.W)))
   val uopIdx          = Wire(Vec(VecStorePipelineWidth, UInt(6.W)))
+  val vma             = Wire(Vec(VecStorePipelineWidth, Bool()))
+  val vta             = Wire(Vec(VecStorePipelineWidth, Bool()))
+  val vl              = Wire(Vec(VecStorePipelineWidth, UInt(8.W)))
+  val vmask           = Wire(Vec(VecStorePipelineWidth, UInt(VLEN.W)))
   val eew             = Wire(Vec(VecStorePipelineWidth, UInt(3.W)))
   val sew             = Wire(Vec(VecStorePipelineWidth, UInt(3.W)))
   val emul            = Wire(Vec(VecStorePipelineWidth, UInt(3.W)))
@@ -258,6 +294,10 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     * enqueue updata */
   for (i <- 0 until VecStorePipelineWidth) {
     uopIdx(i)          := io.uopIn(i).bits.uop.ctrl.uopIdx
+    vma(i)             := io.uopIn(i).bits.uop.ctrl.vconfig.vtype.vma
+    vta(i)             := io.uopIn(i).bits.uop.ctrl.vconfig.vtype.vta
+    vl(i)              := io.uopIn(i).bits.uop.ctrl.vconfig.vl
+    vmask(i)           := io.uopIn(i).bits.src(3)
     eew(i)             := io.uopIn(i).bits.eew
     sew(i)             := io.uopIn(i).bits.uop.ctrl.vconfig.vtype.vsew
     emul(i)            := io.uopIn(i).bits.emul
@@ -287,6 +327,9 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
           val enqValue = Wire(UInt(5.W))
           val vdFlowIdx  = Wire(UInt(4.W))
           val vs2FlowIdx = Wire(UInt(4.W))
+          val eleIdx = Wire(UInt(7.W))
+          //val mask = Wire(UInt(16.W))
+          //val exp = Bool()
           enqValue := enqPtr(i).value + j.U
           flowEntry(i)(enqValue) := DontCare
           valid(i)(enqValue)        := true.B
@@ -306,17 +349,21 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
             vdFlowIdx   := Mux(emulNum(i) > lmulNum(i), RegFLowCnt(emulNum=emulNum(i), lmulNum=lmulNum(i), eew=eew(i), uopIdx=uopIdx(i), flowIdx=j.U), j.U)
             vs2FlowIdx  := Mux(emulNum(i) > lmulNum(i), j.U, AddrFLowCnt(emulNum=emulNum(i), lmulNum=lmulNum(i), sew=sew(i), uopIdx=uopIdx(i), flowIdx=j.U))
             alignedType(i) := sew(i)(1,0)
-          }.otherwise {
+          }.otherwise { //segment  index
             vdFlowIdx   := Mux(emulNum(i) > lmulNum(i), RegFLowCnt(emulNum = emulNum(i), lmulNum = lmulNum(i), eew = eew(i), uopIdx = segMulIdx(i), flowIdx = j.U), j.U)
             vs2FlowIdx  := Mux(emulNum(i) > lmulNum(i), j.U, AddrFLowCnt(emulNum = emulNum(i), lmulNum = lmulNum(i), sew = sew(i), uopIdx = segMulIdx(i), flowIdx = j.U))
             alignedType(i) := sew(i)(1,0)
           }
 
+          eleIdx := GenEleIdx(instType = instType(i), emul = emul(i), lmul = lmul(i), eew = eew(i), sew = sew(i), uopIdx = uopIdx(i), flowIdx = j.U)
+          val (vsmask,exp) = VSMaskCtrl(vstart = io.uopIn(i).bits.vstart, vl = vl(i), eleIdx = eleIdx, vmask = vmask(i), mask = io.uopIn(i).bits.mask)
+          //flowEntry(i)(enqValue).mask := io.uopIn(i).bits.mask << VSRegOffset(instType = instType(i), flowIdx = vdFlowIdx, eew = eew(i), sew = sew(i))
           flowEntry(i)(enqValue).reg_offset := VSRegOffset(instType = instType(i), flowIdx = vdFlowIdx, eew = eew(i), sew = sew(i))
-          flowEntry(i)(enqValue).mask := io.uopIn(i).bits.mask << VSRegOffset(instType = instType(i), flowIdx = vdFlowIdx, eew = eew(i), sew = sew(i))
+          flowEntry(i)(enqValue).mask := vsmask << VSRegOffset(instType = instType(i), flowIdx = vdFlowIdx, eew = eew(i), sew = sew(i))
           flowEntry(i)(enqValue).alignedType := alignedType(i)
-          flowEntry(i)(enqValue).src(0) := GenVSAddr(instType = instType(i), baseaddr = baseaddr(i), emul = emul(i), lmul = lmul(i),
-                                                      uopIdx = uopIdx(i), flow_inner_idx = vs2FlowIdx,
+          flowEntry(i)(enqValue).exp := exp
+          flowEntry(i)(enqValue).src(0) := GenVSAddr(instType = instType(i), baseaddr = baseaddr(i), eleIdx = eleIdx, emul = emul(i),
+                                                      lmul = lmul(i), uopIdx = uopIdx(i), flow_inner_idx = vs2FlowIdx,
                                                       stride = stride(i), index = index(i), eew = eew(i), sew = sew(i),
                                                       nf = uop_segment_num(i), segNfIdx = segNfIdx(i), segMulIdx = segMulIdx(i))
         }
@@ -345,6 +392,7 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     io.storePipeOut(i).bits.src(0)              := flowEntry(i)(deqIdx(i)).src(0)
     io.storePipeOut(i).bits.uop_unit_stride_fof := flowEntry(i)(deqIdx(i)).uop_unit_stride_fof
     io.storePipeOut(i).bits.alignedType         := flowEntry(i)(deqIdx(i)).alignedType
+    io.storePipeOut(i).bits.exp                 := flowEntry(i)(deqIdx(i)).exp
     io.storePipeOut(i).bits.uop                 := flowEntry(i)(deqIdx(i)).uop
   }
 

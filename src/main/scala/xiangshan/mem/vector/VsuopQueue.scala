@@ -38,6 +38,7 @@ object VsUopPtr {
 
 class VsUopQueueIOBundle (implicit p: Parameters) extends XSBundle {
   val storeIn  = Vec(VecStorePipelineWidth,Flipped(Decoupled(new ExuInput(isVpu = true))))
+  val vstart   = Vec(VecStorePipelineWidth,Input(UInt(8.W)))
   val Redirect = Flipped(ValidIO(new Redirect))
   val uop2Flow = Vec(VecStorePipelineWidth,Decoupled(new Uop2Flow()))
 }
@@ -118,6 +119,7 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
       valid(enqPtr.value + i.U) := true.B
       vsUopEntry(enqPtr.value + i.U).src      := io.storeIn(i).bits.src
       vsUopEntry(enqPtr.value + i.U).uop      := io.storeIn(i).bits.uop
+      vsUopEntry(enqPtr.value + i.U).vstart   := io.vstart(i)//FIXME
       vsUopEntry(enqPtr.value + i.U).mask     := GenVecStoreMask(instType=instType(i), eew=eew(i), sew=sew(i))
       vsUopEntry(enqPtr.value + i.U).eew      := eew(i)
       vsUopEntry(enqPtr.value + i.U).emul     := emul(i)
@@ -128,6 +130,7 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   }.elsewhen (storeInValid(0) && !storeInValid(1)) {
     valid(enqPtr.value) := true.B
     vsUopEntry(enqPtr.value).src := io.storeIn(0).bits.src
+    vsUopEntry(enqPtr.value).vstart   := io.vstart(0)//FIXME
     vsUopEntry(enqPtr.value).uop := io.storeIn(0).bits.uop
     vsUopEntry(enqPtr.value).mask := GenVecStoreMask(instType=instType(0), eew=eew(0), sew=sew(0))
     vsUopEntry(enqPtr.value).eew := eew(0)
@@ -138,6 +141,7 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   }.elsewhen (!storeInValid(0) && storeInValid(1)){
     valid(enqPtr.value) := true.B
     vsUopEntry(enqPtr.value).src := io.storeIn(1).bits.src
+    vsUopEntry(enqPtr.value).vstart := io.vstart(1)//FIXME
     vsUopEntry(enqPtr.value).uop := io.storeIn(1).bits.uop
     vsUopEntry(enqPtr.value).mask := GenVecStoreMask(instType=instType(1), eew=eew(1), sew=sew(1))
     vsUopEntry(enqPtr.value).eew := eew(1)

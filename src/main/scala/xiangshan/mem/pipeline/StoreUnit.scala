@@ -70,6 +70,7 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
   val s0_mask      = WireInit(0.U((VLEN/8).W))
   val isFirstIssue = WireInit(false.B)
   val vec128bit    = WireInit(false.B)
+  val s0_exp       = WireInit(false.B)
 
   s0_uop := DontCare
   s0_valid := io.in.valid || io.vecIn.valid
@@ -84,6 +85,7 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
     s0_mask := genVWmask(io.out.bits.vaddr, io.in.bits.uop.ctrl.fuOpType(1,0))
     isFirstIssue := io.isFirstIssue
     vec128bit := false.B
+    s0_exp    := true.B
   }.elsewhen (sfsrc1_vecload_select) {
     s0_size := io.vecIn.bits.alignedType
     saddr := io.vecIn.bits.src(0)
@@ -94,6 +96,7 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
     s0_mask := io.vecIn.bits.mask
     isFirstIssue := io.vsFirstIssue
     vec128bit := true.B
+    s0_exp := io.vecIn.bits.exp
   }
 
   io.dtlbReq.bits.vaddr := saddr
@@ -111,6 +114,7 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
 
   io.out.bits := DontCare
   io.out.bits.vec128bit := vec128bit
+  io.out.bits.exp := s0_exp
   io.out.bits.fqIdx  := io.vecIn.bits.fqIdx
   io.out.bits.vaddr := saddr
 
@@ -143,7 +147,7 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
     "b11".U   -> (io.out.bits.vaddr(2,0) === 0.U)  //d
   ))
 
-  io.out.bits.uop.cf.exceptionVec(storeAddrMisaligned) := !addrAligned
+  io.out.bits.uop.cf.exceptionVec(storeAddrMisaligned) := !addrAligned && s0_exp
 
   XSPerfAccumulate("in_valid", io.in.valid)
   XSPerfAccumulate("in_fire", io.in.fire)
@@ -233,8 +237,8 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
   io.out.bits.miss := false.B
   io.out.bits.mmio := s1_mmio
   io.out.bits.atomic := s1_mmio
-  io.out.bits.uop.cf.exceptionVec(storePageFault) := io.dtlbResp.bits.excp(0).pf.st
-  io.out.bits.uop.cf.exceptionVec(storeAccessFault) := io.dtlbResp.bits.excp(0).af.st
+  io.out.bits.uop.cf.exceptionVec(storePageFault) := io.dtlbResp.bits.excp(0).pf.st && io.in.bits.exp
+  io.out.bits.uop.cf.exceptionVec(storeAccessFault) := io.dtlbResp.bits.excp(0).af.st && io.in.bits.exp
 
   io.lsq.valid := io.in.valid && !io.in.bits.vec128bit //TODO: vector don't write
   io.lsq.bits := io.out.bits
@@ -285,7 +289,7 @@ class StoreUnit_S2(implicit p: Parameters) extends XSModule {
   io.out.bits := io.in.bits
   io.out.bits.mmio := is_mmio && !s2_exception
   io.out.bits.atomic := io.in.bits.atomic || pmp.atomic
-  io.out.bits.uop.cf.exceptionVec(storeAccessFault) := io.in.bits.uop.cf.exceptionVec(storeAccessFault) || pmp.st
+  io.out.bits.uop.cf.exceptionVec(storeAccessFault) := io.in.bits.uop.cf.exceptionVec(storeAccessFault) || (pmp.st && io.in.bits.exp)
   io.out.valid := io.in.valid && (!is_mmio || s2_exception)
 }
 

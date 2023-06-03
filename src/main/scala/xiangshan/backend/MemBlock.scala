@@ -457,6 +457,7 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     vsflowqueue.io.uopIn(i) := DontCare
     //vsuopqueue.io.storeIn(i) <> io.vecStoreIn(i)
     vsuopqueue.io.storeIn(i) <> vsExcSignal.io.storeOut(i)
+    vsuopqueue.io.vstart(i) <> vsExcSignal.io.vstartOut(i)
     vsflowqueue.io.uopIn(i) <> vsuopqueue.io.uop2Flow(i)
   }
   // StoreUnit

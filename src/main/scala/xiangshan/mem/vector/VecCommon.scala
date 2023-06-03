@@ -76,6 +76,7 @@ class VecExuOutput(implicit p: Parameters) extends ExuOutput {
 }
 
 class Uop2Flow(implicit p: Parameters) extends ExuInput(isVpu = true){
+  val vstart   = UInt(8.W)
   val mask     = UInt(16.W)
   val eew      = UInt(3.W)
   val emul     = UInt(3.W)
@@ -376,4 +377,16 @@ object GenRealFlowNum {
       "b101".U ->  Mux(!emul(2) && !lmul(2) && emul > lmul,(MulDataSize(emul) >> eew(1,0)).asUInt,(MulDataSize(lmul) >> sew(1,0)).asUInt), // segment indexed-unordered
       "b111".U ->  Mux(!emul(2) && !lmul(2) && emul > lmul,(MulDataSize(emul) >> eew(1,0)).asUInt,(MulDataSize(lmul) >> sew(1,0)).asUInt)  // segment indexed-ordered
     )))}
+}
+
+object GenEleIdx {
+  def apply (instType: UInt, emul: UInt, lmul: UInt, eew: UInt, sew: UInt, uopIdx:UInt, flowIdx: UInt):UInt = {
+    val eleIdx = Wire(UInt(7.W))
+    when (instType(1,0) === "b00".U || instType(1,0) === "b10".U || !emul(2) && !lmul(2) && emul > lmul) {
+      eleIdx := (uopIdx << Log2Num((MulDataSize(emul) >> eew(1,0)).asUInt)).asUInt + flowIdx
+    }.otherwise {
+      eleIdx := (uopIdx << Log2Num((MulDataSize(lmul) >> sew(1,0)).asUInt)).asUInt + flowIdx
+    }
+    eleIdx
+  }
 }
