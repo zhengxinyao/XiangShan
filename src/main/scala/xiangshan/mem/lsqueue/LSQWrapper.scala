@@ -96,6 +96,12 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
 
   val loadQueue = Module(new LoadQueue)
   val storeQueue = Module(new StoreQueue)
+  val sqRat = Module(new SQRenameTable(
+    size = SQRenameTableSize,
+    numReadPorts = backendParams.LsExuCnt,
+    numWritePorts = backendParams.LsExuCnt,
+    enableBypass = true
+  ))
 
   storeQueue.io.hartId := io.hartId
   storeQueue.io.uncacheOutstanding := io.uncacheOutstanding

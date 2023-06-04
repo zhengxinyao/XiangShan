@@ -237,6 +237,57 @@ class RobEnqPtrWrapper(implicit p: Parameters) extends XSModule with HasCircular
 
 }
 
+class RobFlushPointPtrWrapper(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
+  val io = IO(new Bundle() {
+    // for commits/flush
+    val state = Input(UInt(2.W))
+    val cmt_v = Vec(CommitWidth, Input(Bool()))
+    val cmt_w = Vec(CommitWidth, Input(Bool()))
+    val cmt_f = Vec(CommitWidth, Input(Bool()))
+    val exception_state = Flipped(ValidIO(new RobExceptionInfo))
+    // for flush: when exception occurs, reset flushPointPtrs to range(0, CommitWidth)
+    val intrBitSetReg = Input(Bool())
+    val hasNoSpecExec = Input(Bool()) 
+    val interrupt_safe = Input(Bool())
+    val blockCommit = Input(Bool())
+    // output: the CommitWidth flushPointPtr
+    val out = Vec(CommitWidth, Output(new RobPtr))
+    val next_out = Vec(CommitWidth, Output(new RobPtr))
+    val commitCount = Output(UInt())
+  })
+
+  val flushPointPtrVec = RegInit(VecInit((0 until CommitWidth).map(_.U.asTypeOf(new RobPtr))))
+
+  // for exceptions (flushPipe included) and interrupts:
+  // only consider the first instruction.
+  val intrEnable = io.intrBitSetReg && !io.hasNoSpecExec && io.interrupt_safe
+  val exceptionEnable = io.cmt_w(0) && io.exception_state.valid && io.exception_state.bits.not_commit && io.exception_state.bits.robIdx === flushPointPtrVec(0)
+  val redirectOutValid = io.state === 0.U && io.cmt_v(0) && (intrEnable || exceptionEnable)
+
+  // for normal commits: only to consider when there're no flush point.
+  // we don't need to consider whether first instruction has exception since it will trigger exceptions.
+  val commit_exception = io.exception_state.valid && !isAfter(io.exception_state.bits.robIdx, flushPointPtrVec.last) 
+  val canFlushPointCommit = VecInit((0 until CommitWidth).map(i => io.cmt_v(i) && io.cmt_w(i) && !io.cmt_f(i)))
+  val normalFlushPointCommitCnt = PriorityEncoder(canFlushPointCommit.map(c => !c) :+ true.B)
+  // when io.intrBitSetReg or there're possible exceptions in these instructions,
+  // only one instruction is allowed to commit.
+  val allowOnlyOne = commit_exception || io.intrBitSetReg 
+  val flushPointCmtCnt = Mux(allowOnlyOne, canFlushPointCommit(0), normalFlushPointCommitCnt)
+
+  val flushPointPtrVecExt = VecInit(flushPointPtrVec.map(_ + flushPointCmtCnt))
+  val flushPointPtrVec_next = Mux(io.state === 0.U && !redirectOutValid && !io.blockCommit, flushPointPtrVecExt, flushPointPtrVec)
+
+  flushPointPtrVec := flushPointPtrVec_next
+
+  io.next_out := flushPointPtrVec_next
+  io.out := flushPointPtrVec
+  io.commitCount := Mux(io.state === 0.U && !redirectOutValid && !io.blockCommit, flushPointCmtCnt, 0.U)
+
+  when (io.state === 0.U) {
+    XSInfo(io.state === 0.U && flushPointCmtCnt > 0.U, "retired %c store insts\n", flushPointCmtCnt)
+  }
+}
+
 class RobExceptionInfo(implicit p: Parameters) extends XSBundle {
   // val valid = Bool()
   val robIdx = new RobPtr
@@ -426,10 +477,8 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
   val realDestSize       = RegInit(VecInit(Seq.fill(RobSize)(0.U(log2Up(MaxUopSize + 1).W))))
   val fflagsDataModule   = RegInit(VecInit(Seq.fill(RobSize)(0.U(5.W))))
   val vxsatDataModule    = RegInit(VecInit(Seq.fill(RobSize)(false.B)))
+  val flushPoint         = RegInit(VecInit(Seq.fill(RobSize)(false.B)))
 
-  def isWritebacked(ptr: UInt): Bool = {
-    !writebackedCounter(ptr).orR
-  }
 
   // data for redirect, exception, etc.
   val flagBkup = Mem(RobSize, Bool())
@@ -447,16 +496,28 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
   // For enqueue ptr, we don't duplicate it since only enqueue needs it.
   val enqPtrVec = Wire(Vec(RenameWidth, new RobPtr))
   val deqPtrVec = Wire(Vec(CommitWidth, new RobPtr))
+  val flushPointPtrVec = Wire(Vec(CommitWidth, new RobPtr))
 
   val walkPtrVec = Reg(Vec(CommitWidth, new RobPtr))
   val allowEnqueue = RegInit(true.B)
 
   val enqPtr = enqPtrVec.head
   val deqPtr = deqPtrVec(0)
+  val flushPointPtr = flushPointPtrVec(0)
   val walkPtr = walkPtrVec(0)
+
+  val deqPtrFirst = Wire(new RobPtr)
 
   val isEmpty = enqPtr === deqPtr
   val isReplaying = io.redirect.valid && RedirectLevel.flushItself(io.redirect.bits.level)
+
+  def isWritebacked(ptr: UInt): Bool = {
+    !writebackedCounter(ptr).orR
+  }
+
+  def isFlushPoint(ptr: RobPtr): Bool = {
+    isAfter(ptr, deqPtrFirst) && flushPoint(ptr.value)
+  }
 
   /**
     * states of Rob
@@ -763,8 +824,11 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
   io.commits.isCommit := state === s_idle && !blockCommit
   val walk_v = VecInit(walkPtrVec.map(ptr => valid(ptr.value)))
   val commit_v = VecInit(deqPtrVec.map(ptr => valid(ptr.value)))
+  val flushpoint_commit_v = VecInit(flushPointPtrVec.map(ptr => valid(ptr.valid)))
   // store will be commited iff both sta & std have been writebacked
   val commit_w = VecInit(deqPtrVec.map(ptr => isWritebacked(ptr.value)))
+  val flushpoint_commit_w = VecInit(flushPointPtrVec.map(ptr => isWritebacked(ptr.value)))
+  val flushpoint_commit_f = VecInit(flushPointPtrVec.map(ptr => isFlushPoint(ptr)))
   val commit_exception = exceptionDataRead.valid && !isAfter(exceptionDataRead.bits.robIdx, deqPtrVec.last)
   val commit_block = VecInit((0 until CommitWidth).map(i => !commit_w(i)))
   val allowOnlyOneCommit = commit_exception || intrBitSetReg
@@ -820,7 +884,7 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
   val ldCommitVec = VecInit((0 until CommitWidth).map(i => io.commits.commitValid(i) && io.commits.info(i).commitType === CommitType.LOAD))
   val stCommitVec = VecInit((0 until CommitWidth).map(i => io.commits.commitValid(i) && io.commits.info(i).commitType === CommitType.STORE))
   io.lsq.lcommit := RegNext(Mux(io.commits.isCommit, PopCount(ldCommitVec), 0.U))
-  io.lsq.scommit := RegNext(Mux(io.commits.isCommit, PopCount(stCommitVec), 0.U))
+  io.lsq.scommit := RegNext(Mux(io.commits.isCommit, 0.U, 0.U))
   // indicate a pending load or store
   io.lsq.pendingld := RegNext(io.commits.isCommit && io.commits.info(0).commitType === CommitType.LOAD && valid(deqPtr.value))
   io.lsq.pendingst := RegNext(io.commits.isCommit && io.commits.info(0).commitType === CommitType.STORE && valid(deqPtr.value))
@@ -852,6 +916,7 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
   deqPtrGenModule.io.blockCommit := blockCommit
   deqPtrVec := deqPtrGenModule.io.out
   val deqPtrVec_next = deqPtrGenModule.io.next_out
+  deqPtrFirst := deqPtrVec_next(0)
 
   val enqPtrGenModule = Module(new RobEnqPtrWrapper)
   enqPtrGenModule.io.redirect := io.redirect
@@ -859,6 +924,19 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
   enqPtrGenModule.io.hasBlockBackward := hasBlockBackward
   enqPtrGenModule.io.enq := VecInit(io.enq.req.map(req => req.valid && req.bits.firstUop))
   enqPtrVec := enqPtrGenModule.io.out
+
+  val flushPointPtrGenModule = Module(new RobFlushPointPtrWrapper)
+  flushPointPtrGenModule.io.redirect := io.redirect
+  flushPointPtrGenModule.io.cmt_v := flushpoint_commit_v 
+  flushPointPtrGenModule.io.cmt_w := flushpoint_commit_w
+  flushPointPtrGenModule.io.cmt_f := flushpoint_commit_f
+  flushPointPtrGenModule.io.exception_state := exceptionDataRead
+  flushPointPtrGenModule.io.intrBitSetReg := intrBitSetReg
+  flushPointPtrGenModule.io.hasNoSpecExec := hasWaitForward
+  flushPointPtrGenModule.io.interrupt_safe := interrupt_safe(flushPointPtr.value)
+  flushPointPtrGenModule.io.blockCommit := blockCommit  
+  flushPointPtrVec := flushPointPtrGenModule.io.out
+  val flushPointPtrVec_next = flushPointPtrGenModule.io.next_out
 
   val thisCycleWalkCount = Mux(walkFinished, walkCounter, CommitWidth.U)
   // next walkPtrVec:
@@ -948,6 +1026,14 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
     }
   }
 
+  // flush point logic writes 6 interrupt_safe
+  val flushPointMoveCount = flushPointPtrGenModule.io.commitCount
+  for (i <- 0 until CommitWidth) {
+    when (flushPointMoveCount > i.U) {
+      interrupt_safe((flushPointMoveCount + i.U).value) := false.B
+    }
+  }
+
   // writeback logic set numWbPorts writebacked to true
   val blockWbSeq = Wire(Vec(exuWBs.length, Bool()))
   blockWbSeq.map(_ := false.B)
@@ -979,6 +1065,15 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
   }
   val fflags_wb = fflagsPorts
   val vxsat_wb = vxsatPorts
+  val enqFlushPointSeq = io.enq.req.map { req => 
+    FuType.isJump(req.bits.fuType) || 
+    FuType.isBranch(req.bits.fuType) ||
+    FuType.isCsr(req.bits.fuType) ||
+    FuType.isLoad(req.bits.fuType) || 
+    FuType.isVset(req.bits.fuType) ||
+    FuType.isVload(req.bits.fuType) ||
+    ExceptionNO.selectFrontend(req.bits.exceptionVec) 
+  }
   for(i <- 0 until RobSize){
 
     val robIdxMatchSeq = io.enq.req.map(_.bits.robIdx.value === i.U)
@@ -1004,6 +1099,11 @@ class RobImp(override val wrapper: Rob)(implicit p: Parameters, params: BackendP
 //    val vxsatRes = vxsatCanWbSeq.zip(vxsat_wb).map { case (canWb, wb) => Mux(canWb, wb.bits.vxsat.get, 0.U) }.reduce(_ | _)
     val vxsatRes = 0.U
     vxsatDataModule(i) := Mux(!valid(i) && instCanEnqFlag, 0.U, vxsatDataModule(i) | vxsatRes)
+
+    //
+    val enqIsFlushPoint = VecInit(enqFlushPointSeq.zip(robIdxMatchSeq).map { case (valid, isMatch) => valid && isMatch }).asUInt.orR
+    flushPoint(i) := Mux(!valid(i) && instCanEnqFlag, enqIsFlushPoint, 
+                      Mux(exceptionGen.io.out.valid && exceptionGen.io.out.bits.robIdx.value === i.U, true.B, flushPoint(i)))
   }
 
   // flagBkup

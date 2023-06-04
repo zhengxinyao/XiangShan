@@ -81,6 +81,7 @@ class StoreQueue(implicit p: Parameters) extends XSModule
     val exceptionAddr = new ExceptionAddrIO
     val sqempty = Output(Bool())
     val issuePtrExt = Output(new SqPtr) // used to wake up delayed load/store
+    val flowPtrExt = Output(UInt(9.W))
     val sqFull = Output(Bool())
     val sqCancelCnt = Output(UInt(log2Up(StoreQueueSize + 1).W))
     val sqDeq = Output(UInt(log2Ceil(EnsbufferWidth + 1).W))
@@ -180,10 +181,13 @@ class StoreQueue(implicit p: Parameters) extends XSModule
       deqPtrExt
     )
   )
-  io.sqDeq := RegNext(Mux(RegNext(io.sbuffer(1).fire()), 2.U,
-    Mux(RegNext(io.sbuffer(0).fire()) || io.mmioStout.fire(), 1.U, 0.U)
+  val deqPtrExtVec = (0 until EnsbufferWidth).map(_.U + deqPtrExt(0))
+  val canDeq = deqPtrExtVec.map(ptr => uop(ptr.value).last)
+  io.sqDeq := RegNext(
+    Mux(RegNext(io.sbuffer(1).fire && canDeq(1) && io.sbuffer(0).fire && canDeq(0)), 2.U, 
+      Mux(RegNext((io.sbuffer(0).fire || io.mmioStout.fire) && canDeq(0)), 1.U, 0.U)
   ))
-  assert(!RegNext(RegNext(io.sbuffer(0).fire()) && io.mmioStout.fire()))
+  assert(!RegNext(RegNext(io.sbuffer(0).fire() && canDeq(0)) && io.mmioStout.fire() && RegNext(canDeq(0))))
 
   for (i <- 0 until EnsbufferWidth) {
     dataModule.io.raddr(i) := rdataPtrExtNext(i).value
@@ -231,7 +235,7 @@ class StoreQueue(implicit p: Parameters) extends XSModule
   require(IssuePtrMoveStride >= 2)
 
   val issueLookupVec = (0 until IssuePtrMoveStride).map(issuePtrExt + _.U)
-  val issueLookup = issueLookupVec.map(ptr => allocated(ptr.value) && addrvalid(ptr.value) && datavalid(ptr.value) && ptr =/= enqPtrExt(0))
+  val issueLookup = issueLookupVec.map(ptr => allocated(ptr.value) && addrvalid(ptr.value) && datavalid(ptr.value) && uop(ptr.value).last && ptr =/= enqPtrExt(0))
   val nextIssuePtr = issuePtrExt + PriorityEncoder(VecInit(issueLookup.map(!_) :+ true.B))
   issuePtrExt := nextIssuePtr
 
@@ -245,6 +249,12 @@ class StoreQueue(implicit p: Parameters) extends XSModule
   // send issuePtrExt to rs
   // io.issuePtrExt := cmtPtrExt(0)
   io.issuePtrExt := issuePtrExt
+
+  //
+  val flowDifferentFlag = enqPtrExt(0).flag =/= deqPtrExt(0).flag
+  val enqPtrMask = UIntToMask(enqPtrExt(0).value, StoreQueueSize)
+  val flowMask = Mux(flowDifferentFlag, ~enqPtrMask | deqMask, enqPtrMask ^ deqMask)
+  io.flowPtrExt := RegNext(PopCount(~flowMask))
 
   /**
     * Writeback store from store units
@@ -536,20 +546,25 @@ class StoreQueue(implicit p: Parameters) extends XSModule
     */
   XSError(uncacheState =/= s_idle && uncacheState =/= s_wait && commitCount > 0.U,
    "should not commit instruction when MMIO has not been finished\n")
-  for (i <- 0 until CommitWidth) {
-    when (commitCount > i.U) { // MMIO inst is not in progress
-      if(i == 0){
-        // MMIO inst should not update committed flag
-        // Note that commit count has been delayed for 1 cycle
-        when(uncacheState === s_idle){
-          committed(cmtPtrExt(0).value) := true.B
-        }
-      } else {
-        committed(cmtPtrExt(i).value) := true.B
+  val cmtPtrExtNext = cmtPtrExt.map(_ + commitCount)
+  val cmtPtrNext = cmtPtrExtNext(0)
+  val cmtDifferentFlag = cmtPtrNext.flag =/= cmtPtr.flag
+  val cmtPtrMask = UIntToMask(cmtPtr.value, StoreQueueSize)
+  val cmtPtrNextMask = UIntToMask(cmtPtrNext.value, StoreQueueSize)
+  val commitMask = Mux(cmtDifferentFlag, ~cmtPtrMask | cmtPtrNextMask, cmtPtrMask ^ cmtPtrNextMask)
+
+  for (i <- 0 until StoreQueueSize) {
+    when (commitMask(i)) { // MMIO inst is not in progress
+      // MMIO inst should not update committed flag
+      // Note that commit count has been delayed for 1 cycle
+      when (cmtPtr.value === i.U && uncacheState === s_idle) {
+        committed(i) := true.B
+      } .elsewhen (cmtPtr.value =/= i.U) {
+        committed(i) := true.B
       }
     }
   }
-  cmtPtrExt := cmtPtrExt.map(_ + commitCount)
+  cmtPtrExt := cmtPtrExtNext
 
   // committed stores will not be cancelled and can be sent to lower level.
   // remove retired insts from sq, add retired store to sbuffer

@@ -65,6 +65,14 @@ object FuType {
 
   def storeIsAMO(fuType: UInt): Bool = fuType(15)
 
+  def isCsr(fuType: UInt): Bool = fuType(3)
+
+  def isBranch(fuType: UInt): Bool = fuType(1)
+
+  def isBku(fuType: UInt): Bool = fuType(8)
+
+  def isVload(fuType: UInt): Bool = fuType(19)
+
   val functionNameMap = Map(
     jmp -> "jmp",
     i2f -> "int_to_float",
