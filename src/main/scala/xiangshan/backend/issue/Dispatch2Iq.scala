@@ -407,9 +407,12 @@ class Dispatch2IqMemImp(override val wrapper: Dispatch2Iq)(implicit p: Parameter
     when (iqNotAllReady || lsqCannotAccept) {
       in.ready := false.B
     }.otherwise {
-      in.ready := (Cat(outVec) & Cat(outReadyVec)).orR && !s0_blockedVec(inIdx)
+      in.ready := (Cat(outVec.reverse) & Cat(outReadyVec.reverse)).orR && !s0_blockedVec(inIdx)
     }
   }
+
+  dontTouch(outToInMap)
+  doutTouch(outReadyVec)
 
   io.out <> s0_out
 }
