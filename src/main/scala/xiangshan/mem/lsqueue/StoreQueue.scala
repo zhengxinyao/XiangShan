@@ -158,6 +158,7 @@ class StoreQueue(implicit p: Parameters) extends XSModule
   // Read dataModule
   assert(EnsbufferWidth <= 2)
   // rdataPtrExtNext and rdataPtrExtNext+1 entry will be read from dataModule
+  val canDeq = deqPtrExtVec.map(ptr => uop(ptr.value).last)
   val rdataPtrExtNext = WireInit(Mux(dataBuffer.io.enq(1).fire(),
     VecInit(rdataPtrExt.map(_ + 2.U)),
     Mux(dataBuffer.io.enq(0).fire() || io.mmioStout.fire(),
@@ -176,13 +177,12 @@ class StoreQueue(implicit p: Parameters) extends XSModule
   // Modify deqPtrExtNext and io.sqDeq with care!
   val deqPtrExtNext = Mux(RegNext(io.sbuffer(1).fire()),
     VecInit(deqPtrExt.map(_ + 2.U)),
-    Mux(RegNext(io.sbuffer(0).fire()) || io.mmioStout.fire(),
+    Mux(RegNext(io.sbuffer(0).fire() && canDeq(0)) || io.mmioStout.fire() && canDeq(0),
       VecInit(deqPtrExt.map(_ + 1.U)),
       deqPtrExt
     )
   )
   val deqPtrExtVec = (0 until EnsbufferWidth).map(_.U + deqPtrExt(0))
-  val canDeq = deqPtrExtVec.map(ptr => uop(ptr.value).last)
   io.sqDeq := RegNext(
     Mux(RegNext(io.sbuffer(1).fire && canDeq(1) && io.sbuffer(0).fire && canDeq(0)), 2.U, 
       Mux(RegNext((io.sbuffer(0).fire || io.mmioStout.fire) && canDeq(0)), 1.U, 0.U)
