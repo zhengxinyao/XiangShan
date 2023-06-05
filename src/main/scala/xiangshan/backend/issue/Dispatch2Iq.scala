@@ -412,7 +412,7 @@ class Dispatch2IqMemImp(override val wrapper: Dispatch2Iq)(implicit p: Parameter
   }
 
   dontTouch(outToInMap)
-  doutTouch(outReadyVec)
+  dontTouch(outReadyVec)
 
   io.out <> s0_out
 }
