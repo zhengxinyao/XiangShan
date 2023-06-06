@@ -87,18 +87,18 @@ class FreeList(size: Int, allocWidth: Int, freeWidth: Int, enablePreAlloc: Boole
   }))
 
   val freeReq = RegNext(VecInit(remFreeSelMaskVec.map(_.asUInt.orR)))
-  val freeSlot = RegNext(remFreeSelIndexOHVec)
+  val freeSlotOH = RegNext(remFreeSelIndexOHVec)
   val doFree = freeReq.asUInt.orR
 
   for (i <- 0 until freeWidth) {
     val offset = PopCount(freeReq.take(i))
-    val enqPtr = tailPtr + offset 
+    val enqPtr = tailPtr + offset
 
     when (freeReq(i)) {
-      freeList(enqPtr.value) := freeSlot(i)
+      freeList(enqPtr.value) := OHToUInt(freeSlotOH(i))
     }
 
-    freeSelMaskVec(i) := Mux(freeReq(i), freeSlot(i), 0.U)
+    freeSelMaskVec(i) := Mux(freeReq(i), freeSlotOH(i), 0.U)
   }
 
   tailPtrNext := tailPtr + PopCount(freeReq)
