@@ -64,6 +64,12 @@ class LoadToLsqReplayIO(implicit p: Parameters) extends XSBundle with HasDCacheP
   def needReplay()  = cause.asUInt.orR 
 }
 
+class LoadToLoadIO(implicit p: Parameters) extends XSBundle {
+  // load to load fast path is limited to ld (64 bit) used as vaddr src1 only
+  val data = UInt(XLEN.W)
+  val valid = Bool()
+}
+
 class LoadToReplayIO(implicit p: Parameters) extends XSBundle {
   val req = ValidIO(new LqWriteBundle)
   val resp = Input(UInt(log2Up(LoadQueueReplaySize).W))
@@ -79,13 +85,7 @@ class LoadToLsqIO(implicit p: Parameters) extends XSBundle {
   val trigger = Flipped(new LqTriggerIO)
 }
 
-class LoadToLoadIO(implicit p: Parameters) extends XSBundle {
-  // load to load fast path is limited to ld (64 bit) used as vaddr src1 only
-  val data = UInt(XLEN.W)
-  val valid = Bool()
-}
-
-class LoadUnitTriggerIO(implicit p: Parameters) extends XSBundle {
+class LoadFlowTriggerIO(implicit p: Parameters) extends XSBundle {
   val tdata2 = Input(UInt(64.W))
   val matchType = Input(UInt(2.W))
   val tEnable = Input(Bool()) // timing is calculated before this
@@ -93,9 +93,10 @@ class LoadUnitTriggerIO(implicit p: Parameters) extends XSBundle {
   val lastDataHit = Output(Bool())
 }
 
+
 // Load Pipeline Stage 0
 // Generate addr, use addr to query DCache and DTLB
-class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParameters with HasCircularQueuePtrHelper {
+class LoadFlow_S0(implicit p: Parameters) extends XSModule with HasDCacheParameters with HasCircularQueuePtrHelper {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new ExuInput))
     val out = Decoupled(new LqWriteBundle)
@@ -420,7 +421,7 @@ class LoadUnit_S0(implicit p: Parameters) extends XSModule with HasDCacheParamet
 
 // Load Pipeline Stage 1
 // TLB resp (send paddr to dcache)
-class LoadUnit_S1(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
+class LoadFlow_S1(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new LqWriteBundle))
     val s1_kill = Input(Bool())
@@ -518,7 +519,7 @@ class LoadUnit_S1(implicit p: Parameters) extends XSModule with HasCircularQueue
 
 // Load Pipeline Stage 2
 // DCache resp
-class LoadUnit_S2(implicit p: Parameters) extends XSModule  
+class LoadFlow_S2(implicit p: Parameters) extends XSModule  
   with HasLoadHelper 
   with HasCircularQueuePtrHelper 
   with HasDCacheParameters 
@@ -866,7 +867,7 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule
   XSPerfAccumulate("prefetch_accept", io.in.fire && s2_is_prefetch && s2_cache_miss && !s2_cache_replay) 
 }
 
-class LoadUnit(implicit p: Parameters) extends XSModule
+class LoadFlow(implicit p: Parameters) extends XSModule
   with HasLoadHelper
   with HasPerfEvents
   with HasDCacheParameters
@@ -885,7 +886,7 @@ class LoadUnit(implicit p: Parameters) extends XSModule
     val forward_mshr = Flipped(new LduToMissqueueForwardIO)
     val refill = Flipped(ValidIO(new Refill))
     val fastUop = ValidIO(new MicroOp) // early wakeup signal generated in load_s1, send to RS in load_s2
-    val trigger = Vec(3, new LoadUnitTriggerIO)
+    val trigger = Vec(3, new LoadFlowTriggerIO)
 
     val tlb = new TlbRequestIO(2)
     val pmp = Flipped(new PMPRespBundle()) // arrive same to tlb now
@@ -927,9 +928,9 @@ class LoadUnit(implicit p: Parameters) extends XSModule
     val l2Hint = Input(Valid(new L2ToL1Hint))
   })
 
-  val load_s0 = Module(new LoadUnit_S0)
-  val load_s1 = Module(new LoadUnit_S1)
-  val load_s2 = Module(new LoadUnit_S2)
+  val load_s0 = Module(new LoadFlow_S0)
+  val load_s1 = Module(new LoadFlow_S1)
+  val load_s2 = Module(new LoadFlow_S2)
 
   // load s0
   load_s0.io.in <> io.loadIn

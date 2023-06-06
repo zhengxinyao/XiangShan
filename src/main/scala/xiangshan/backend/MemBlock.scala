@@ -140,8 +140,8 @@ class MemBlockImp(outer: MemBlock) extends LazyModuleImp(outer)
     io.error.valid := false.B
   }
 
-  val loadUnits = Seq.fill(exuParameters.LduCnt)(Module(new LoadUnit))
-  val storeUnits = Seq.fill(exuParameters.StuCnt)(Module(new StoreUnit))
+  val loadUnits = Seq.fill(exuParameters.LduCnt)(Module(new LoadFlow))
+  val storeUnits = Seq.fill(exuParameters.StuCnt)(Module(new StoreFlow))
   val stdExeUnits = Seq.fill(exuParameters.StuCnt)(Module(new StdExeUnit))
   val stData = stdExeUnits.map(_.io.out)
   val exeUnits = loadUnits ++ storeUnits

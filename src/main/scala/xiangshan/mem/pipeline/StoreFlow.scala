@@ -23,13 +23,15 @@ import utils._
 import utility._
 import xiangshan.ExceptionNO._
 import xiangshan._
+import xiangshan.cache._
 import xiangshan.backend.fu.PMPRespBundle
 import xiangshan.backend.rob.DebugLsInfoBundle
 import xiangshan.cache.mmu.{TlbCmd, TlbReq, TlbRequestIO, TlbResp}
 
+
 // Store Pipeline Stage 0
 // Generate addr, use addr to query DCache and DTLB
-class StoreUnit_S0(implicit p: Parameters) extends XSModule {
+class StoreFlow_S0(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new ExuInput))
     val rsIdx = Input(UInt(log2Up(IssQueSize).W))
@@ -100,12 +102,12 @@ class StoreUnit_S0(implicit p: Parameters) extends XSModule {
 
 // Store Pipeline Stage 1
 // TLB resp (send paddr to dcache)
-class StoreUnit_S1(implicit p: Parameters) extends XSModule {
+class StoreFlow_S1(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new LsPipelineBundle))
     val out = Decoupled(new LsPipelineBundle)
     val lsq = ValidIO(new LsPipelineBundle())
-    val dtlbResp = Flipped(DecoupledIO(new TlbResp()))
+    val dtlbResp = Flipped(DecoupledIO(new TlbResp(2)))
     val rsFeedback = ValidIO(new RSFeedback)
     val reExecuteQuery = Valid(new LoadReExecuteQueryIO)
   })
@@ -177,7 +179,7 @@ class StoreUnit_S1(implicit p: Parameters) extends XSModule {
   XSPerfAccumulate("tlb_miss_first_issue", io.in.fire && s1_tlb_miss && io.in.bits.isFirstIssue)
 }
 
-class StoreUnit_S2(implicit p: Parameters) extends XSModule {
+class StoreFlow_S2(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new LsPipelineBundle))
     val pmpResp = Flipped(new PMPRespBundle)
@@ -203,48 +205,33 @@ class StoreUnit_S2(implicit p: Parameters) extends XSModule {
   io.out.valid := io.in.valid && (!is_mmio || s2_exception)
 }
 
-class StoreUnit_WriteBack(implicit p: Parameters) extends XSModule {
+class StoreFlow_S3(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
-    val redirect = Flipped(Valid(new Redirect))
     val in = Flipped(Decoupled(new LsPipelineBundle))
     val stout = DecoupledIO(new ExuOutput) // writeback store
   })
 
   io.in.ready := true.B
 
-  val SelectGroupSize = RollbackGroupSize
-  val lgSelectGroupSize = log2Ceil(SelectGroupSize)
-  val TotalSelectCycles = scala.math.ceil(log2Ceil(LoadQueueRAWSize).toFloat / lgSelectGroupSize).toInt + 1
+  io.stout.valid := io.in.valid
+  io.stout.bits.uop := io.in.bits.uop
+  io.stout.bits.data := DontCare
+  io.stout.bits.redirectValid := false.B
+  io.stout.bits.redirect := DontCare
+  io.stout.bits.debug.isMMIO := io.in.bits.mmio
+  io.stout.bits.debug.paddr := io.in.bits.paddr
+  io.stout.bits.debug.vaddr := io.in.bits.vaddr
+  io.stout.bits.debug.isPerfCnt := false.B
+  io.stout.bits.fflags := DontCare
 
-  val stout = Wire(new ExuOutput)
-  stout := DontCare
-  stout.uop := io.in.bits.uop
-  stout.data := DontCare
-  stout.redirectValid := false.B
-  stout.redirect := DontCare
-  stout.debug.isMMIO := io.in.bits.mmio
-  stout.debug.paddr := io.in.bits.paddr
-  stout.debug.vaddr := io.in.bits.vaddr
-  stout.debug.isPerfCnt := false.B
-  stout.fflags := DontCare
-
-  // delay TotalSelectCycles - 2 cycle(s)
-  var valid = io.in.valid
-  var bits = stout
-  for (i <- 0 until TotalSelectCycles - 2) {
-    valid = RegNext(valid && !bits.uop.robIdx.needFlush(io.redirect))
-    bits = RegNext(bits)
-  }
-  io.stout.valid := valid && !bits.uop.robIdx.needFlush(io.redirect)
-  io.stout.bits := bits
 }
 
-class StoreUnit(implicit p: Parameters) extends XSModule {
+class StoreFlow(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val stin = Flipped(Decoupled(new ExuInput))
     val redirect = Flipped(ValidIO(new Redirect))
     val feedbackSlow = ValidIO(new RSFeedback)
-    val tlb = new TlbRequestIO()
+    val tlb = new TlbRequestIO(2)
     val pmp = Flipped(new PMPRespBundle())
     val rsIdx = Input(UInt(log2Up(IssQueSize).W))
     val isFirstIssue = Input(Bool())
@@ -258,10 +245,10 @@ class StoreUnit(implicit p: Parameters) extends XSModule {
     val debug_ls = Output(new DebugLsInfoBundle)
   })
 
-  val store_s0 = Module(new StoreUnit_S0)
-  val store_s1 = Module(new StoreUnit_S1)
-  val store_s2 = Module(new StoreUnit_S2)
-  val store_wb = Module(new StoreUnit_WriteBack)
+  val store_s0 = Module(new StoreFlow_S0)
+  val store_s1 = Module(new StoreFlow_S1)
+  val store_s2 = Module(new StoreFlow_S2)
+  val store_s3 = Module(new StoreFlow_S3)
 
   store_s0.io.in <> io.stin
   store_s0.io.dtlbReq <> io.tlb.req
@@ -290,10 +277,9 @@ class StoreUnit(implicit p: Parameters) extends XSModule {
   store_s2.io.pmpResp <> io.pmp
   store_s2.io.static_pm := RegNext(io.tlb.resp.bits.static_pm)
   io.lsq_replenish := store_s2.io.out.bits // mmio and exception
-  PipelineConnect(store_s2.io.out, store_wb.io.in, true.B, store_s2.io.out.bits.uop.robIdx.needFlush(io.redirect))
+  PipelineConnect(store_s2.io.out, store_s3.io.in, true.B, store_s2.io.out.bits.uop.robIdx.needFlush(io.redirect))
 
-  store_wb.io.redirect <> io.redirect
-  store_wb.io.stout <> io.stout
+  store_s3.io.stout <> io.stout
 
   io.debug_ls := DontCare
   io.debug_ls.s1.isTlbFirstMiss := io.tlb.resp.valid && io.tlb.resp.bits.miss && io.tlb.resp.bits.debug.isFirstIssue
