@@ -303,16 +303,16 @@ case class XSCoreParameters
     val numRfWrite = intPreg.numWrite
     SchdBlockParams(Seq(
       IssueBlockParams(Seq(
-        ExeUnitParams(Seq(AluCfg, MulCfg, BkuCfg), Seq(IntWB(port = 0, 0)), Seq(Seq(IntRD(0, 2)), Seq(IntRD(1, 2)))),
-        ExeUnitParams(Seq(AluCfg, MulCfg, BkuCfg), Seq(IntWB(port = 1, 0)), Seq(Seq(IntRD(0, 1)), Seq(IntRD(1, 1)))),
+        ExeUnitParams(Seq(AluCfg, MulCfg, BkuCfg), Seq(IntWB(port = 0, 0)), Seq(Seq(IntRD(0, 0)), Seq(IntRD(1, 0)))),
+        ExeUnitParams(Seq(AluCfg, MulCfg, BkuCfg), Seq(IntWB(port = 1, 0)), Seq(Seq(IntRD(2, 0)), Seq(IntRD(3, 0)))),
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = numRfWrite, numEnq = 2),
       IssueBlockParams(Seq(
         ExeUnitParams(Seq(DivCfg), Seq(IntWB(port = 2, 0)), Seq(Seq(IntRD(4, 0)), Seq(IntRD(5, 0)))),
-        ExeUnitParams(Seq(DivCfg), Seq(IntWB(port = 3, 0)), Seq(Seq(IntRD(6, 0)), Seq(IntRD(7, 0)))),
+        ExeUnitParams(Seq(DivCfg), Seq(IntWB(port = 3, 0)), Seq(Seq(IntRD(4, 1)), Seq(IntRD(5, 1)))),
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = numRfWrite, numEnq = 2),
       IssueBlockParams(Seq(
-        ExeUnitParams(Seq(BrhCfg, JmpCfg, CsrCfg, FenceCfg), Seq(IntWB(port = 4, 0)), Seq(Seq(IntRD(2, 1)), Seq(IntRD(3, 1)))),
-        ExeUnitParams(Seq(BrhCfg), Seq(), Seq(Seq(IntRD(6, 1)), Seq(IntRD(4, 1)))),
+        ExeUnitParams(Seq(BrhCfg, JmpCfg, CsrCfg, FenceCfg), Seq(IntWB(port = 4, 0)), Seq(Seq(IntRD(4, 0)), Seq(IntRD(5, 0)))),
+        ExeUnitParams(Seq(BrhCfg), Seq(), Seq(Seq(IntRD(6, 1)), Seq(IntRD(7, 1)))),
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = numRfWrite, numEnq = 2),
       IssueBlockParams(Seq(
         ExeUnitParams(Seq(I2fCfg, VSetRiWiCfg, VSetRiWvfCfg), Seq(VecWB(port = 6, Int.MaxValue), IntWB(port = 7, 0)), Seq(Seq(IntRD(6, 0)), Seq(IntRD(7, 0)))),
@@ -338,7 +338,7 @@ case class XSCoreParameters
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = numRfWrite, numEnq = 2),
       IssueBlockParams(Seq(
         ExeUnitParams(Seq(FmacCfg), Seq(VecWB(port = 1, 0)), Seq(Seq(VfRD(7, 0)), Seq(VfRD(8, 0)), Seq(VfRD(9, 0)))),
-        ExeUnitParams(Seq(F2fCfg, F2iCfg, FDivSqrtCfg, VSetRvfWvfCfg), Seq(VecWB(port = 2, 0), IntWB(port = 7, 0)), Seq(Seq(VfRD(10, 0)), Seq(VfRD(11, 0)))),
+        ExeUnitParams(Seq(F2fCfg, F2iCfg, FDivSqrtCfg, VSetRvfWvfCfg), Seq(VecWB(port = 2, 0), IntWB(port = 7, 0)), Seq(Seq(VfRD(6, 0)), Seq(VfRD(10, 0)))),
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = numRfWrite, numEnq = 2),
     ),
       numPregs = vfPreg.numEntries,
@@ -358,16 +358,16 @@ case class XSCoreParameters
       IssueBlockParams(Seq(
         ExeUnitParams(Seq(LduCfg), Seq(IntWB(5, 0), VecWB(4, 0)), Seq(Seq(IntRD(8, 0)))),
         ExeUnitParams(Seq(LduCfg), Seq(IntWB(6, 0), VecWB(5, 0)), Seq(Seq(IntRD(9, 0)))),
-        ExeUnitParams(Seq(LduCfg), Seq(IntWB(6, 0), VecWB(5, 0)), Seq(Seq(IntRD(9, 0)))),
+        ExeUnitParams(Seq(LduCfg), Seq(IntWB(7, 0), VecWB(6, 0)), Seq(Seq(IntRD(10, 0)))),
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = 16, numEnq = 3),
       IssueBlockParams(Seq(
-        ExeUnitParams(Seq(StaCfg, MouCfg), Seq(IntWB(5, 1)), Seq(Seq(IntRD(10, 0)))),
-        ExeUnitParams(Seq(StaCfg, MouCfg), Seq(IntWB(6, 1)), Seq(Seq(IntRD(11, 0)))),
-        ExeUnitParams(Seq(StaCfg, MouCfg), Seq(IntWB(6, 1)), Seq(Seq(IntRD(11, 0)))),
+        ExeUnitParams(Seq(StaCfg, MouCfg), Seq(IntWB(5, 1)), Seq(Seq(IntRD(11, 0)))),
+        ExeUnitParams(Seq(StaCfg, MouCfg), Seq(IntWB(6, 1)), Seq(Seq(IntRD(12, 0)))),
+        ExeUnitParams(Seq(StaCfg, MouCfg), Seq(IntWB(7, 1)), Seq(Seq(IntRD(10, 1)))),
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = 16, numEnq = 3),
       IssueBlockParams(Seq(
-        ExeUnitParams(Seq(StdCfg, MoudCfg), Seq(), Seq(Seq(IntRD(12, 0), VfRD(12, 0)))),
-        ExeUnitParams(Seq(StdCfg, MoudCfg), Seq(), Seq(Seq(IntRD(13, 0), VfRD(13, 0)))),
+        ExeUnitParams(Seq(StdCfg, MoudCfg), Seq(), Seq(Seq(IntRD(11, 1), VfRD(11, 0)))),
+        ExeUnitParams(Seq(StdCfg, MoudCfg), Seq(), Seq(Seq(IntRD(12, 1), VfRD(12, 0)))),
         ExeUnitParams(Seq(StdCfg, MoudCfg), Seq(), Seq(Seq(IntRD(13, 0), VfRD(13, 0)))),
       ), numEntries = 8, pregBits = pregBits, numWakeupFromWB = 16, numEnq = 3),
 //      IssueBlockParams(Seq(
