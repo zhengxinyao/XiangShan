@@ -59,12 +59,20 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val instType = Wire(Vec(VecStorePipelineWidth, UInt(3.W)))
   val storeInValid = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(false.B)))
   val needFlush = WireInit(VecInit(Seq.fill(VsUopSize)(false.B)))
+  val free = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(0.U(VsUopSize.W))))
 
-  val enqPtr = RegInit(0.U.asTypeOf(new VsUopPtr))
-  val deqPtr = RegInit(0.U.asTypeOf(new VsUopPtr))
+  def getRemBits(input: UInt)(rem: Int): UInt = {
+    VecInit((0 until VsUopSize / VecStorePipelineWidth).map(i => {input(VecStorePipelineWidth * i + rem)})).asUInt
+  }
+
+  val uopFreeList = Module(new VsUopFreeList(
+                            size = VsUopSize,
+                            allocWidth = VecStorePipelineWidth,
+                            freeWidth = 4,
+                            moduleName = "vsUopFreeList"))
 
   for (i <- 0 until VecStorePipelineWidth) {
-    io.storeIn(i).ready := PopCount(valid) < VsUopSize.U - 1.U
+    io.storeIn(i).ready :=  uopFreeList.io.accllReq(i).ready
   }
 
   for (i <- 0 until VecStorePipelineWidth) {
@@ -80,26 +88,11 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     }
   }
 
-/**
-  * VsUopQueue enqPtr update */
-  val lastRedirect = RegNext(io.Redirect)
-  val uopRedirectCnt = RegNext(PopCount(needFlush))
-  when (lastRedirect.valid) {
-    enqPtr.value := enqPtr.value - uopRedirectCnt
+  val lastRedriect = RegNext(io.Redirect)
+  when (lastRedriect.valid) {
+    uopFreeList.io.free := RegNext(needFlush.asUInt)
   }.otherwise {
-    when (storeInValid(0) && storeInValid(1)) {
-      enqPtr.value := enqPtr.value + 2.U
-    }.elsewhen (storeInValid(0) && !storeInValid(1) || !storeInValid(0) && storeInValid(1)) {
-      enqPtr.value := enqPtr.value + 1.U
-    }
-  }
-
-  /**
-    * VsUopQueue deqPtr update */
-  when (io.uop2Flow(0).fire && io.uop2Flow(1).fire) {
-    deqPtr := deqPtr + 2.U
-  }.elsewhen (io.uop2Flow(0).fire && !io.uop2Flow(1).fire || !io.uop2Flow(0).fire && io.uop2Flow(1).fire) {
-    deqPtr := deqPtr + 1.U
+    uopFreeList.io.free := free.reduce(_|_)
   }
 
   for (i <- 0 until VecStorePipelineWidth) {
@@ -110,64 +103,43 @@ class VsUopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     emul(i)      := EewLog2(eew(i)) - sew(i) + lmul(i)
     isSegment(i) := loadInstDec(i).uop_segment_num =/= "b000".U && !loadInstDec(i).uop_unit_stride_whole_reg
     instType(i)  := Cat(isSegment(i),loadInstDec(i).uop_type)
-    vsUopEntry(enqPtr.value + i.U) := DontCare
   }
 
   //enqueue
-  when (storeInValid(0) && storeInValid(1)) {
-    for (i <- 0 until VecStorePipelineWidth) {
-      valid(enqPtr.value + i.U) := true.B
-      vsUopEntry(enqPtr.value + i.U).src      := io.storeIn(i).bits.src
-      vsUopEntry(enqPtr.value + i.U).uop      := io.storeIn(i).bits.uop
-      vsUopEntry(enqPtr.value + i.U).vstart   := io.vstart(i)//FIXME
-      vsUopEntry(enqPtr.value + i.U).mask     := GenVecStoreMask(instType=instType(i), eew=eew(i), sew=sew(i))
-      vsUopEntry(enqPtr.value + i.U).eew      := eew(i)
-      vsUopEntry(enqPtr.value + i.U).emul     := emul(i)
-      vsUopEntry(enqPtr.value + i.U).instType := instType(i)
-      vsUopEntry(enqPtr.value + i.U).uop_unit_stride_fof := loadInstDec(i).uop_unit_stride_fof
-      vsUopEntry(enqPtr.value + i.U).uop_segment_num := loadInstDec(i).uop_segment_num
+  for (i <- 0 until VecStorePipelineWidth) {
+    uopFreeList.io.accllReq(i) := DontCare
+    when (storeInValid(i)) {
+      uopFreeList.io.accllReq(i).valid := true.B
+      val enqPtr = uopFreeList.io.idxValue(i)
+      vsUopEntry(enqPtr)          := DontCare
+      valid     (enqPtr)          := true.B
+      vsUopEntry(enqPtr).src      := io.storeIn(i).bits.src
+      vsUopEntry(enqPtr).uop      := io.storeIn(i).bits.uop
+      vsUopEntry(enqPtr).vstart   := io.vstart(i) //FIXME
+      vsUopEntry(enqPtr).mask     := GenVecStoreMask(instType = instType(i), eew = eew(i), sew = sew(i))
+      vsUopEntry(enqPtr).eew      := eew(i)
+      vsUopEntry(enqPtr).emul     := emul(i)
+      vsUopEntry(enqPtr).instType := instType(i)
+      vsUopEntry(enqPtr).uop_unit_stride_fof := loadInstDec(i).uop_unit_stride_fof
+      vsUopEntry(enqPtr).uop_segment_num := loadInstDec(i).uop_segment_num
     }
-  }.elsewhen (storeInValid(0) && !storeInValid(1)) {
-    valid(enqPtr.value) := true.B
-    vsUopEntry(enqPtr.value).src := io.storeIn(0).bits.src
-    vsUopEntry(enqPtr.value).vstart   := io.vstart(0)//FIXME
-    vsUopEntry(enqPtr.value).uop := io.storeIn(0).bits.uop
-    vsUopEntry(enqPtr.value).mask := GenVecStoreMask(instType=instType(0), eew=eew(0), sew=sew(0))
-    vsUopEntry(enqPtr.value).eew := eew(0)
-    vsUopEntry(enqPtr.value).emul := emul(0)
-    vsUopEntry(enqPtr.value).instType := instType(0)
-    vsUopEntry(enqPtr.value).uop_unit_stride_fof := loadInstDec(0).uop_unit_stride_fof
-    vsUopEntry(enqPtr.value).uop_segment_num := loadInstDec(0).uop_segment_num
-  }.elsewhen (!storeInValid(0) && storeInValid(1)){
-    valid(enqPtr.value) := true.B
-    vsUopEntry(enqPtr.value).src := io.storeIn(1).bits.src
-    vsUopEntry(enqPtr.value).vstart := io.vstart(1)//FIXME
-    vsUopEntry(enqPtr.value).uop := io.storeIn(1).bits.uop
-    vsUopEntry(enqPtr.value).mask := GenVecStoreMask(instType=instType(1), eew=eew(1), sew=sew(1))
-    vsUopEntry(enqPtr.value).eew := eew(1)
-    vsUopEntry(enqPtr.value).emul := emul(1)
-    vsUopEntry(enqPtr.value).instType := instType(1)
-    vsUopEntry(enqPtr.value).uop_unit_stride_fof := loadInstDec(1).uop_unit_stride_fof
-    vsUopEntry(enqPtr.value).uop_segment_num := loadInstDec(1).uop_segment_num
   }
 
   //dequeue
-  for (i <- 0 until VecStorePipelineWidth) {
-    io.uop2Flow(i).valid := valid(deqPtr.value + i.U)//FIXME: performace, 1 interface may use incorrect valid
-    io.uop2Flow(i).bits  := DontCare
-  }
+  val uopQueueBank = VecInit(Seq.tabulate(VecStorePipelineWidth)(i => getRemBits(valid.asUInt)(i)))
+  val deqPtr = VecInit(Seq.tabulate(VecStorePipelineWidth)(i => {
+    val value = PriorityEncoder(uopQueueBank(i))
+    Cat(value,i.U(log2Up(VecStorePipelineWidth).W))
+  }))
 
-  when (io.uop2Flow(0).fire && io.uop2Flow(1).fire) {
-    for (i <- 0 until VecStorePipelineWidth) {
-      io.uop2Flow(i).bits := vsUopEntry(deqPtr.value + i.U)
-      valid(deqPtr.value + i.U) := false.B
+  for (i <- 0 until VecStorePipelineWidth) {
+    io.uop2Flow(i).bits  := DontCare
+    io.uop2Flow(i).valid := valid(deqPtr(i))//FIXME: performace, 1 interface may use incorrect valid
+    io.uop2Flow(i).bits  := vsUopEntry(deqPtr(i))
+    when (io.uop2Flow(i).fire) {
+      valid(deqPtr(i)) := false.B
+      free(i) := UIntToOH(deqPtr(i))
     }
-  }.elsewhen (io.uop2Flow(0).fire && !io.uop2Flow(1).fire) {
-    io.uop2Flow(0).bits := vsUopEntry(deqPtr.value)
-    valid(deqPtr.value) := false.B
-  }.elsewhen (!io.uop2Flow(0).fire && io.uop2Flow(1).fire) {
-    io.uop2Flow(1).bits := vsUopEntry(deqPtr.value)
-    valid(deqPtr.value) := false.B
   }
 
 }

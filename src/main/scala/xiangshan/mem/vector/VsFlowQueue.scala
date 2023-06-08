@@ -210,83 +210,16 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
   val segNfIdx        = Wire(Vec(VecStorePipelineWidth, UInt(6.W)))
   val segMulIdx       = Wire(Vec(VecStorePipelineWidth, UInt(6.W)))
   val canissue        = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(VecInit(Seq.fill(VsFlowSize)(false.B)))))
-  val deqMask         = Wire(Vec(VecStorePipelineWidth,UInt(VsFlowSize.W)))
+  //val deqMask         = Wire(Vec(VecStorePipelineWidth,UInt(VsFlowSize.W)))
   val deqIdx          = Wire(Vec(VecStorePipelineWidth,UInt(log2Ceil(VsFlowSize).W)))
   val uopInValid      = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(false.B)))
   val needFlush       = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(VecInit(Seq.fill(VsFlowSize)(false.B)))))
-  val flowRedirectCnt = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(0.U(log2Up(VsFlowSize).W))))
+  val free            = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(0.U(VsFlowSize.W))))
 
-  val enqPtr = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(0.U.asTypeOf(new VsFlowPtr))))
-  val deqPtr = RegInit(VecInit(Seq.fill(VecStorePipelineWidth)(0.U.asTypeOf(new VsFlowPtr))))
-
-  def getFirstOne(mask: Vec[Bool], startMask: UInt): UInt = {
-    val length = mask.length
-    val highBits = (0 until length).map(i => mask(i) & ~startMask(i))
-    val highBitsUint = Cat(highBits.reverse)
-    PriorityEncoder(Mux(highBitsUint.orR(), highBitsUint, mask.asUInt))
-  }
-
+  val vsFlowFreeList = Seq.fill(VecStorePipelineWidth)(Module(new FlowFreeList(size=VsFlowSize, freeWidth=4, maxIdxNum=16, moduleName = "VSFlowQueueFreeList")))
 
   for (i <- 0 until VecStorePipelineWidth) {
-    io.uopIn(i).ready := distanceBetween(enqPtr(i),deqPtr(i)) <= 16.U
-  }
-
-/**
-  * enqPtr updata*/
-  val lastRedirect = RegNext(io.Redirect)
-  for (i <- 0 until VecStorePipelineWidth) {
-    flowRedirectCnt(i) := RegNext(PopCount(needFlush(i)))
-    when (lastRedirect.valid) {
-        enqPtr(i) := enqPtr(i) - flowRedirectCnt(i)
-    }.otherwise {
-      when (uopInValid(i)) {
-        enqPtr(i) := enqPtr(i) + realFlowNum(i)
-      }
-    }
-  }
-
-/**
-  * deqPtr updata*/
-  for (i <- 0 until VecStorePipelineWidth) {
-    when (valid(i)(deqPtr(i).value) && canDeq(i)(deqPtr(i).value)) { //FIXME: optimize
-      deqPtr(i) := deqPtr(i) + 1.U
-      valid(i)(deqPtr(i).value) := false.B
-    }
-  }
-
-  /**
-    * FeedBack control*/
-  for (i <- 0 until VecStorePipelineWidth) {
-    when (io.vsfqFeedback(i).valid) {
-      when (io.vsfqFeedback(i).bits.hit) {
-        //valid(i)(io.vsfqFeedback(i).bits.fqIdx)          := false.B
-        canDeq(i)(io.vsfqFeedback(i).bits.fqIdx)         := true.B
-        flowEntry(i)(io.vsfqFeedback(i).bits.fqIdx).mask := 0.U
-      }.otherwise {
-        issued(i)(io.vsfqFeedback(i).bits.fqIdx)  := false.B
-        counter(i)(io.vsfqFeedback(i).bits.fqIdx) := 31.U
-      }
-    }
-  }
-
-  for (i <- 0 until VecStorePipelineWidth) {
-    for (entry <- 0 until VsFlowSize) {
-      when (valid(i)(entry) && !canDeq(i)(entry) && !isFirstIssue(i)(entry)) {
-        counter(i)(entry) := counter(i)(entry) - 1.U
-      }
-    }
-  }
-
-  /**
-    * Redirection occurred, flush flowQueue*/
-  for (i <- 0 until VecStorePipelineWidth) {
-    for (entry <- 0 until VsFlowSize) {
-      needFlush(i)(entry) := flowEntry(i)(entry).uop.robIdx.needFlush(io.Redirect) && valid(i)(entry)
-      when (needFlush(i)(entry)) {
-        valid(i)(entry)  := false.B
-        canDeq(i)(entry) := false.B
-      }
-    }
+    io.uopIn(i).ready := vsFlowFreeList(i).io.allocReq.ready
     uopInValid(i) := !io.uopIn(i).bits.uop.robIdx.needFlush(io.Redirect) && io.uopIn(i).fire
   }
 
@@ -321,16 +254,18 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
 
   //enqueue
   for (i <- 0 until VecStorePipelineWidth) {
+    vsFlowFreeList(i).io.allocReq.valid := DontCare
+    vsFlowFreeList(i).io.allocReq.bits  := DontCare
     when (uopInValid(i)) {
+      vsFlowFreeList(i).io.allocReq.valid := true.B
+      vsFlowFreeList(i).io.allocReq.bits :=  realFlowNum(i)
       for (j <- 0 until 16) {
         when (j.U < realFlowNum(i)) {
           val enqValue = Wire(UInt(5.W))
           val vdFlowIdx  = Wire(UInt(4.W))
           val vs2FlowIdx = Wire(UInt(4.W))
           val eleIdx = Wire(UInt(7.W))
-          //val mask = Wire(UInt(16.W))
-          //val exp = Bool()
-          enqValue := enqPtr(i).value + j.U
+          enqValue := vsFlowFreeList(i).io.idxValue(j)
           flowEntry(i)(enqValue) := DontCare
           valid(i)(enqValue)        := true.B
           canDeq(i)(enqValue)       := false.B
@@ -370,12 +305,12 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
       }
     }
   }
+
 /**
   * issue control*/
   for (i <- 0 until VecStorePipelineWidth) {
     canissue(i) := VecInit((0 until VsFlowSize).map(j => valid(i)(j) && !canDeq(i)(j) && !issued(i)(j) && counter(i)(j) === 0.U))
-    deqMask(i)  := UIntToMask(deqPtr(i).value,VsFlowSize)
-    deqIdx(i)   := getFirstOne(canissue(i),deqMask(i))
+    deqIdx(i)   := PriorityEncoder(canissue(i))
   }
 
   for (i <- 0 until VecStorePipelineWidth) {
@@ -400,6 +335,50 @@ class VsFlowQueue(implicit p: Parameters) extends XSModule with HasCircularQueue
     when (io.storePipeOut(i).fire) {
       issued(i)(deqIdx(i)) := true.B
       isFirstIssue(i)(deqIdx(i)) := false.B
+    }
+  }
+
+  /**
+    * FeedBack control */
+  for (i <- 0 until VecStorePipelineWidth) {
+    when (io.vsfqFeedback(i).valid) {
+      when (io.vsfqFeedback(i).bits.hit) {
+        canDeq(i)(io.vsfqFeedback(i).bits.fqIdx) := true.B
+        flowEntry(i)(io.vsfqFeedback(i).bits.fqIdx).mask := 0.U
+        free(i) := UIntToOH(io.vsfqFeedback(i).bits.fqIdx)
+      }.otherwise {
+        issued(i)(io.vsfqFeedback(i).bits.fqIdx) := false.B
+        counter(i)(io.vsfqFeedback(i).bits.fqIdx) := 31.U
+      }
+    }
+  }
+
+  for (i <- 0 until VecStorePipelineWidth) {
+    for (entry <- 0 until VsFlowSize) {
+      when (valid(i)(entry) && !canDeq(i)(entry) && !isFirstIssue(i)(entry)) {
+        counter(i)(entry) := counter(i)(entry) - 1.U
+      }
+    }
+  }
+
+  /**
+    * Redirection occurred, flush flowQueue */
+  for (i <- 0 until VecStorePipelineWidth) {
+    for (entry <- 0 until VsFlowSize) {
+      needFlush(i)(entry) := flowEntry(i)(entry).uop.robIdx.needFlush(io.Redirect) && valid(i)(entry)
+      when(needFlush(i)(entry)) {
+        valid(i)(entry) := false.B
+        canDeq(i)(entry) := false.B
+      }
+    }
+  }
+
+  val lastRedirect = RegNext(io.Redirect)
+  for (i <- 0 until VecStorePipelineWidth) {
+    when (lastRedirect.valid) {
+      vsFlowFreeList(i).io.free := RegNext(needFlush(i).asUInt)
+    }.otherwise {
+      vsFlowFreeList(i).io.free := free(i)
     }
   }
 

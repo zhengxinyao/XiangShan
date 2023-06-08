@@ -73,21 +73,11 @@ object VecGenData {
  * */
 class VluopBundle(implicit p: Parameters) extends XSBundle {
   val uop       = new MicroOp
-  val mul      = UInt(3.W)
   val dataVMask = Vec(VLEN/8,Bool())
   val data      = Vec(VLEN/8,UInt(8.W))
 
-  def apply(uop: MicroOp, mul: UInt, is_pre: Bool = false.B, is_allo: Bool = false.B) = {
-    when (is_pre) {
-      this.uop  := uop
-      this.mul := mul
-    }.elsewhen (is_allo) {
-      this.uop := uop
-      //this.wb_dest := uop.uop.pdest  // TODO: this is scalar reg,we need vector reg
-    }.otherwise {
-      this.uop := uop
-      this.mul:= mul
-    }
+  def apply (uop: MicroOp) = {
+    this.uop  := uop
     this
   }
 }
@@ -101,7 +91,6 @@ class VluopQueueIOBundle(implicit p: Parameters) extends XSBundle {
   val loadPipeIn  = Vec(VecLoadPipelineWidth, Flipped(DecoupledIO(new VecExuOutput)))
   val uopVecFeedback = Vec(VecLoadPipelineWidth,ValidIO(Bool()))
   val vecLoadWriteback = Vec(VecLoadPipelineWidth,DecoupledIO(new ExuOutput(isVpu = true)))
-  //val vecData = Vec(2,DecoupledIO(UInt(VLEN.W)))
 }
 
 class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelper
@@ -121,8 +110,6 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val finished = RegInit(VecInit(Seq.fill(VlUopSize)(false.B)))
   val counter = RegInit(VecInit(Seq.fill(VlUopSize)(0.U(4.W))))
 
-  val enqPtr = RegInit(0.U.asTypeOf(new VluopPtr))
-  val deqPtr = RegInit(0.U.asTypeOf(new VluopPtr))
   val realFlowNum    = Wire(Vec(VecLoadPipelineWidth, UInt(5.W)))
   val vend           = Wire(Vec(VecLoadPipelineWidth, UInt(5.W)))
   val already_in     = WireInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
@@ -131,7 +118,9 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val instType       = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val mul            = Wire(Vec(VecLoadPipelineWidth, UInt(3.W)))
   val loadRegInValid = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(false.B)))
-  val needFlush = WireInit(VecInit(Seq.fill(VlUopSize)(false.B)))
+  val needFlush      = WireInit(VecInit(Seq.fill(VlUopSize)(false.B)))
+  val uopNum         = Wire(Vec(VecLoadPipelineWidth, UInt(4.W)))
+  val free           = WireInit(VecInit(Seq.fill(VecStorePipelineWidth)(0.U(VlUopSize.W))))
 
   //First-level buffer
   val buffer_valid_s0  = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(false.B)))
@@ -144,42 +133,208 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
   val offset_s0        = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(4.W))))))
   val uop_s0           = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(0.U.asTypeOf(new MicroOp))))
   //Second-level buffer
-  val buffer_valid_s1  = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(false.B)))))
-  val data_buffer_s1   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(VLEN.W))))))
-  val mask_buffer_s1   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U((VLEN/8).W))))))
-  val rob_idx_valid_s1 = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(false.B)))))
-  val inner_idx_s1     = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(3.W))))))
-  val rob_idx_s1       = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U.asTypeOf(new RobPtr))))))
-  val uop_s1           = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(0.U.asTypeOf(new MicroOp))))
-/**
- * Only unit-stride instructions use vecFeedback;
- * PopCount(valid) >= 16.U, Only pre_allocated uop can enqueue*/
-  for (i <- 0 until VecLoadPipelineWidth) {
-    io.uopVecFeedback(i).valid := io.loadRegIn(i).valid
-    io.uopVecFeedback(i).bits  := already_in(i)
-    io.loadRegIn(i).ready := PopCount(valid) <= 16.U // TODO: should always ready? or count valid_entry?????
-    io.loadPipeIn(i).ready := true.B
+  //val buffer_valid_s1  = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(false.B)))))
+  //val data_buffer_s1   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(VLEN.W))))))
+  //val mask_buffer_s1   = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U((VLEN/8).W))))))
+  //val rob_idx_valid_s1 = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(false.B)))))
+  //val inner_idx_s1     = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U(3.W))))))
+  //val rob_idx_s1       = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(VecInit(Seq.fill(2)(0.U.asTypeOf(new RobPtr))))))
+  //val uop_s1           = RegInit(VecInit(Seq.fill(VecLoadPipelineWidth)(0.U.asTypeOf(new MicroOp))))
+
+  val vlUopFreeList = Module(new VlUopFreeList(size=VlUopSize,
+                                 allocWidth = VecLoadPipelineWidth,
+                                 maxIdxNum = 8,
+                                 freeWidth = 4,
+                                 moduleName = "vlUopFreeList"))
+
+  def getRemBits(input: UInt)(rem: Int): UInt = {
+    VecInit((0 until VlUopSize / VecLoadPipelineWidth).map(i => {
+      input(VecLoadPipelineWidth * i + rem)
+    })).asUInt
   }
 
   for (i <- 0 until VecLoadPipelineWidth) {
-    mul(i) := Mux(instType(i)(1,0) === "b00".U || instType(i)(1,0) === "b10".U,io.emul(i),io.loadRegIn(i).bits.uop.ctrl.vconfig.vtype.vlmul(i))
+    io.loadRegIn(i).ready  := vlUopFreeList.io.accllReq(i).ready
+    io.loadPipeIn(i).ready := true.B
+  }
+/**
+  *Check whether the unit-stride uop has enqueued*/
+  for (i <- 0 until VecLoadPipelineWidth) {
     for (entry <- 0 until VlUopSize) {
       already_in_vec(i)(entry) := VluopEntry(entry).uop.robIdx.value === io.loadRegIn(i).bits.uop.robIdx.value &&
                                   VluopEntry(entry).uop.ctrl.uopIdx === io.loadRegIn(i).bits.uop.ctrl.uopIdx &&
                                   pre_allocated(entry)
       val debug_hit = WireInit(VecInit(Seq.fill(VlUopSize)(false.B))) // for debug
       when (already_in_vec(i)(entry) && io.loadRegIn(i).valid) {
-        VluopEntry(entry).apply(uop = io.loadRegIn(i).bits.uop, mul = mul(i)(i), is_allo = true.B)
-        allocated(entry)     := true.B
-        debug_hit(entry)     := true.B
+        VluopEntry(entry).apply(uop = io.loadRegIn(i).bits.uop)
+        allocated(entry) := true.B
+        debug_hit(entry) := true.B
       }
       assert(PopCount(debug_hit) <= 1.U, "VluopQueue Multi-Hit!")
     }
-    already_in(i) := already_in_vec(i).asUInt.orR
-    enq_valid(i)  := !already_in(i) && loadRegInValid(i)
-    instType(i)   := io.instType(i)
   }
 
+  for (i <- 0 until VecLoadPipelineWidth) {
+    vend(i) := DontCare
+    already_in(i) := already_in_vec(i).asUInt.orR
+    instType(i) := io.instType(i)
+    loadRegInValid(i) := !io.loadRegIn(i).bits.uop.robIdx.needFlush(io.Redirect) && io.loadRegIn(i).fire
+    enq_valid(i) := !already_in(i) && loadRegInValid(i)
+    mul(i) := Mux(instType(i)(1,0) === "b00".U || instType(i)(1,0) === "b10".U,io.emul(i),io.loadRegIn(i).bits.uop.ctrl.vconfig.vtype.vlmul(i))
+    when (instType(0) === "b000".U) {
+      vend(i) := io.loadRegIn(i).bits.src(0)(3,0) + MulDataSize(mul=io.emul(i))
+      realFlowNum(i) := vend(i)(4) +& (vend(i)(3,0) =/= 0.U).asUInt
+      uopNum(i) := io.loadRegIn(i).bits.uop.ctrl.total_num //TODO: if the inst has 4 uop, total_num = 4
+    }.otherwise {
+      realFlowNum(i) := io.realFlowNum(i)
+      uopNum(i) := 1.U
+    }
+  }
+
+  /**
+    * Only unit-stride instructions use vecFeedback
+    */
+  for (i <- 0 until VecLoadPipelineWidth) {
+    io.uopVecFeedback(i).valid := io.loadRegIn(i).valid
+    io.uopVecFeedback(i).bits := already_in(i)
+  }
+
+  //uop enqueue
+  dontTouch(io.loadRegIn)
+  for (i <- 0 until VecLoadPipelineWidth) {
+    vlUopFreeList.io.accllReq(i) := DontCare
+    when (enq_valid(i)) {
+      vlUopFreeList.io.accllReq(i).valid := true.B
+      vlUopFreeList.io.accllReq(i).bits := uopNum(i)
+      for (j <- 0 until 8) {
+        when (j.U < uopNum(i)) {
+          val enqPtr = vlUopFreeList.io.idxValue(i)(j)
+          val inUop = WireInit(io.loadRegIn(i).bits.uop)
+          //val isPer = !(i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx || i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx)
+          inUop.ctrl.uopIdx := Mux(instType(i) === "b000".U, j.U, io.loadRegIn(i).bits.uop.ctrl.uopIdx) //TODO: If flow don't write loadQueue, ldIdx needn't calculate
+          VluopEntry(enqPtr).apply(uop = inUop)
+          valid(enqPtr) := true.B
+          pre_allocated(enqPtr) := true.B
+          counter(enqPtr) := realFlowNum(i)
+          when ( instType(i) === "b000".U && j.U === io.loadRegIn(i).bits.uop.ctrl.uopIdx || instType(i) =/= "b000".U) {
+            allocated(enqPtr) := true.B
+          }
+        }
+      }
+    }
+  }
+
+  // write data from loadpipe to first_level buffer
+  for (i <- 0 until VecLoadPipelineWidth) {
+    when (io.loadPipeIn(i).fire) {
+      buffer_valid_s0(i)  := true.B
+      data_buffer_s0(i)   := io.loadPipeIn(i).bits.vecdata
+      rob_idx_valid_s0(i) := io.loadPipeIn(i).bits.rob_idx_valid
+      rob_idx_s0(i)       := io.loadPipeIn(i).bits.rob_idx
+      inner_idx_s0(i)     := io.loadPipeIn(i).bits.inner_idx
+      reg_offset_s0(i)    := io.loadPipeIn(i).bits.reg_offset
+      offset_s0(i)        := io.loadPipeIn(i).bits.offset
+      uop_s0(i)           := io.loadPipeIn(i).bits.uop
+      for (j <- 0 until 2) {
+        mask_buffer_s0(i)(j) := io.loadPipeIn(i).bits.mask << io.loadPipeIn(i).bits.offset(j)
+      }
+    }.otherwise {
+      buffer_valid_s0(i)  := false.B
+      rob_idx_valid_s0(i) := VecInit(Seq.fill(2)(false.B))
+    }
+  }
+  // write data from first_level buffer to second_level buffer
+  ///for (i <- 0 until VecLoadPipelineWidth) {
+  ///  when (buffer_valid_s0(i) === true.B) {
+  ///    buffer_valid_s1(i)  := VecInit(Seq.fill(2)(true.B))
+  ///    mask_buffer_s1(i)   := VecGenMask(rob_idx_valid = rob_idx_valid_s0(i), reg_offset = reg_offset_s0(i), offset = offset_s0(i), mask = mask_buffer_s0(i))
+  ///    data_buffer_s1(i)   := VecGenData(rob_idx_valid = rob_idx_valid_s0(i), reg_offset = reg_offset_s0(i), offset = offset_s0(i), data = data_buffer_s0(i))
+  ///    rob_idx_valid_s1(i) := rob_idx_valid_s0(i)
+  ///    inner_idx_s1(i)     := inner_idx_s0(i)
+  ///    rob_idx_s1(i)       := rob_idx_s0(i)
+  ///    uop_s1(i)           := uop_s0(i)
+  ///  }.otherwise {
+  ///    buffer_valid_s1(i)  := VecInit(Seq.fill(2)(false.B))
+  ///    rob_idx_valid_s1(i) := VecInit(Seq.fill(2)(false.B))
+  ///  }
+  ///}
+
+  //write data from first_level buffer to VluopEntry
+  for (i <- 0 until VecLoadPipelineWidth) {
+    val mask_buffer = VecGenMask(rob_idx_valid = rob_idx_valid_s0(i),
+                                 reg_offset = reg_offset_s0(i),
+                                 offset = offset_s0(i),
+                                 mask = mask_buffer_s0(i))
+    val data_buffer = VecGenData(rob_idx_valid = rob_idx_valid_s0(i),
+                                 reg_offset = reg_offset_s0(i),
+                                 offset = offset_s0(i),
+                                 data = data_buffer_s0(i))
+    for (j <- 0 until 2) {
+      when (buffer_valid_s0(i) && rob_idx_valid_s0(i)(j)) {
+        for (entry <- 0 until VlUopSize) {
+          when (rob_idx_s0(i)(j).value === VluopEntry(entry).uop.robIdx.value &&
+                inner_idx_s0(i)(j) === VluopEntry(entry).uop.ctrl.uopIdx) {
+            counter(entry) := counter(entry) - 1.U
+            for (k <- 0 until VLEN / 8) {
+              when (mask_buffer(j)(k)) {
+                VluopEntry(entry).data(k) := data_buffer(j)(k * 8 + 7, k * 8)
+                VluopEntry(entry).dataVMask(k) := mask_buffer(j)(k)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  //write data from second_level buffer to VluopEntry
+  //for (i <- 0 until VecLoadPipelineWidth) {
+  //  for (j <- 0 until 2) {
+  //    when (buffer_valid_s1(i)(j) && rob_idx_valid_s1(i)(j)) {
+  //      for (entry <- 0 until VlUopSize) {
+  //        when (rob_idx_s1(i)(j).value === VluopEntry(entry).uop.robIdx.value && inner_idx_s1(i)(j) === VluopEntry(entry).uop.ctrl.uopIdx) {
+  //          counter(entry) := counter(entry) - 1.U
+  //          for (k <- 0 until VLEN/8) {
+  //            when (mask_buffer_s1(i)(j)(k)) {
+  //              VluopEntry(entry).data(k)      := data_buffer_s1(i)(j)(k*8 + 7,k*8)
+  //              VluopEntry(entry).dataVMask(k) := mask_buffer_s1(i)(j)(k)
+  //            }
+  //          }
+  //        }
+  //      }
+  //    }
+  //  }
+  //}
+
+  //finished = 1 means completion
+  for (entry <- 0 until VlUopSize) {
+    finished(entry) := valid(entry) && allocated(entry) && counter(entry) === 0.U
+  }
+
+/**
+  *dequeue logic*/
+  val vlUopQueueBank = VecInit(Seq.tabulate(VecLoadPipelineWidth)(i => getRemBits(finished.asUInt)(i)))
+  val deqPtr = VecInit(Seq.tabulate(VecLoadPipelineWidth)(i => {
+    val value = PriorityEncoder(vlUopQueueBank(i))
+    Cat(value,i.U(log2Up(VecLoadPipelineWidth).W))
+  }))
+
+  for (i <- 0 until VecLoadPipelineWidth) {
+    io.vecLoadWriteback(i).bits := DontCare
+    io.vecLoadWriteback(i).valid := valid(deqPtr(i)) && finished(deqPtr(i))
+    io.vecLoadWriteback(i).bits.uop := VluopEntry(deqPtr(i)).uop
+    io.vecLoadWriteback(i).bits.data := VluopEntry(deqPtr(i)).data.asUInt
+    when (io.vecLoadWriteback(i).fire) { //TODO:need optimization?
+      valid(deqPtr(i))                := false.B
+      allocated(deqPtr(i))            := false.B
+      pre_allocated(deqPtr(i))        := false.B
+      finished(deqPtr(i))             := false.B
+      VluopEntry(deqPtr(i)).dataVMask := VecInit(Seq.fill(VLEN / 8)(false.B))
+      free(i)                         := UIntToOH(deqPtr(i))
+    }
+  }
+
+  /**
+    * Redirection occurred, refreshing queue */
   for (entry <- 0 until VlUopSize) {
     needFlush(entry) := VluopEntry(entry).uop.robIdx.needFlush(io.Redirect) && valid(entry)
     when (needFlush(entry)) {
@@ -191,330 +346,11 @@ class VluopQueue(implicit p: Parameters) extends XSModule with HasCircularQueueP
     }
   }
 
-  for (i <- 0 until VecLoadPipelineWidth) {
-    loadRegInValid(i) := !io.loadRegIn(i).bits.uop.robIdx.needFlush(io.Redirect) && io.loadRegIn(i).fire
-    vend(i) := DontCare
-    when (instType(0) === "b000".U) {
-      vend(i) := io.loadRegIn(i).bits.src(0)(3,0) + MulDataSize(mul=io.emul(i))
-      realFlowNum(i) := vend(i)(4) +& (vend(i)(3,0) =/= 0.U).asUInt
-      //realFlowNum(i) := Cat(0.U(4.W),vend(i)(4)) + Cat(0.U(4.W),(vend(i)(3,0) =/= 0.U).asUInt)
-    }.otherwise {
-      realFlowNum(i) := io.realFlowNum(i)
-    }
-  }
-
-  //enqPtr update
-  val lastRedirect    = RegNext(io.Redirect)
-  val uopRedirectCnt  = RegNext(PopCount(needFlush))
+  val lastRedirect = RegNext(io.Redirect)
   when (lastRedirect.valid) {
-    enqPtr.value := enqPtr.value - uopRedirectCnt
+    vlUopFreeList.io.free := RegNext(needFlush.asUInt)
   }.otherwise {
-    when (enq_valid(0) && enq_valid(1)) {
-      when (instType(0) === "b000".U && instType(1) === "b000".U) {
-        when(io.loadRegIn(0).bits.uop.robIdx.value === io.loadRegIn(1).bits.uop.robIdx.value) {
-          enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U
-        }.otherwise {
-          enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + io.loadRegIn(1).bits.uop.ctrl.total_num + 2.U
-        }
-      }.elsewhen (instType(0) === "b000".U && instType(1) =/= "b000".U) {
-        enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 2.U
-      }.elsewhen (instType(0) =/= "b000".U && instType(1) === "b000".U) {
-        enqPtr.value := enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 2.U
-      }.otherwise {
-        enqPtr.value := enqPtr.value + 2.U
-      }
-    }.elsewhen (enq_valid(0) && !enq_valid(1)) {
-      when(instType(0) === "b000".U) {
-        enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U
-      }.otherwise {
-        enqPtr.value := enqPtr.value + 1.U
-      }
-    }.elsewhen (!enq_valid(0) && enq_valid(1)) {
-      when (instType(1) === "b000".U) {
-        enqPtr.value := enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U
-      }.otherwise {
-        enqPtr.value := enqPtr.value + 1.U
-      }
-    }
-  }
-
-
-  // TODO: How to simplify these codes?
-  //  And timing...?
-  dontTouch(io.loadRegIn)
-  when (enq_valid(0) && enq_valid(1)) {
-    when (instType(0) === "b000".U && instType(1) === "b000".U ) {
-      when (io.loadRegIn(0).bits.uop.robIdx.value === io.loadRegIn(1).bits.uop.robIdx.value) {
-        //enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U
-        for (i <- 0 until 8) {
-          when (i.U <= io.loadRegIn(0).bits.uop.ctrl.total_num) {
-            val inUop = WireInit(io.loadRegIn(0).bits.uop)
-            val isPer = !(i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx || i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx)
-            inUop.ctrl.uopIdx := i.U
-            VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
-            valid(enqPtr.value + i.U) := true.B
-            pre_allocated(enqPtr.value + i.U) := true.B
-            counter(enqPtr.value + i.U) := realFlowNum(0)
-            when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx || i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
-              allocated(enqPtr.value + i.U) := true.B
-            }
-          }
-        }
-      }.otherwise {
-        //enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + io.loadRegIn(1).bits.uop.ctrl.total_num + 2.U
-        for (i <- 0 until 8) {
-          when (i.U <= io.loadRegIn(0).bits.uop.ctrl.total_num) {
-            val inUop = WireInit(io.loadRegIn(0).bits.uop)
-            val isPer = !(i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx)
-            //inUop.uop.robIdx.value := io.loadRegIn(0).bits.uop.robIdx.value - io.loadRegIn(0).bits.inner_idx + i.U
-            inUop.ctrl.uopIdx := i.U
-            VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
-            valid(enqPtr.value + i.U) := true.B
-            pre_allocated(enqPtr.value + i.U) := true.B
-            counter(enqPtr.value + i.U) := realFlowNum(0)
-            when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx) {
-              allocated(enqPtr.value + i.U) := true.B
-            }
-          }
-        }
-        for (i <- 0 until 8) {
-          when (i.U <= io.loadRegIn(1).bits.uop.ctrl.total_num) {
-            val inUop = WireInit(io.loadRegIn(1).bits.uop)
-            val isPer = !(i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx)
-            inUop.ctrl.uopIdx := i.U
-            VluopEntry(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U).apply(uop = inUop, mul = mul(1), is_pre = isPer)
-            valid(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U) := true.B
-            pre_allocated(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U) := true.B
-            counter(enqPtr.value + i.U) := realFlowNum(1)
-            when (i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
-              allocated(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U + i.U) := true.B
-            }
-          }
-        }
-      }
-    }.elsewhen (instType(0) === "b000".U && instType(1) =/= "b000".U ) {
-      //enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 2.U
-      for (i <- 0 until 8) {
-        when (i.U <= io.loadRegIn(0).bits.uop.ctrl.total_num) {
-          val inUop = WireInit(io.loadRegIn(0).bits.uop)
-          val isPer = !(i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx)
-          //inUop.uop.robIdx.value := io.loadRegIn(0).bits.uop.robIdx.value - io.loadRegIn(0).bits.inner_idx + i.U
-          inUop.ctrl.uopIdx := i.U
-          VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
-          valid(enqPtr.value + i.U) := true.B
-          pre_allocated(enqPtr.value + i.U) := true.B
-          counter(enqPtr.value + i.U) := realFlowNum(0)
-          when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx) {
-            allocated(enqPtr.value + i.U) := true.B
-          }
-        }
-      }
-      VluopEntry   (enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U).apply(uop = io.loadRegIn(1).bits.uop, mul = mul(1))
-      valid        (enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := true.B
-      pre_allocated(enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := true.B
-      allocated    (enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := true.B
-      counter      (enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U) := realFlowNum(1)
-
-    }.elsewhen (instType(0) =/= "b000".U && instType(1) === "b000".U ) {
-      //enqPtr.value := enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 2.U
-      for (i <- 0 until 8) {
-        when (i.U <= io.loadRegIn(1).bits.uop.ctrl.total_num) {
-          val inUop = WireInit(io.loadRegIn(1).bits.uop)
-          val isPer = !(i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx)
-          //inUop.uop.robIdx.value := io.loadRegIn(0).bits.uop.robIdx.value - io.loadRegIn(0).bits.inner_idx + i.U
-          inUop.ctrl.uopIdx := i.U
-          VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(1), is_pre = isPer)
-          valid(enqPtr.value + i.U) := true.B
-          pre_allocated(enqPtr.value + i.U) := true.B
-          counter(enqPtr.value + i.U) := realFlowNum(1)
-          when (i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
-            allocated(enqPtr.value + i.U) := true.B
-          }
-        }
-      }
-      VluopEntry   (enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U).apply(uop = io.loadRegIn(0).bits.uop, mul = mul(0))
-      valid        (enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := true.B
-      pre_allocated(enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := true.B
-      allocated    (enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := true.B
-      counter      (enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U) := realFlowNum(0)
-    }.otherwise {
-      //enqPtr.value := enqPtr.value + 2.U
-      for (i <- 0 until 2) {
-        VluopEntry   (enqPtr.value + i.U).apply(uop = io.loadRegIn(i).bits.uop,mul = mul(i))
-        valid        (enqPtr.value + i.U) := true.B
-        pre_allocated(enqPtr.value + i.U) := true.B
-        allocated    (enqPtr.value + i.U) := true.B
-        counter      (enqPtr.value + i.U) := realFlowNum(i)
-      }
-    }
-  }.elsewhen (enq_valid(0) && !enq_valid(1)) {
-    when (instType(0) === "b000".U) {
-      //enqPtr.value := enqPtr.value + io.loadRegIn(0).bits.uop.ctrl.total_num + 1.U
-      for (i <- 0 until 8) {
-        when (i.U <= io.loadRegIn(0).bits.uop.ctrl.total_num) {
-          val inUop = WireInit(io.loadRegIn(0).bits.uop)
-          val isPer = !(i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx)
-          //inUop.uop.robIdx.value := io.loadRegIn(0).bits.uop.robIdx.value - io.loadRegIn(0).bits.inner_idx + i.U
-          inUop.ctrl.uopIdx := i.U
-          VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(0), is_pre = isPer)
-          valid(enqPtr.value + i.U) := true.B
-          pre_allocated(enqPtr.value + i.U) := true.B
-          counter      (enqPtr.value + i.U) := realFlowNum(0)
-          when (i.U === io.loadRegIn(0).bits.uop.ctrl.uopIdx) {
-            allocated(enqPtr.value + i.U) := true.B
-          }
-        }
-      }
-    }.otherwise {
-      //enqPtr.value := enqPtr.value + 1.U
-      VluopEntry   (enqPtr.value).apply(uop = io.loadRegIn(0).bits.uop, mul = mul(0))
-      valid        (enqPtr.value) := true.B
-      pre_allocated(enqPtr.value) := true.B
-      allocated    (enqPtr.value) := true.B
-      counter      (enqPtr.value) := realFlowNum(0)
-    }
-  }.elsewhen (!enq_valid(0) && enq_valid(1)) {
-    when (instType(1) === "b000".U) {
-      //enqPtr.value := enqPtr.value + io.loadRegIn(1).bits.uop.ctrl.total_num + 1.U
-      for (i <- 0 until 8) {
-        when (i.U <= io.loadRegIn(1).bits.uop.ctrl.total_num) {
-          val inUop = WireInit(io.loadRegIn(1).bits.uop)
-          val isPer = !(i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx)
-          //inUop.uop.robIdx.value := io.loadRegIn(0).bits.uop.robIdx.value - io.loadRegIn(0).bits.inner_idx + i.U
-          inUop.ctrl.uopIdx := i.U
-          VluopEntry(enqPtr.value + i.U).apply(uop = inUop, mul = mul(1), is_pre = isPer)
-          valid(enqPtr.value + i.U) := true.B
-          pre_allocated(enqPtr.value + i.U) := true.B
-          counter      (enqPtr.value + i.U) := realFlowNum(1)
-          when (i.U === io.loadRegIn(1).bits.uop.ctrl.uopIdx) {
-            allocated(enqPtr.value + i.U) := true.B
-          }
-        }
-      }
-    }.otherwise {
-      //enqPtr.value := enqPtr.value + 1.U
-      VluopEntry   (enqPtr.value).apply(uop = io.loadRegIn(1).bits.uop, mul = mul(1))
-      valid        (enqPtr.value) := true.B
-      pre_allocated(enqPtr.value) := true.B
-      allocated    (enqPtr.value) := true.B
-      counter      (enqPtr.value) := realFlowNum(1)
-    }
-  }.otherwise {
-    enqPtr.value := enqPtr.value
-  }
-
-/*
-  for (i <- 0 until VecLoadPipelineWidth) {
-    when (already_in(i)) {
-      val debug_hit = WireInit(VecInit(Seq.fill(VlUopSize)(false.B))) // for debug
-      for (entry <- 0 until VlUopSize) {
-        when (VluopEntry(entry).rob_idx === io.loadRegIn(i).bits.uop.robIdx.value &&
-              VluopEntry(entry).inner_idx === io.loadRegIn(i).bits.inner_idx &&
-              valid(entry) && pre_allocated(i)) {
-          VluopEntry(entry).apply(uop = io.loadRegIn(i).bits, emul = io.emul(i), is_allo = true.B)
-          allocated(entry)     := true.B
-          debug_hit(entry)     := true.B
-        }
-        assert(PopCount(debug_hit) <= 1.U, "VluopQueue Multi-Hit!")
-      }
-    }
-  }*/
-/*
-  for (entry <- 0 until VlUopSize) {
-    when (VluopEntry(entry).mul(2) === 0.U ) {
-     finished(entry) := valid(entry) && allocated(entry) && VluopEntry(entry).dataVMask.asUInt.andR
-    }.elsewhen (VluopEntry(entry).mul === "b111".U) { // 1/2
-      finished(entry) := valid(entry) && allocated(entry) && VluopEntry(entry).dataVMask.asUInt(7,0).andR
-    }.elsewhen(VluopEntry(entry).mul === "b110".U) { // 1/4
-      finished(entry) := valid(entry) && allocated(entry) && VluopEntry(entry).dataVMask.asUInt(3,0).andR
-    }.elsewhen(VluopEntry(entry).mul === "b101".U) { // 1/8
-      finished(entry) := valid(entry) && allocated(entry) && VluopEntry(entry).dataVMask.asUInt(1,0).andR
-    }
-  }
- */
-  for (entry <- 0 until VlUopSize) {
-    finished(entry) := valid(entry) && allocated(entry) && counter(entry) === 0.U
-  }
-
-  // write data from loadpipe to first_level buffer
-  for (i <- 0 until VecLoadPipelineWidth) {
-    when (io.loadPipeIn(i).fire) {
-      buffer_valid_s0(i)  := true.B
-      data_buffer_s0(i)   := io.loadPipeIn(i).bits.vecdata
-      //mask_buffer_s0(i)   := io.loadPipeIn(i).bits.mask
-      inner_idx_s0(i)     := io.loadPipeIn(i).bits.inner_idx
-      rob_idx_s0(i)       := io.loadPipeIn(i).bits.rob_idx
-      rob_idx_valid_s0(i) := io.loadPipeIn(i).bits.rob_idx_valid
-      reg_offset_s0(i)    := io.loadPipeIn(i).bits.reg_offset
-      offset_s0(i)        := io.loadPipeIn(i).bits.offset
-      uop_s0(i)           := io.loadPipeIn(i).bits.uop
-      for (j <- 0 until 2) {
-        mask_buffer_s0(i)(j) := io.loadPipeIn(i).bits.mask << io.loadPipeIn(i).bits.offset(j)
-      }
-      //printf{p"buffer_valid_s0 = ${data_buffer_s0(i)}"}
-    }.otherwise {
-      buffer_valid_s0(i)  := false.B
-      rob_idx_valid_s0(i) := VecInit(Seq.fill(2)(false.B))
-    }
-  }
-  // write data from first_level buffer to second_level buffer
-  for (i <- 0 until VecLoadPipelineWidth) {
-    when (buffer_valid_s0(i) === true.B) {
-      buffer_valid_s1(i)  := VecInit(Seq.fill(2)(true.B))
-      mask_buffer_s1(i)   := VecGenMask(rob_idx_valid = rob_idx_valid_s0(i), reg_offset = reg_offset_s0(i), offset = offset_s0(i), mask = mask_buffer_s0(i))
-      data_buffer_s1(i)   := VecGenData(rob_idx_valid = rob_idx_valid_s0(i), reg_offset = reg_offset_s0(i), offset = offset_s0(i), data = data_buffer_s0(i))
-      rob_idx_valid_s1(i) := rob_idx_valid_s0(i)
-      inner_idx_s1(i)     := inner_idx_s0(i)
-      rob_idx_s1(i)       := rob_idx_s0(i)
-      uop_s1(i)           := uop_s0(i)
-    }.otherwise {
-      buffer_valid_s1(i)  := VecInit(Seq.fill(2)(false.B))
-      rob_idx_valid_s1(i) := VecInit(Seq.fill(2)(false.B))
-    }
-  }
-
-  //write data from second_level buffer to VluopEntry
-  for (i <- 0 until VecLoadPipelineWidth) {
-    for (j <- 0 until 2) {
-      when (buffer_valid_s1(i)(j) && rob_idx_valid_s1(i)(j)) {
-        for (entry <- 0 until VlUopSize) {
-          when (rob_idx_s1(i)(j).value === VluopEntry(entry).uop.robIdx.value && inner_idx_s1(i)(j) === VluopEntry(entry).uop.ctrl.uopIdx) {
-            counter(entry) := counter(entry) - 1.U
-            for (k <- 0 until VLEN/8) {
-              when (mask_buffer_s1(i)(j)(k)) {
-                VluopEntry(entry).data(k)      := data_buffer_s1(i)(j)(k*8 + 7,k*8)
-                VluopEntry(entry).dataVMask(k) := mask_buffer_s1(i)(j)(k)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // writeback to regfile/rob (two ports)
-  //eg: if 0-port is not fire, 1-port‘s valid signal must be invalid
-  io.vecLoadWriteback(0).valid := valid(deqPtr.value) && finished(deqPtr.value)
-  io.vecLoadWriteback(1).valid := io.vecLoadWriteback(0).fire && valid(deqPtr.value + 1.U) && finished(deqPtr.value + 1.U)
-  for (i <- 0 until 2) {
-    io.vecLoadWriteback(i).bits := DontCare
-    val deq_index = deqPtr.value + i.U
-    io.vecLoadWriteback(i).bits.uop              := VluopEntry(deq_index).uop
-    io.vecLoadWriteback(i).bits.data             := VluopEntry(deq_index).data.asUInt
-    //io.vecLoadWriteback(i).bits.uop.pdest        := VluopEntry(deq_index).wb_dest
-    when (io.vecLoadWriteback(i).fire) {//TODO:need optimization?
-      valid(deq_index)                             := false.B
-      allocated(deq_index)                         := false.B
-      pre_allocated(deq_index)                     := false.B
-      finished(deq_index)                          := false.B
-      VluopEntry(deq_index).dataVMask              := VecInit(Seq.fill(VLEN/8)(false.B))
-    }
-  }
-
-  when(io.vecLoadWriteback(0).fire && io.vecLoadWriteback(1).fire) {
-    deqPtr := deqPtr + 2.U
-  }.elsewhen(io.vecLoadWriteback(0).fire) {
-    deqPtr := deqPtr + 1.U
+    vlUopFreeList.io.free := free.reduce(_|_)
   }
 
 }
